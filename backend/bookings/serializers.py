@@ -62,6 +62,20 @@ class BookingStatusUpdateSerializer(serializers.Serializer):
     )
 
 
+class BookingRescheduleSerializer(serializers.Serializer):
+    """Validates `PATCH /bookings/<id>/reschedule`'s body (TICKET-10):
+    `{start_time}` only. `provider_id`/`appointment_type_id` are
+    deliberately not fields here at all -- a reschedule moves an existing
+    booking to another open slot for the *same* provider and appointment
+    type (this ticket's own framing: "move this appointment to another
+    open slot," not "rebook from scratch"), so there is nothing for either
+    to bind to and both are silently ignored if sent, the same as
+    `end_time` on `BookingCreateSerializer`.
+    """
+
+    start_time = serializers.DateTimeField()
+
+
 class BookingListQuerySerializer(serializers.Serializer):
     """Validates `GET /bookings`'s query string (TICKET-08). Every field is
     optional: `provider_id` is ignored for a requesting provider (see
@@ -116,17 +130,28 @@ class BookingListSerializer(serializers.ModelSerializer):
 class PatientBookingListSerializer(serializers.ModelSerializer):
     """Output shape for `GET /bookings/mine` (TICKET-09's patient "My
     Appointments" list): `{id, provider_id, provider_name,
-    appointment_type_name, start_time, end_time, status}` -- the
-    patient-facing mirror of `BookingListSerializer` above, joined on
-    `provider` instead of `patient` since the patient viewing their own
-    list already knows who they are. Matches
+    appointment_type_id, appointment_type_name, start_time, end_time,
+    status}` -- the patient-facing mirror of `BookingListSerializer` above,
+    joined on `provider` instead of `patient` since the patient viewing
+    their own list already knows who they are. Matches
     `frontend/lib/bookings/types.ts`'s `PatientBooking` field-for-field --
     that type was written against this assumed contract before this
     endpoint existed, so the shape here is load-bearing, not incidental.
+
+    `appointment_type_id` (added post-TICKET-10, alongside the display-only
+    `_name` field TICKET-09 already had): the reschedule flow needs the id
+    to call `GET /scheduling/slots`/`GET /scheduling/providers/:id/
+    appointment-types`, not just the name -- without it, a consumer has to
+    resolve name-to-id via a second network round trip (matched against
+    `unique_appointment_type_name_per_provider`, since names are only
+    unique per provider, not globally). Exposing the id directly removes
+    that indirection and the "type renamed/deleted between calls" edge case
+    it implies.
     """
 
     provider_id = serializers.IntegerField(read_only=True)
     provider_name = serializers.CharField(source="provider.name", read_only=True)
+    appointment_type_id = serializers.IntegerField(read_only=True)
     appointment_type_name = serializers.CharField(source="appointment_type.name", read_only=True)
 
     class Meta:
@@ -135,6 +160,7 @@ class PatientBookingListSerializer(serializers.ModelSerializer):
             "id",
             "provider_id",
             "provider_name",
+            "appointment_type_id",
             "appointment_type_name",
             "start_time",
             "end_time",

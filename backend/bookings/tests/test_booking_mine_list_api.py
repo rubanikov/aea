@@ -58,6 +58,7 @@ class BookingMineListTests(BookingsAPITestCase):
                 "id",
                 "provider_id",
                 "provider_name",
+                "appointment_type_id",
                 "appointment_type_name",
                 "start_time",
                 "end_time",
@@ -67,6 +68,7 @@ class BookingMineListTests(BookingsAPITestCase):
         self.assertEqual(row["id"], self.own_booking.id)
         self.assertEqual(row["provider_id"], self.provider.id)
         self.assertEqual(row["provider_name"], self.provider.name)
+        self.assertEqual(row["appointment_type_id"], self.appointment_type.id)
         self.assertEqual(row["appointment_type_name"], self.appointment_type.name)
         self.assertEqual(row["start_time"], "2026-08-17T09:00:00Z")
         self.assertEqual(row["end_time"], "2026-08-17T10:00:00Z")

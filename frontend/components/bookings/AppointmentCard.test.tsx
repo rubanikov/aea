@@ -1,17 +1,24 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ApiError } from "@/lib/api/client";
 import type { PatientBooking } from "@/lib/bookings/types";
 import { AppointmentCard } from "./AppointmentCard";
 
+const pushMock = vi.fn();
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: pushMock, refresh: vi.fn() }),
+}));
+
 const NOW = new Date("2026-08-12T09:00:00.000Z");
 
-// Starts 24h+ from NOW -- Cancel should be enabled.
+// Starts 24h+ from NOW -- Cancel/Reschedule should be enabled.
 const ANNUAL_PHYSICAL: PatientBooking = {
   id: 1,
   provider_id: 10,
   provider_name: "Dr. Amara Osei",
+  appointment_type_id: 100,
   appointment_type_name: "Annual Physical",
   start_time: "2026-08-18T15:00:00.000Z",
   end_time: "2026-08-18T15:30:00.000Z",
@@ -24,6 +31,7 @@ const LAB_REVIEW: PatientBooking = {
   id: 2,
   provider_id: 10,
   provider_name: "Dr. Amara Osei",
+  appointment_type_id: 101,
   appointment_type_name: "Lab Review",
   start_time: "2026-08-12T23:00:00.000Z",
   end_time: "2026-08-12T23:15:00.000Z",
@@ -36,13 +44,32 @@ const CANCELLED_VISIT: PatientBooking = {
   status: "cancelled",
 };
 
+/** Stubs `fetch` so opening the reschedule dialog doesn't hit a real
+ * network call -- the appointment-types request it fires on mount just
+ * hangs, matching `SlotBrowser.test.tsx`'s own "assert the loading state,
+ * never resolve" precedent for tests that only need to prove the dialog
+ * opened, not drive its full flow (that's `RescheduleDialog.test.tsx`'s
+ * job). */
+function stubHangingFetch() {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => new Promise(() => {}))
+  );
+}
+
 describe("AppointmentCard", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    pushMock.mockClear();
+  });
+
   it("shows the status badge, type, provider, and time in the given timezone", () => {
     render(
       <AppointmentCard
         booking={ANNUAL_PHYSICAL}
         timezone="America/Chicago"
         onCancel={vi.fn()}
+        onRescheduled={vi.fn()}
         now={NOW}
       />
     );
@@ -63,6 +90,7 @@ describe("AppointmentCard", () => {
         booking={CANCELLED_VISIT}
         timezone="America/Chicago"
         onCancel={vi.fn()}
+        onRescheduled={vi.fn()}
         now={NOW}
       />
     );
@@ -71,54 +99,68 @@ describe("AppointmentCard", () => {
     expect(screen.queryByRole("button", { name: /reschedule/i })).not.toBeInTheDocument();
   });
 
-  it("renders Reschedule as a disabled coming-soon placeholder", () => {
+  it("enables Reschedule and Cancel, and hides the notice-window message, outside the 24h window", () => {
     render(
       <AppointmentCard
         booking={ANNUAL_PHYSICAL}
         timezone="America/Chicago"
         onCancel={vi.fn()}
+        onRescheduled={vi.fn()}
         now={NOW}
       />
     );
 
-    const reschedule = screen.getByRole("button", { name: /reschedule/i });
-    expect(reschedule).toBeDisabled();
-    expect(screen.getByText("Rescheduling isn't available yet.")).toBeInTheDocument();
-  });
-
-  it("enables Cancel and hides the notice-window message outside the 24h window", () => {
-    render(
-      <AppointmentCard
-        booking={ANNUAL_PHYSICAL}
-        timezone="America/Chicago"
-        onCancel={vi.fn()}
-        now={NOW}
-      />
-    );
-
+    expect(screen.getByRole("button", { name: /^reschedule:/i })).toBeEnabled();
     expect(screen.getByRole("button", { name: /^cancel:/i })).toBeEnabled();
     expect(screen.queryByText(/inside the 24h change window/)).not.toBeInTheDocument();
   });
 
-  it("disables Cancel with a visible, linked notice-window reason inside the 24h window", () => {
+  it("disables Reschedule and Cancel with the same visible, linked notice-window reason inside the 24h window", () => {
     render(
       <AppointmentCard
         booking={LAB_REVIEW}
         timezone="America/Chicago"
         onCancel={vi.fn()}
+        onRescheduled={vi.fn()}
         now={NOW}
       />
     );
 
+    const rescheduleButton = screen.getByRole("button", { name: /^reschedule:/i });
     const cancelButton = screen.getByRole("button", { name: /^cancel:/i });
+    expect(rescheduleButton).toBeDisabled();
     expect(cancelButton).toBeDisabled();
+
     // 23:00Z on Aug 12 is 14h after 09:00Z -- matching the wireframe's own
-    // "Starts in 14h" sample framing exactly.
+    // "Starts in 14h" sample framing exactly. One shared reason, referenced
+    // by both buttons -- not two copies of the same text.
     const reason = screen.getByText(
       /Starts in 14h — inside the 24h change window\. Call the office to change this visit\./
     );
     expect(reason).toBeInTheDocument();
+    expect(rescheduleButton).toHaveAttribute("aria-describedby", reason.id);
     expect(cancelButton).toHaveAttribute("aria-describedby", reason.id);
+  });
+
+  it("opens the reschedule dialog when Reschedule is clicked", async () => {
+    stubHangingFetch();
+    const user = userEvent.setup();
+    render(
+      <AppointmentCard
+        booking={ANNUAL_PHYSICAL}
+        timezone="America/Chicago"
+        onCancel={vi.fn()}
+        onRescheduled={vi.fn()}
+        now={NOW}
+      />
+    );
+
+    await user.click(screen.getByRole("button", { name: /^reschedule:/i }));
+
+    expect(
+      screen.getByRole("dialog", { name: "Reschedule appointment" })
+    ).toBeInTheDocument();
+    expect(screen.getByText(/loading rescheduling options/i)).toBeInTheDocument();
   });
 
   it("requires a confirm step before cancelling, and does not call onCancel on 'Never mind'", async () => {
@@ -129,6 +171,7 @@ describe("AppointmentCard", () => {
         booking={ANNUAL_PHYSICAL}
         timezone="America/Chicago"
         onCancel={onCancel}
+        onRescheduled={vi.fn()}
         now={NOW}
       />
     );
@@ -154,6 +197,7 @@ describe("AppointmentCard", () => {
         booking={ANNUAL_PHYSICAL}
         timezone="America/Chicago"
         onCancel={onCancel}
+        onRescheduled={vi.fn()}
         now={NOW}
       />
     );
@@ -178,6 +222,7 @@ describe("AppointmentCard", () => {
         booking={ANNUAL_PHYSICAL}
         timezone="America/Chicago"
         onCancel={onCancel}
+        onRescheduled={vi.fn()}
         now={NOW}
       />
     );
@@ -198,6 +243,7 @@ describe("AppointmentCard", () => {
         booking={ANNUAL_PHYSICAL}
         timezone="America/Chicago"
         onCancel={onCancel}
+        onRescheduled={vi.fn()}
         now={NOW}
       />
     );

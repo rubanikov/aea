@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { zonedTimeLabel } from "@/lib/availability/timezone";
+import { formatBookingTimeRange } from "@/lib/bookings/format";
 import { PatientAppointments } from "./PatientAppointments";
 
 const pushMock = vi.fn();
@@ -312,5 +314,107 @@ describe("PatientAppointments", () => {
     );
     // Nothing was updated -- still shown, still confirmed.
     expect(screen.getByText("CONFIRMED")).toBeInTheDocument();
+  });
+
+  it("reschedules an appointment end to end: pick a new slot, confirm, PATCH /bookings/:id/reschedule, then refetches the list", async () => {
+    const NEW_SLOT = { start: "2026-08-12T14:00:00.000Z", end: "2026-08-12T14:30:00.000Z" };
+    // The patient's own timezone (`usePatientTimeZone`) is whatever this
+    // machine/CI runner's own zone resolves to -- this file's header
+    // comment assumes that's UTC, which doesn't hold everywhere, so (like
+    // `SlotBrowser.test.tsx`'s own `TODAY_KEY`/`TOMORROW_KEY`) the expected
+    // display strings below are computed with the same conversion the
+    // component itself uses rather than hardcoded against one assumed zone.
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const newSlotButtonLabel = zonedTimeLabel(NEW_SLOT.start, zone);
+    const oldRange = formatBookingTimeRange(
+      UPCOMING_CONFIRMED.start_time,
+      UPCOMING_CONFIRMED.end_time,
+      zone
+    );
+    const newRange = formatBookingTimeRange(NEW_SLOT.start, NEW_SLOT.end, zone);
+    let mineRequests = 0;
+    mockFetchRouter({
+      [BOOKINGS_MINE_PATH]: (init) => {
+        if (init && (init.method ?? "GET") !== "GET") {
+          throw new Error("unexpected call to the collection endpoint");
+        }
+        mineRequests += 1;
+        // First load: the original booking. After the reschedule dialog's
+        // "Done" triggers a refetch (`refetchBookings`, per this
+        // component's own docstring), the old booking is now `cancelled`
+        // and a new one exists at the new time -- exactly the two-row
+        // change a plain refetch (not a local merge) is meant to pick up.
+        return mineRequests === 1
+          ? jsonResponse([UPCOMING_CONFIRMED])
+          : jsonResponse([
+              {
+                id: 501,
+                provider_id: 10,
+                provider_name: "Dr. Amara Osei",
+                appointment_type_name: "Annual Physical",
+                start_time: NEW_SLOT.start,
+                end_time: NEW_SLOT.end,
+                status: "confirmed",
+              },
+              {
+                id: 1,
+                provider_id: 10,
+                provider_name: "Dr. Amara Osei",
+                appointment_type_name: "Annual Physical",
+                start_time: UPCOMING_CONFIRMED.start_time,
+                end_time: UPCOMING_CONFIRMED.end_time,
+                status: "cancelled",
+              },
+            ]);
+      },
+      "/scheduling/providers/10/appointment-types": () =>
+        jsonResponse([{ id: 55, name: "Annual Physical", duration_minutes: 30 }]),
+      "/scheduling/slots": () =>
+        jsonResponse({
+          provider_id: 10,
+          appointment_type_id: 55,
+          date_from: "irrelevant-to-this-test",
+          date_to: "irrelevant-to-this-test",
+          bookable: true,
+          reason: null,
+          slots: [NEW_SLOT],
+        }),
+      "/bookings/1/reschedule": (init) => {
+        if (init?.method !== "PATCH") {
+          throw new Error("unexpected call");
+        }
+        return jsonResponse({
+          id: 501,
+          provider_id: 10,
+          patient_id: 999,
+          appointment_type_id: 55,
+          start_time: NEW_SLOT.start,
+          end_time: NEW_SLOT.end,
+          status: "confirmed",
+          previous_booking_id: 1,
+        });
+      },
+    });
+    const user = userEvent.setup();
+    render(<PatientAppointments />);
+
+    await screen.findByText("Annual Physical — Dr. Amara Osei");
+    expect(screen.getByText(new RegExp(oldRange))).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /^reschedule:/i }));
+    await user.click(await screen.findByRole("button", { name: newSlotButtonLabel }));
+    await user.click(await screen.findByRole("button", { name: "Confirm new time" }));
+    await screen.findByRole("status");
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    // The dialog is gone and the list reflects the change -- the same
+    // appointment card, now at its new time.
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(await screen.findByText(new RegExp(newRange))).toBeInTheDocument();
+    expect(screen.queryByText(new RegExp(oldRange))).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "Cancelled" }));
+    expect(screen.getByText(new RegExp(oldRange))).toBeInTheDocument();
+    expect(screen.getByText("CANCELLED")).toBeInTheDocument();
   });
 });

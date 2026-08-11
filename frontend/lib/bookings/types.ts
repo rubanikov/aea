@@ -42,23 +42,25 @@ export interface ProviderBooking {
 export type BookingStatusAction = "completed" | "cancelled" | "no_show";
 
 /**
- * Patient-facing booking shape (TICKET-09, frontend half). Neither a
- * patient-scoped list endpoint nor a patient-initiated cancel endpoint
- * exist in `backend/bookings/` yet as of this ticket -- `GET /bookings`
- * explicitly rejects a patient caller with a 403 ("Patients cannot list
- * bookings from this endpoint", see `BookingListCreateView.get`'s own
- * docstring), by design left for this ticket's backend half to build as
- * its own endpoint -- so this shape is taken directly from the brief's
- * assumed contract: `GET /bookings/mine` ->
- * `{id, provider_id, provider_name, appointment_type_name, start_time,
- * end_time, status}[]`, UTC ISO datetimes, ordered by `start_time`. Adapt
- * once the real endpoint exists; note any drift (see `ProviderBooking`'s
- * own docstring for the same situation on TICKET-08).
+ * Patient-facing booking shape. `GET /bookings/mine` ->
+ * `{id, provider_id, provider_name, appointment_type_id,
+ * appointment_type_name, start_time, end_time, status}[]`, UTC ISO
+ * datetimes, ordered by `start_time`. Confirmed field-for-field against
+ * `backend/bookings/serializers.py`'s `PatientBookingListSerializer`.
+ *
+ * `appointment_type_id` was added post-TICKET-10 specifically so a
+ * reschedule flow (or anything else needing to call
+ * `GET /scheduling/slots`) can use the id directly instead of resolving it
+ * from `appointment_type_name` via a second request -- existing callers
+ * built against the name-only shape (e.g. `RescheduleDialog`'s
+ * name-matching workaround) still work unchanged, since this is a pure
+ * addition, not a rename.
  */
 export interface PatientBooking {
   id: number;
   provider_id: number;
   provider_name: string;
+  appointment_type_id: number;
   appointment_type_name: string;
   start_time: string;
   end_time: string;

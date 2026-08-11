@@ -10,11 +10,18 @@ import {
 import { hoursUntilBookingStart, isWithinCancellationNoticeWindow } from "@/lib/bookings/status";
 import type { PatientBooking } from "@/lib/bookings/types";
 import { BookingStatusBadge } from "./BookingStatusBadge";
+import { RescheduleDialog } from "./RescheduleDialog";
 
 interface AppointmentCardProps {
   booking: PatientBooking;
   timezone: string;
   onCancel: (id: number) => Promise<void>;
+  /** Called after a reschedule succeeds and the patient dismisses the
+   * dialog's confirmation ("Done") -- see `RescheduleDialog`'s own
+   * `onRescheduled` doc for why it fires there rather than the instant the
+   * PATCH resolves. The parent should refetch its list (see
+   * `PatientAppointments`'s `refetchBookings`). */
+  onRescheduled: () => void;
   /** Defaults to the real clock; a parameter so tests can pin it rather
    * than depending on the real wall clock racing a fixed fixture's start
    * time (matching `AgendaRow`'s own `hasBookingStartPassed` precedent). */
@@ -29,50 +36,53 @@ type Mode = "view" | "confirm-cancel";
  * patient's own timezone, and -- on a still-`confirmed` row only --
  * Reschedule and Cancel.
  *
- * Reschedule is rendered as a disabled placeholder rather than omitted
- * entirely: TICKET-10 owns the real behavior, and leaving a real (if
- * inert) button in the layout now means that ticket only has to remove
- * `disabled` and wire up `onClick`, not touch this card's markup at all --
- * the same "leave the seam, don't build behind it" spirit as this ticket's
- * own reminder-sent placeholder below.
+ * Reschedule (TICKET-10) opens `RescheduleDialog`, a focus-trapped modal
+ * launched from this card -- chosen over a dedicated route (there is no
+ * `GET /bookings/:id` to hydrate one, only the list-returning
+ * `GET /bookings/mine` this card's own data already came from) or an
+ * in-card expansion (a full month calendar + time grid inside one row of an
+ * already-scrollable list reads worse than the same picker in an overlay,
+ * and this card is already juggling its own view/confirm-cancel inline
+ * modes). See `RescheduleDialog`'s own docstring for the full reasoning.
  *
- * Cancel is a two-step inline confirm (view -> confirm-cancel -> view),
- * matching `AppointmentTypeRow`'s delete confirmation rather than
- * `BookingConfirmPanel`'s focus-trapped dialog: cancelling one's own
- * already-booked appointment is the same shape of "destructive action a
- * misclick shouldn't be able to trigger" as removing an appointment type,
- * scoped entirely to this one card -- it doesn't need a modal's own
- * overlay, focus trap, and multi-view state machine (built for confirming
- * a *new* booking, with a provider/timezone comparison and a distinct
- * "no longer available" outcome that don't apply here).
+ * Cancel stays a two-step inline confirm (view -> confirm-cancel -> view),
+ * matching `AppointmentTypeRow`'s delete confirmation rather than a modal --
+ * cancelling one's own already-booked appointment is a single yes/no
+ * question, not a multi-step picker, so it doesn't need a modal's own
+ * overlay and focus trap the way Reschedule's real picker does.
  *
  * The 24h notice window is checked client-side first
  * (`isWithinCancellationNoticeWindow`) purely for immediate feedback --
- * Cancel is disabled with a visible, `aria-describedby`-linked reason
- * before a doomed request is ever sent (matching `AgendaRow`'s disabled-
- * "Mark no-show"-with-reason convention). The real enforcement is
- * server-side; if a race lets a click through right at the boundary (the
- * client's clock running a little behind, or the window closing between
- * render and click), the server's own 400 `{"detail": "..."}` message is
- * surfaced verbatim via `extractBookingErrorDetail`, the same pattern
- * `AgendaRow` uses for its own status-update rejections.
+ * both Reschedule and Cancel are disabled with the same visible,
+ * `aria-describedby`-linked reason before a doomed request is ever sent
+ * (matching `AgendaRow`'s disabled-"Mark no-show"-with-reason convention),
+ * since the ticket is explicit that "the notice rule is identical for both
+ * actions" -- one shared reason paragraph, not two copies of the same
+ * text. The real enforcement is server-side on both
+ * `PATCH /bookings/:id/cancel` and `PATCH /bookings/:id/reschedule`; if a
+ * race lets a click through right at the boundary, the server's own 400
+ * `{"detail": "..."}` message is surfaced verbatim via
+ * `extractBookingErrorDetail` -- here for cancel, inside `RescheduleDialog`
+ * for reschedule.
  */
 export function AppointmentCard({
   booking,
   timezone,
   onCancel,
+  onRescheduled,
   now = new Date(),
 }: AppointmentCardProps) {
   const [mode, setMode] = useState<Mode>("view");
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [rescheduleTrigger, setRescheduleTrigger] = useState<HTMLElement | null>(null);
 
   const dateTimeLabel = formatAppointmentDateTime(booking.start_time, booking.end_time, timezone);
   const actionsAvailable = booking.status === "confirmed";
   const withinNoticeWindow = isWithinCancellationNoticeWindow(booking.start_time, now);
   const actionContext = `${booking.appointment_type_name} with ${booking.provider_name}, ${dateTimeLabel}`;
   const noticeReasonId = `appointment-${booking.id}-notice-reason`;
-  const rescheduleReasonId = `appointment-${booking.id}-reschedule-reason`;
 
   async function handleConfirmCancel() {
     setCancelling(true);
@@ -95,6 +105,20 @@ export function AppointmentCard({
     }
   }
 
+  function openReschedule() {
+    // Captures the clicked `<button>` via `document.activeElement` rather
+    // than the click event itself -- a real click focuses its target before
+    // the handler runs (matching `SlotBrowser`'s own `handleSelectSlot`
+    // precedent) -- purely so `RescheduleDialog` can return focus there on
+    // close.
+    setRescheduleTrigger(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setRescheduleOpen(true);
+  }
+
+  function closeReschedule() {
+    setRescheduleOpen(false);
+  }
+
   return (
     <li className="flex flex-col gap-2 rounded border border-gray-200 p-4">
       <div aria-live="polite">
@@ -110,23 +134,19 @@ export function AppointmentCard({
        * line and above the actions -- this ticket only reserves the spot. */}
 
       {actionsAvailable && mode === "view" ? (
-        <div className="flex flex-wrap items-start gap-3 pt-1">
-          <div className="flex flex-col gap-1">
+        <div className="flex flex-col gap-1 pt-1">
+          <div className="flex flex-wrap gap-3">
             <button
               type="button"
-              disabled
+              onClick={openReschedule}
+              disabled={withinNoticeWindow}
               aria-label={`Reschedule: ${actionContext}`}
-              aria-describedby={rescheduleReasonId}
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium opacity-50"
+              aria-describedby={withinNoticeWindow ? noticeReasonId : undefined}
+              className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
             >
               Reschedule
             </button>
-            <p id={rescheduleReasonId} className="text-xs text-gray-500">
-              Rescheduling isn&apos;t available yet.
-            </p>
-          </div>
 
-          <div className="flex flex-col gap-1">
             <button
               type="button"
               onClick={() => setMode("confirm-cancel")}
@@ -137,13 +157,13 @@ export function AppointmentCard({
             >
               Cancel
             </button>
-            {withinNoticeWindow ? (
-              <p id={noticeReasonId} className="text-xs text-gray-500">
-                <span aria-hidden="true">🔒 </span>
-                {formatCancellationNoticeMessage(hoursUntilBookingStart(booking.start_time, now))}
-              </p>
-            ) : null}
           </div>
+          {withinNoticeWindow ? (
+            <p id={noticeReasonId} className="text-xs text-gray-500">
+              <span aria-hidden="true">🔒 </span>
+              {formatCancellationNoticeMessage(hoursUntilBookingStart(booking.start_time, now))}
+            </p>
+          ) : null}
         </div>
       ) : null}
 
@@ -178,6 +198,16 @@ export function AppointmentCard({
         <p role="alert" className="text-sm text-red-600">
           {error}
         </p>
+      ) : null}
+
+      {rescheduleOpen ? (
+        <RescheduleDialog
+          booking={booking}
+          patientTimeZone={timezone}
+          triggerElement={rescheduleTrigger}
+          onClose={closeReschedule}
+          onRescheduled={onRescheduled}
+        />
       ) : null}
     </li>
   );

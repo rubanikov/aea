@@ -39,6 +39,20 @@ ALLOWED_TRANSITIONS = {
 }
 
 
+def check_cancellation_notice(booking):
+    """Raise `CancellationNoticeTooShort` if `booking.start_time` is less
+    than `CANCELLATION_MIN_NOTICE` away from real "now" -- the one place
+    this comparison is written, so `CANCELLATION_MIN_NOTICE` never becomes
+    two independently-maintained checks. `transition()` calls this for
+    every `-> CANCELLED` transition (see below); `bookings.services
+    .reschedule_booking` (TICKET-10) calls it too, directly, against the
+    *original* booking, before it even attempts the new slot -- "same
+    notice-rule enforcement as cancel," reused rather than reimplemented.
+    """
+    if booking.start_time - timezone.now() < CANCELLATION_MIN_NOTICE:
+        raise CancellationNoticeTooShort()
+
+
 def transition(booking, new_status, *, actor):
     """Move `booking.status` to `new_status`, writing the status change and
     its audit entry atomically, or raise without touching either:
@@ -74,11 +88,8 @@ def transition(booking, new_status, *, actor):
     if new_status == Booking.Status.NO_SHOW and booking.start_time > timezone.now():
         raise NoShowBeforeStartTime()
 
-    if (
-        new_status == Booking.Status.CANCELLED
-        and booking.start_time - timezone.now() < CANCELLATION_MIN_NOTICE
-    ):
-        raise CancellationNoticeTooShort()
+    if new_status == Booking.Status.CANCELLED:
+        check_cancellation_notice(booking)
 
     with transaction.atomic():
         booking.status = new_status

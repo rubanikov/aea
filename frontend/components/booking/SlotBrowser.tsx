@@ -29,8 +29,11 @@ interface SlotBrowserProps {
 const SLOTS_PATH = "/scheduling/slots";
 
 /** Groups a flat slot list by the calendar date each slot's *start* falls
- * on in `timeZone`, sorted within each date by start time. */
-function groupSlotsByLocalDate(
+ * on in `timeZone`, sorted within each date by start time. Exported for
+ * `RescheduleDialog` (TICKET-10), which needs the exact same grouping over
+ * its own (differently-sourced) slot list -- real grouping/sorting logic,
+ * not a one-line formatter, so it's shared rather than re-derived. */
+export function groupSlotsByLocalDate(
   slots: readonly Slot[],
   timeZone: string
 ): Map<string, Slot[]> {

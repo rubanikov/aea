@@ -24,11 +24,12 @@ from .serializers import (
     BookingCreateSerializer,
     BookingListQuerySerializer,
     BookingListSerializer,
+    BookingRescheduleSerializer,
     BookingSerializer,
     BookingStatusUpdateSerializer,
     PatientBookingListSerializer,
 )
-from .services import create_booking
+from .services import create_booking, reschedule_booking
 from .transitions import transition
 
 User = get_user_model()
@@ -314,3 +315,84 @@ class BookingCancelView(APIView):
             request.user.id,
         )
         return Response(BookingSerializer(booking).data)
+
+
+class BookingRescheduleView(APIView):
+    """`PATCH /bookings/<id>/reschedule` (TICKET-10) -- a patient (or
+    admin) moves their own booking to a different open slot, same
+    `provider`/`appointment_type`. Same patient-ownership axis as
+    `BookingCancelView` above (`IsOwnerOrAdmin`, keyed to
+    `Booking.owner_field_name = "patient"`), not the provider axis -- a
+    provider does not reschedule a patient's appointment through this
+    endpoint (out of scope; nothing in the brief asks for it, and
+    `BookingStatusView` above remains the provider's own axis for the
+    statuses it *does* manage).
+
+    Body: `{start_time}` -- the new slot's start, exactly as returned by
+    `GET /scheduling/slots` for this booking's own `provider_id`/
+    `appointment_type_id`. There is no way to move provider or appointment
+    type here (see `BookingRescheduleSerializer` -- neither is even a
+    field); that would be a cancel followed by a fresh `POST /bookings`,
+    not a reschedule, per this ticket's own framing ("move this
+    appointment to another open slot").
+
+    All the actual work -- re-validating the notice rule against the
+    *original* booking, TICKET-07's double-booking guard against the *new*
+    window, cancelling the old booking, and creating the already-confirmed
+    new one, all atomically -- happens in
+    `bookings.services.reschedule_booking`; see that function's docstring
+    for the exact ordering and why. This view is a thin HTTP wrapper around
+    it, the same division of labor `BookingListCreateView.post` has around
+    `create_booking`.
+
+    Response: `200` with the *new* booking, in the same shape
+    `BookingSerializer` already uses everywhere else in this API
+    (`{id, provider_id, patient_id, appointment_type_id, start_time,
+    end_time, status}`), plus one additional field --
+    `previous_booking_id`, the id of the now-`cancelled` booking this
+    replaced -- so a caller can show "moved from X to Y" without a second
+    request. The old booking itself is not otherwise represented in the
+    body; fetch it directly (or via `GET /bookings/mine`) if its full
+    updated state is needed.
+
+    Errors: `400` if the new `start_time` isn't currently an open slot
+    (`SlotNotOpen`), the reschedule falls inside the 24h notice window on
+    the *original* booking (`CancellationNoticeTooShort`), or the booking
+    is no longer in a reschedulable status -- already `cancelled`/
+    `completed`/`no_show` (`InvalidTransition`); `409` if the new slot was
+    open but lost a race for it (`SlotNoLongerAvailable`) -- same 400-vs-409
+    split `POST /bookings` uses, and deliberately the same exception types,
+    so a frontend that already knows how to handle a lost-the-race booking
+    attempt handles a lost-the-race reschedule attempt identically; `403`
+    if the requester is neither the booking's own patient nor an admin;
+    `404` if the booking doesn't exist; `401` unauthenticated.
+    """
+
+    permission_classes = [IsOwnerOrAdmin]
+
+    def patch(self, request, pk):
+        booking = get_object_or_404(Booking, pk=pk)
+        self.check_object_permissions(request, booking)
+
+        serializer = BookingRescheduleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        start_time = serializer.validated_data["start_time"]
+
+        try:
+            new_booking = reschedule_booking(
+                booking=booking, actor=request.user, start_time=start_time
+            )
+        except (InvalidTransition, CancellationNoticeTooShort, SlotNotOpen) as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except SlotNoLongerAvailable as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
+
+        logger.info(
+            "booking rescheduled old_id=%s new_id=%s actor_id=%s",
+            booking.id,
+            new_booking.id,
+            request.user.id,
+        )
+        body = BookingSerializer(new_booking).data
+        body["previous_booking_id"] = booking.id
+        return Response(body, status=status.HTTP_200_OK)

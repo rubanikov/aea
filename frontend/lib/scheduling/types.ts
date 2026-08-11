@@ -61,3 +61,14 @@ export interface Booking {
   end_time: string;
   status: string;
 }
+
+/**
+ * `PATCH /bookings/<id>/reschedule`'s success response (TICKET-10):
+ * `Booking`'s own canonical shape, for the newly-created booking, plus one
+ * extra field -- `previous_booking_id`, the id of the now-`cancelled`
+ * booking this replaced. Confirmed against the real backend
+ * (`backend/bookings/views.py`'s `BookingRescheduleView` docstring).
+ */
+export interface RescheduledBooking extends Booking {
+  previous_booking_id: number;
+}
