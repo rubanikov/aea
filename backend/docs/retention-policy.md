@@ -7,8 +7,8 @@ before this ticket. This feeds the project README's PHI/retention section
 ## What PHI is collected
 
 - **Identity** (`accounts.User`): name, email, phone.
-- **Appointments** (`scheduling`, from TICKET-07 onward): booking time,
-  provider, appointment type, and status history.
+- **Appointments** (`bookings.Booking`): booking time, provider,
+  appointment type, and status history.
 - **Intake/insurance fields**, if the stretch feature (project.md #11) is
   built — treated as PHI the same as the above.
 
@@ -56,11 +56,18 @@ data. Hard-deleting the user would either orphan that history or require
 retroactively scrubbing every audit entry that referenced it; scrubbing
 the row once, up front, avoids both.
 
-Any upcoming appointments are cancelled as part of the same request. The
-`Booking` model doesn't exist yet (TICKET-07), so this is currently a
-documented no-op (`accounts.serializers._cancel_upcoming_appointments`) —
-the endpoint's response already includes `cancelled_appointments_count` so
-wiring in real cancellation later needs no API contract change.
+Any upcoming appointments are cancelled as part of the same request:
+`accounts.serializers._cancel_upcoming_appointments` finds every active
+(`requested`/`confirmed`) booking still in the future for that patient and
+moves each to `cancelled` through `bookings.transitions.transition()` — the
+same single write path every other status change in the app goes through,
+so each cancellation is audited identically to a patient-initiated one.
+This one call site deliberately bypasses the ordinary 24-hour
+minimum-notice window (`transition(..., enforce_notice=False)`): the
+patient has already said "delete everything," so declining to cancel a
+same-day appointment on their behalf would contradict, not protect, their
+stated intent. The endpoint's `cancelled_appointments_count` response field
+reports the real number of bookings freed, not a placeholder.
 
 ## Audit trail
 
