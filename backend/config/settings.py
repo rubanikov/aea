@@ -89,6 +89,7 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt.token_blacklist",
     "core",
     "accounts",
+    "audit",
 ]
 
 MIDDLEWARE = [
@@ -139,6 +140,17 @@ DATABASE_URL = os.environ.get(
     "DATABASE_URL", "postgresql://postgres:postgres@localhost:5432/postgres"
 )
 DATABASES = {"default": _database_config_from_url(DATABASE_URL)}
+
+# Two `manage.py test` runs against the same local Postgres instance (e.g. two
+# agents/developers working in parallel) otherwise collide on Django's fixed
+# default test-DB name and deadlock/error. TEST_DB_NAME_SUFFIX lets each
+# runner pick a distinct one; unset by default so CI/solo dev keeps Django's
+# normal `test_<name>` behavior.
+_test_db_suffix = os.environ.get("TEST_DB_NAME_SUFFIX", "")
+if _test_db_suffix:
+    DATABASES["default"]["TEST"] = {
+        "NAME": f"test_{DATABASES['default']['NAME']}_{_test_db_suffix}"
+    }
 
 
 # Password validation

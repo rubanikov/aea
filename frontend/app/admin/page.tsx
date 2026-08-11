@@ -1,10 +1,15 @@
+import { AuditLogViewer } from "@/components/audit/AuditLogViewer";
+
+/**
+ * Admin dashboard: the audit-log viewer (TICKET-03's widened scope). This
+ * only ever renders for an admin -- `proxy.ts` has already rejected any
+ * other visitor to `/admin/*` before this page loads.
+ */
 export default function AdminDashboardPage() {
   return (
-    <div>
-      <h1 className="text-xl font-semibold">Admin dashboard — coming soon</h1>
-      <p className="mt-2 text-sm text-gray-600">
-        User management and the audit log viewer land in later tickets.
-      </p>
+    <div className="flex flex-col gap-6">
+      <h1 className="text-xl font-semibold">Audit log</h1>
+      <AuditLogViewer />
     </div>
   );
 }
