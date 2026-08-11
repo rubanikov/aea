@@ -70,7 +70,14 @@ class BookingCreationHappyPathTests(BookingsAPITestCase):
             {"start": f"{MONDAY}T09:00:00Z", "end": f"{MONDAY}T10:00:00Z"}, after.json()["slots"]
         )
 
-    def test_booking_writes_a_single_audit_entry(self):
+    def test_booking_writes_a_create_audit_entry_and_a_status_transition_entry(self):
+        # TICKET-08: `create_booking`'s auto-confirm step now goes through
+        # `bookings.transitions.transition`, the single write path for
+        # every status change (architecture.md §4) -- so creating a
+        # booking writes two distinct facts, not one: "this booking was
+        # created" (`create:booking`) and "its auto-accept transition
+        # happened" (`status:requested->confirmed`, actor=None, a
+        # system-initiated transition per that function's own convention).
         self.login_as(self.patient)
 
         response = self.post_booking(
@@ -81,11 +88,14 @@ class BookingCreationHappyPathTests(BookingsAPITestCase):
 
         booking_id = response.json()["id"]
         entries = AuditLog.objects.filter(target_type="booking", target_id=str(booking_id))
-        self.assertEqual(entries.count(), 1)
-        entry = entries.get()
-        self.assertEqual(entry.action, "create:booking")
-        self.assertEqual(entry.actor_id, self.patient.id)
-        self.assertEqual(entry.metadata["status"], "confirmed")
+        self.assertEqual(entries.count(), 2)
+
+        create_entry = entries.get(action="create:booking")
+        self.assertEqual(create_entry.actor_id, self.patient.id)
+        self.assertEqual(create_entry.metadata["status"], "confirmed")
+
+        transition_entry = entries.get(action="status:requested->confirmed")
+        self.assertIsNone(transition_entry.actor_id)
 
     def test_client_cannot_override_the_server_computed_end_time(self):
         self.login_as(self.patient)

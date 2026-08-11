@@ -41,7 +41,11 @@ describe("AppShell", () => {
         <p>provider content</p>
       </AppShell>
     );
-    expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Calendar" })).toHaveAttribute(
+      "href",
+      "/provider/calendar"
+    );
+    expect(screen.getByRole("link", { name: "Availability" })).toHaveAttribute(
       "href",
       "/provider"
     );

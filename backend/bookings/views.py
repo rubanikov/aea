@@ -1,15 +1,32 @@
 import logging
+from datetime import datetime, time
+from datetime import timezone as dt_timezone
 
 from django.contrib.auth import get_user_model
+from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from scheduling.models import AppointmentType
 
-from .exceptions import SlotNoLongerAvailable, SlotNotOpen
-from .serializers import BookingCreateSerializer, BookingSerializer
+from .exceptions import (
+    InvalidTransition,
+    NoShowBeforeStartTime,
+    SlotNoLongerAvailable,
+    SlotNotOpen,
+)
+from .models import Booking
+from .permissions import IsBookingProviderOrAdmin
+from .serializers import (
+    BookingCreateSerializer,
+    BookingListQuerySerializer,
+    BookingListSerializer,
+    BookingSerializer,
+    BookingStatusUpdateSerializer,
+)
 from .services import create_booking
+from .transitions import transition
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -29,11 +46,13 @@ IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 MAX_IDEMPOTENCY_KEY_LENGTH = 255
 
 
-class BookingCreateView(APIView):
-    """`POST /bookings` -- create, and (architecture.md §4) immediately
-    auto-confirm, a booking. Patient-only: `patient` is always
-    `request.user`, never client-supplied -- same pattern as `provider`
-    being forced server-side on `scheduling.views.BlockedTimeListCreateView`.
+class BookingListCreateView(APIView):
+    """`GET`/`POST /bookings`.
+
+    `POST` -- create, and (architecture.md §4) immediately auto-confirm, a
+    booking. Patient-only: `patient` is always `request.user`, never
+    client-supplied -- same pattern as `provider` being forced server-side
+    on `scheduling.views.BlockedTimeListCreateView`.
 
     Body: `{provider_id, appointment_type_id, start_time}` -- `start_time`
     exactly as returned by `GET /scheduling/slots`. `end_time` is always
@@ -44,7 +63,49 @@ class BookingCreateView(APIView):
     that isn't currently an open slot; `409` if the slot was open but lost
     a race for it (either guard layer); `401` unauthenticated; `403` for a
     non-patient role.
+
+    `GET /bookings?provider_id=&date_from=&date_to=` (TICKET-08) -- the
+    provider calendar's list/agenda feed. Provider-and-admin only (see
+    `get` below for why a patient's own appointment list is deliberately
+    *not* built here -- TICKET-09 owns that, as its own endpoint, with its
+    own display shape). A requesting provider always sees only their own
+    bookings, regardless of any `provider_id` given -- same "ignore it,
+    scope to `request.user`" shape as `scheduling.views
+    .AvailabilityListCreateView.get`. An admin sees every booking, or one
+    provider's if `provider_id` is given. `date_from`/`date_to` are an
+    optional pair of UTC calendar-date bounds on `start_time` -- this is a
+    read/list view, not `scheduling.slots.get_open_slots`'s provider-local-
+    timezone-aware slot computation, so the simpler UTC-day interpretation
+    is deliberate here (see this ticket's handoff notes).
     """
+
+    def get(self, request):
+        if request.user.role == User.Role.PATIENT:
+            return Response(
+                {"detail": "Patients cannot list bookings from this endpoint."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        query = BookingListQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        params = query.validated_data
+
+        queryset = Booking.objects.select_related("patient", "appointment_type")
+        if request.user.role == User.Role.PROVIDER:
+            queryset = queryset.filter(provider=request.user)
+        elif params.get("provider_id"):
+            queryset = queryset.filter(provider_id=params["provider_id"])
+
+        date_from = params.get("date_from")
+        date_to = params.get("date_to")
+        if date_from and date_to:
+            queryset = queryset.filter(
+                start_time__gte=datetime.combine(date_from, time.min, tzinfo=dt_timezone.utc),
+                start_time__lte=datetime.combine(date_to, time.max, tzinfo=dt_timezone.utc),
+            )
+
+        queryset = queryset.order_by("start_time")
+        return Response(BookingListSerializer(queryset, many=True).data)
 
     def post(self, request):
         if request.user.role != User.Role.PATIENT:
@@ -101,3 +162,44 @@ class BookingCreateView(APIView):
             booking.status,
         )
         return Response(BookingSerializer(booking).data, status=status.HTTP_201_CREATED)
+
+
+class BookingStatusView(APIView):
+    """`PATCH /bookings/<id>/status` (TICKET-08) -- a provider (or admin)
+    moves a booking to `completed`/`cancelled`/`no_show`. No confirm/
+    decline action here (architecture.md §4's auto-accept rule; this
+    ticket's brief) -- `requested`/`confirmed` are not accepted values
+    (see `BookingStatusUpdateSerializer`), and there is nothing left to
+    confirm since every booking a provider sees already arrived
+    `confirmed`. Patient-initiated cancellation is TICKET-09's endpoint,
+    not this one: `IsBookingProviderOrAdmin` only ever admits the
+    booking's own `provider`, or an admin.
+
+    Responses: `200` with the updated booking; `400` for an invalid
+    transition (including the no-show-before-start-time case) or a bad
+    body; `403` if the requester isn't the booking's provider/admin;
+    `404` if the booking doesn't exist.
+    """
+
+    permission_classes = [IsBookingProviderOrAdmin]
+
+    def patch(self, request, pk):
+        booking = get_object_or_404(Booking, pk=pk)
+        self.check_object_permissions(request, booking)
+
+        serializer = BookingStatusUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        new_status = serializer.validated_data["status"]
+
+        try:
+            transition(booking, new_status, actor=request.user)
+        except (InvalidTransition, NoShowBeforeStartTime) as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        logger.info(
+            "booking status updated id=%s actor_id=%s new_status=%s",
+            booking.id,
+            request.user.id,
+            new_status,
+        )
+        return Response(BookingSerializer(booking).data)

@@ -1,6 +1,6 @@
 """Booking-creation engine -- architecture.md §3 (the two-layer
 double-booking guard) and §4 (auto-accept). `create_booking` is the single
-write path `POST /bookings` (`bookings.views.BookingCreateView`) calls; it
+write path `POST /bookings` (`bookings.views.BookingListCreateView`) calls; it
 assumes the caller has already resolved and authorized `patient`/
 `provider`/`appointment_type` (same division of labor as
 `scheduling.views.SlotsView`, which resolves `provider`/`appointment_type`
@@ -21,6 +21,7 @@ from scheduling.slots import get_open_slots
 
 from .exceptions import SlotNoLongerAvailable, SlotNotOpen
 from .models import Booking
+from .transitions import transition
 
 
 def _busy_intervals(provider, padded_start, padded_end):
@@ -76,17 +77,6 @@ def _slot_is_currently_open(provider, appointment_type, start_time, end_time):
     return any(slot.start == start_time and slot.end == end_time for slot in slots)
 
 
-def _confirm(booking):
-    """The one hardcoded `requested` -> `confirmed` step this ticket needs
-    (architecture.md §4's auto-accept rule) -- not a generic `transition()`
-    function; TICKET-08 owns building the full allowed-transitions table.
-    Only ever called once, immediately after creation, inside the same
-    transaction as the insert.
-    """
-    booking.status = Booking.Status.CONFIRMED
-    booking.save(update_fields=["status", "updated_at"])
-
-
 def create_booking(*, patient, provider, appointment_type, start_time, idempotency_key=None):
     """Create, and immediately auto-confirm, one `Booking` -- or raise a
     `bookings.exceptions.BookingConflict` subclass the view turns into a
@@ -107,8 +97,13 @@ def create_booking(*, patient, provider, appointment_type, start_time, idempoten
        existing conflicting `Booking` row (step 2 would have already
        raised), so a "not open" result here can only mean hours/blocked/
        past -- bad input (400), not a race the request lost (409).
-    4. Insert (status=`REQUESTED`), auto-confirm to `CONFIRMED`, and one
-       audit entry -- all in the same transaction.
+    4. Insert (status=`REQUESTED`), then auto-confirm to `CONFIRMED` via
+       `bookings.transitions.transition` (architecture.md §4's auto-accept
+       rule -- `actor=None`, a system-initiated transition, per that
+       function's convention) -- all in the same transaction. This writes
+       its own `status:requested->confirmed` audit entry; the explicit
+       `create:booking` entry below is a second, distinct fact ("this
+       booking was created") rather than a duplicate of the first.
 
     Layer 2 backstop: `Booking.Meta`'s partial `UniqueConstraint` is
     unconditional -- it also catches the case Layer 1 *can't*: two brand
@@ -149,7 +144,7 @@ def create_booking(*, patient, provider, appointment_type, start_time, idempoten
                 status=Booking.Status.REQUESTED,
                 idempotency_key=idempotency_key,
             )
-            _confirm(booking)
+            transition(booking, Booking.Status.CONFIRMED, actor=None)
             record_audit_event(
                 actor=patient,
                 action="create:booking",

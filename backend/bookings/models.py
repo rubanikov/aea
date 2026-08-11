@@ -21,13 +21,12 @@ from scheduling.models import AppointmentType
 
 class Booking(models.Model):
     class Status(models.TextChoices):
-        """Matches architecture.md §4's exact enum. This ticket only wires
-        up the two transitions it needs -- create -> `REQUESTED`, then
-        immediately `REQUESTED` -> `CONFIRMED`, both server-side inside the
-        same request (see `bookings.services.create_booking`) -- no generic
-        `transition()` function and no `COMPLETED`/`CANCELLED`/`NO_SHOW`
-        transition logic. Those values exist here now purely so later
-        tickets don't need a schema migration just to add them.
+        """Matches architecture.md §4's exact enum. `bookings.transitions
+        .transition()` (TICKET-08) is the one write path for every status
+        change on this field -- see `ALLOWED_TRANSITIONS` there for which
+        transitions are legal. Never assign `.status` directly outside a
+        migration or a fixture/test helper that's deliberately setting up
+        a starting state.
         """
 
         REQUESTED = "requested", "Requested"

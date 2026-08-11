@@ -1,9 +1,10 @@
-"""Domain-level failures `bookings.services.create_booking` raises instead
-of letting a raw DB exception (or a silent wrong success) reach the view.
-`bookings.views.BookingCreateView` catches these two and turns each into a
-specific, clean 4xx -- this ticket's point 2 requirement ("a specific
-exception type, caught by the view and turned into a clean 409, not a
-500") extended to also cover the distinct 400 case from point 6.
+"""Domain-level failures `bookings.services.create_booking` and
+`bookings.transitions.transition` raise instead of letting a raw DB
+exception (or a silent wrong success) reach the view. `bookings.views`
+catches these and turns each into a specific, clean 4xx -- this ticket's
+point 2 requirement ("a specific exception type, caught by the view and
+turned into a clean 409, not a 500") extended to also cover the distinct
+400 cases from point 6 and TICKET-08's transition guard.
 """
 
 
@@ -32,4 +33,40 @@ class SlotNotOpen(BookingConflict):
     """
 
     def __init__(self, message="This slot is not currently available for booking."):
+        super().__init__(message)
+
+
+class TransitionError(Exception):
+    """Base class for a `bookings.transitions.transition()` call that
+    cannot proceed (TICKET-08, architecture.md §4). Maps to `400 Bad
+    Request` at the view layer -- never a 500, and never a silent no-op.
+    """
+
+
+class InvalidTransition(TransitionError):
+    """`new_status` is not reachable from `booking.status` per
+    `bookings.transitions.ALLOWED_TRANSITIONS` -- e.g. `cancelled` ->
+    `completed`, or any transition attempted out of a terminal state
+    (`completed`/`cancelled`/`no_show` all map to an empty allowed set).
+    """
+
+    def __init__(self, current_status, new_status):
+        self.current_status = current_status
+        self.new_status = new_status
+        super().__init__(
+            f"Cannot transition a booking from '{current_status}' to '{new_status}'."
+        )
+
+
+class NoShowBeforeStartTime(TransitionError):
+    """`confirmed` -> `no_show` *is* in `ALLOWED_TRANSITIONS` -- this is a
+    narrower, distinct rejection from `InvalidTransition`: the transition
+    itself is legal, it just isn't legal *yet*, because `booking.start_time`
+    hasn't passed (this ticket's brief: "no_show only settable on a
+    confirmed booking whose start time has passed").
+    """
+
+    def __init__(
+        self, message="Cannot mark a booking as no-show before its start time has passed."
+    ):
         super().__init__(message)
