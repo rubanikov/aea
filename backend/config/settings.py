@@ -90,6 +90,7 @@ INSTALLED_APPS = [
     "core",
     "accounts",
     "audit",
+    "scheduling",
 ]
 
 MIDDLEWARE = [
