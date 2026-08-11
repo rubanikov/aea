@@ -10,6 +10,8 @@ this one, so a patient here gets `403`, not a scoped-to-self result.
 from datetime import datetime
 from datetime import timezone as dt_timezone
 
+from audit.models import AuditLog
+
 from .helpers import BookingsAPITestCase
 
 
@@ -150,6 +152,30 @@ class BookingListTests(BookingsAPITestCase):
 
         ids = {row["id"] for row in response.json()}
         self.assertEqual(ids, {self.other_providers_booking.id})
+
+    def test_admins_full_system_list_is_audited(self):
+        admin = self.create_provider(email="admin@example.com")
+        admin.role = admin.Role.ADMIN
+        admin.save(update_fields=["role"])
+        self.login_as(admin)
+
+        response = self.client.get("/bookings")
+
+        self.assertEqual(response.status_code, 200)
+        entry = AuditLog.objects.get(action="admin_bypass:list_all:booking")
+        self.assertEqual(entry.actor_id, admin.id)
+        self.assertEqual(entry.target_type, "booking")
+        self.assertEqual(entry.target_id, "*")
+
+    def test_admin_scoped_to_one_provider_via_provider_id_is_not_logged_as_a_full_list(self):
+        admin = self.create_provider(email="admin@example.com")
+        admin.role = admin.Role.ADMIN
+        admin.save(update_fields=["role"])
+        self.login_as(admin)
+
+        self.client.get(f"/bookings?provider_id={self.other_provider.id}")
+
+        self.assertFalse(AuditLog.objects.filter(action="admin_bypass:list_all:booking").exists())
 
     def test_patient_cannot_list_bookings_from_this_endpoint(self):
         self.login_as(self.patient)

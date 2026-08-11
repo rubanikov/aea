@@ -273,6 +273,31 @@ class CancellationNoticeRuleTests(TransitionTestCase):
         booking.refresh_from_db()
         self.assertEqual(booking.status, Booking.Status.CANCELLED)
 
+    def test_enforce_notice_false_bypasses_the_window(self):
+        # The one sanctioned caller of `enforce_notice=False` is
+        # `accounts.serializers._cancel_upcoming_appointments` (account
+        # deletion) -- exercised end-to-end in
+        # `bookings.tests.test_acceptance_journey
+        # .AccountDeletionCancelsUpcomingAppointmentsTests`. This is the
+        # direct, seam-level proof that the kwarg itself does what it
+        # says on a booking that would otherwise be rejected.
+        booking = self._booking(
+            status=Booking.Status.CONFIRMED, start_time=timezone.now() + timedelta(hours=1)
+        )
+
+        transition(booking, Booking.Status.CANCELLED, actor=self.patient, enforce_notice=False)
+
+        booking.refresh_from_db()
+        self.assertEqual(booking.status, Booking.Status.CANCELLED)
+
+    def test_enforce_notice_true_is_the_default(self):
+        booking = self._booking(
+            status=Booking.Status.CONFIRMED, start_time=timezone.now() + timedelta(hours=1)
+        )
+
+        with self.assertRaises(CancellationNoticeTooShort):
+            transition(booking, Booking.Status.CANCELLED, actor=self.patient)
+
 
 class AllowedTransitionsTableTests(TestCase):
     def test_matches_architecture_md_section_4_exactly(self):

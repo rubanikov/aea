@@ -53,7 +53,7 @@ def check_cancellation_notice(booking):
         raise CancellationNoticeTooShort()
 
 
-def transition(booking, new_status, *, actor):
+def transition(booking, new_status, *, actor, enforce_notice=True):
     """Move `booking.status` to `new_status`, writing the status change and
     its audit entry atomically, or raise without touching either:
 
@@ -78,6 +78,19 @@ def transition(booking, new_status, *, actor):
     auto-confirm inside `create_booking`), matching
     `audit.services.record_audit_event`'s own convention.
 
+    `enforce_notice` defaults to `True`, so every ordinary caller (a
+    patient's own cancel, a provider's status update, a reschedule's
+    implicit cancel) keeps the 24h rule exactly as before. The one caller
+    that passes `False` is `accounts.serializers._cancel_upcoming_appointments`
+    (TICKET-14's account-deletion flow): the patient has asked to delete
+    their whole account, not to cancel this one booking against the
+    notice rule -- there is no "too late to cancel" left to protect once
+    the account itself is going away, so that single call site
+    deliberately skips this check rather than blocking deletion (or
+    leaving a stray active booking behind) on a rule that exists to
+    protect the *booking*, not the account-deletion flow. No other call
+    site should ever pass `False`.
+
     Returns the same `booking` instance, saved and with `.status` already
     updated.
     """
@@ -88,7 +101,7 @@ def transition(booking, new_status, *, actor):
     if new_status == Booking.Status.NO_SHOW and booking.start_time > timezone.now():
         raise NoShowBeforeStartTime()
 
-    if new_status == Booking.Status.CANCELLED:
+    if new_status == Booking.Status.CANCELLED and enforce_notice:
         check_cancellation_notice(booking)
 
     with transaction.atomic():

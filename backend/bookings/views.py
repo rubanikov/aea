@@ -9,6 +9,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from audit.permissions import IsOwnerOrAdmin
+from audit.services import record_audit_event
 from scheduling.models import AppointmentType
 
 from .exceptions import (
@@ -100,6 +101,23 @@ class BookingListCreateView(APIView):
             queryset = queryset.filter(provider=request.user)
         elif params.get("provider_id"):
             queryset = queryset.filter(provider_id=params["provider_id"])
+        else:
+            # An admin with no `provider_id` filter sees every booking in
+            # the system -- unlike `IsOwnerOrAdmin`/`IsBookingProviderOrAdmin`
+            # above, there's no single object here for an object-level
+            # permission check to log the bypass against (this is a list,
+            # not a `check_object_permissions()` call), so it's logged
+            # explicitly here instead. `target_id="*"` marks "every row,"
+            # matching `admin_bypass:<action>:<target_type>`'s existing
+            # convention with `<action>` set to a plain identifier
+            # ("list_all") rather than a request-method fallback.
+            record_audit_event(
+                actor=request.user,
+                action="admin_bypass:list_all:booking",
+                target_type="booking",
+                target_id="*",
+                metadata=None,
+            )
 
         date_from = params.get("date_from")
         date_to = params.get("date_to")

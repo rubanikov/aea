@@ -31,7 +31,12 @@ class AccountDeletionTests(AuthAPITestCase):
         self.assertFalse(self.user.has_usable_password())
         self.assertIsNotNone(self.user.deleted_at)
 
-    def test_response_reports_zero_cancelled_appointments_for_now(self):
+    def test_response_reports_zero_cancelled_appointments_when_there_are_none(self):
+        # This fixture's patient has no bookings at all -- see
+        # `bookings.tests.test_acceptance_journey
+        # .AccountDeletionCancelsUpcomingAppointmentsTests` for the
+        # companion case of a patient who actually has an upcoming
+        # booking to cancel.
         response = self.post_json("/profile/delete-account", {"password": TEST_PASSWORD})
 
         self.assertEqual(response.status_code, 200)

@@ -139,19 +139,47 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 
 def _cancel_upcoming_appointments(user):
-    """Cancels the patient's upcoming appointments as part of account
-    deletion.
+    """Cancels every upcoming, still-active `Booking` owned by `user` as
+    part of account deletion, and returns the count cancelled --
+    `DeleteAccountSerializer.save` surfaces that count in the endpoint's
+    response (`cancelled_appointments_count`).
 
-    Currently a no-op: `Booking` doesn't exist yet (TICKET-07). Once it
-    does, this should cancel every upcoming `Booking` owned by `user` and
-    return the count cancelled -- `DeleteAccountSerializer.save` already
-    surfaces that count in the endpoint's response, so the frontend
-    contract (`cancelled_appointments_count`) doesn't need to change when
-    this is wired up.
+    Imports `bookings` locally rather than at module level: `bookings`
+    already imports from `accounts` at module level (e.g.
+    `bookings.permissions` imports `accounts.models.User`), so a
+    module-level `accounts -> bookings` import here would be circular.
+    Same "views/services import across, models don't" shape
+    `scheduling.views`/`scheduling.collisions` use for their own read-only
+    `from bookings.models import Booking` -- this is a services-layer
+    equivalent of that, deferred to call time instead of module import
+    time because the cycle here runs the other direction (`bookings ->
+    accounts` already exists at the model layer via `AUTH_USER_MODEL`
+    FKs, so `accounts -> bookings` can only ever be a function-local
+    import).
 
-    # TODO(TICKET-07/09): cancel real Booking rows once that model exists
+    `enforce_notice=False` on the `transition()` call: the 24h
+    minimum-notice rule exists to stop a *booking* being cancelled out
+    from under someone too close to its start time -- it is not meant to
+    block a patient from deleting their *entire account* just because one
+    of their own upcoming bookings happens to fall inside that window.
+    The patient isn't being denied a late cancellation against their
+    will; they've asked for the whole account, bookings included, to go
+    away. See `bookings.transitions.transition`'s docstring for this
+    being the one sanctioned caller of that bypass.
     """
-    return 0
+    from bookings.models import Booking
+    from bookings.transitions import transition
+
+    upcoming_bookings = Booking.objects.filter(
+        patient=user,
+        status__in=Booking.ACTIVE_STATUSES,
+        start_time__gte=django_timezone.now(),
+    )
+    cancelled_count = 0
+    for booking in upcoming_bookings:
+        transition(booking, Booking.Status.CANCELLED, actor=user, enforce_notice=False)
+        cancelled_count += 1
+    return cancelled_count
 
 
 class DeleteAccountSerializer(serializers.Serializer):

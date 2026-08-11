@@ -7,7 +7,7 @@
 ## Build
 - `AuditLog` model/migration (actor, action, target, timestamp, append-only).
 - Reusable server-side ownership-check utility (patient sees only own resources, provider sees only own, admin bypass logged).
-- Supabase RLS policies as the DB-layer backstop on tables that exist so far.
+- ~~Supabase RLS policies as the DB-layer backstop on tables that exist so far.~~ **Deliberately not built — see architecture.md §6.** RLS keyed on `auth.uid()` assumes Supabase Auth as the identity provider; TICKET-02 built a custom JWT-cookie auth system instead (chosen for the Vercel/Railway cross-origin split), so there's no `auth.uid()` session variable to key policies on without adopting Supabase Auth specifically. The app-layer ownership utility below satisfies the brief's own "RLS **or** explicit server-side checks" requirement on its own.
 - **Admin audit-log viewer screen** (widened scope — see `wireframes.html` Screen 9): filterable, paginated, read-only table. Timestamps shown in UTC always (the one screen that deliberately does not localize to the viewer).
 
 ## Accept

@@ -9,12 +9,29 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 import os
+import sys
 from datetime import timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from django.core.exceptions import ImproperlyConfigured
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = BASE_DIR.parent
+
+# `manage.py test` (this project's CI command -- see .github/workflows/ci.yml)
+# runs with DJANGO_DEBUG=False on purpose, to exercise the app against
+# production-like settings rather than DEBUG's more forgiving ones. That's
+# fine for a setting like AUTH_COOKIE_SECURE below -- a `Secure` cookie flag
+# is inert against Django's own test client, nothing there enforces it. It
+# is not fine for SECURE_SSL_REDIRECT: unlike a cookie flag, that one
+# actually changes response behavior (a 301 before the view ever runs), and
+# Django's test client always makes plain, non-HTTPS requests -- so the
+# genuinely production-only redirect would otherwise 301 every single test
+# in this suite. RUNNING_TESTS scopes that one setting back to "off" for
+# `manage.py test` specifically, the same "detect the test runner" idiom
+# Django projects commonly use for this exact conflict.
+RUNNING_TESTS = sys.argv[1:2] == ["test"]
 
 
 def _load_env_file(path: Path) -> None:
@@ -67,6 +84,17 @@ SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "insecure-dev-only-key-change-m
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.environ.get("DJANGO_DEBUG", "False") == "True"
+
+# Fail loudly rather than failing open: outside local DEBUG, starting up
+# with the public, checked-in dev fallback key would mean a missing
+# DJANGO_SECRET_KEY env var silently compromises both Django's own signing
+# and JWT_SECRET_KEY (which falls back to SECRET_KEY below) — the app
+# should refuse to start rather than run with a secret every reader of
+# this repo already knows.
+if not DEBUG and SECRET_KEY == "insecure-dev-only-key-change-me":
+    raise ImproperlyConfigured(
+        "DJANGO_SECRET_KEY must be set to a real value outside local development."
+    )
 
 ALLOWED_HOSTS = [
     host.strip()
@@ -203,12 +231,38 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    # A general floor under every endpoint that doesn't already have its own
+    # scoped throttle (accounts/views.py's LoginRateThrottle is still the
+    # tighter, more specific rate for login — a view-level throttle_classes
+    # entirely replaces these defaults for that view, so this doesn't stack
+    # with it). Rates are deliberately generous: this is abuse protection,
+    # not a capacity limit, and this project's own test suite (in particular
+    # bookings/tests/test_concurrency.py's ~10-request bursts) needs to stay
+    # well under both.
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
     "DEFAULT_THROTTLE_RATES": {
         # Scoped to the login view only (accounts/views.py's
         # LoginRateThrottle) — a blanket AnonRateThrottle would also throttle
         # registration off the back of a login attack.
         "login": "5/min",
+        "anon": "100/min",
+        "user": "300/min",
     },
+    # DRF's browsable HTML API is a local-dev convenience (lets you click
+    # through endpoints in a browser); outside DEBUG it's pure attack
+    # surface for no benefit a real client needs, so only JSONRenderer ships
+    # then.
+    "DEFAULT_RENDERER_CLASSES": (
+        [
+            "rest_framework.renderers.JSONRenderer",
+            "rest_framework.renderers.BrowsableAPIRenderer",
+        ]
+        if DEBUG
+        else ["rest_framework.renderers.JSONRenderer"]
+    ),
 }
 
 
@@ -234,6 +288,20 @@ SIMPLE_JWT = {
 
 AUTH_COOKIE_SECURE = not DEBUG
 AUTH_COOKIE_SAMESITE = "Strict"
+
+# Django's own cookies -- the session/CSRF pair `/admin/`'s login uses --
+# are a separate mechanism from the app's own JWT cookies above, and need
+# the same `not DEBUG` hardening applied to them directly; setting
+# AUTH_COOKIE_SECURE doesn't touch these. SECURE_SSL_REDIRECT/
+# SECURE_PROXY_SSL_HEADER cover transport for the whole app, not just
+# these two cookies: Railway (and any other reverse-proxy deployment)
+# terminates TLS upstream and forwards plain HTTP with
+# X-Forwarded-Proto, so Django needs that header named explicitly to
+# know a proxied request was actually HTTPS.
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SECURE_SSL_REDIRECT = not DEBUG and not RUNNING_TESTS
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 
 # Internationalization
