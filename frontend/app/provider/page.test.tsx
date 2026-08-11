@@ -26,5 +26,8 @@ describe("ProviderAvailabilityPage", () => {
     expect(
       screen.getByRole("heading", { name: "Weekly working hours" })
     ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Blocked time" })
+    ).toBeInTheDocument();
   });
 });

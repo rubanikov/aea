@@ -1,7 +1,10 @@
+from datetime import datetime
+from datetime import timezone as dt_timezone
+
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 
-from scheduling.models import AppointmentType, Availability
+from scheduling.models import AppointmentType, Availability, BlockedTime
 
 from .helpers import SchedulingAPITestCase
 
@@ -77,3 +80,53 @@ class AppointmentTypeModelTests(SchedulingAPITestCase):
         AppointmentType.objects.create(provider=provider_b, name="Follow-up", duration_minutes=30)
 
         self.assertEqual(AppointmentType.objects.filter(name="Follow-up").count(), 2)
+
+
+def _utc(*args):
+    return datetime(*args, tzinfo=dt_timezone.utc)
+
+
+class BlockedTimeModelTests(SchedulingAPITestCase):
+    def test_clean_rejects_a_non_provider(self):
+        patient = self.create_patient()
+        blocked_time = BlockedTime(
+            provider=patient, start=_utc(2026, 8, 20, 0, 0), end=_utc(2026, 8, 21, 0, 0)
+        )
+
+        with self.assertRaises(ValidationError):
+            blocked_time.clean()
+
+    def test_clean_accepts_a_provider(self):
+        provider = self.create_provider()
+        blocked_time = BlockedTime(
+            provider=provider, start=_utc(2026, 8, 20, 0, 0), end=_utc(2026, 8, 21, 0, 0)
+        )
+
+        blocked_time.clean()  # does not raise
+
+    def test_clean_rejects_end_before_start(self):
+        provider = self.create_provider()
+        blocked_time = BlockedTime(
+            provider=provider, start=_utc(2026, 8, 21, 0, 0), end=_utc(2026, 8, 20, 0, 0)
+        )
+
+        with self.assertRaises(ValidationError):
+            blocked_time.clean()
+
+    def test_db_check_constraint_rejects_end_before_start(self):
+        provider = self.create_provider()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                BlockedTime.objects.create(
+                    provider=provider, start=_utc(2026, 8, 21, 0, 0), end=_utc(2026, 8, 20, 0, 0)
+                )
+
+    def test_label_is_optional(self):
+        provider = self.create_provider()
+
+        blocked_time = BlockedTime.objects.create(
+            provider=provider, start=_utc(2026, 8, 20, 0, 0), end=_utc(2026, 8, 21, 0, 0)
+        )
+
+        self.assertEqual(blocked_time.label, "")

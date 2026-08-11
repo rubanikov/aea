@@ -50,6 +50,12 @@ class Availability(models.Model):
     start_time = models.TimeField()
     end_time = models.TimeField()
 
+    # TICKET-05: lets `audit.ownership.resource_owner` (and, through it,
+    # `audit.permissions.IsOwnerOrAdmin`) resolve who owns a row without a
+    # model-specific branch -- see `scheduling/views.py`'s
+    # `AvailabilityDetailView`.
+    owner_field_name = "provider"
+
     class Meta:
         ordering = ["day_of_week", "start_time"]
         constraints = [
@@ -100,6 +106,9 @@ class AppointmentType(models.Model):
     name = models.CharField(max_length=100)
     duration_minutes = models.PositiveIntegerField(validators=[MinValueValidator(1)])
 
+    # See `Availability.owner_field_name` above.
+    owner_field_name = "provider"
+
     class Meta:
         ordering = ["name"]
         constraints = [
@@ -116,3 +125,58 @@ class AppointmentType(models.Model):
             raise ValidationError(
                 {"provider": "Appointment types can only be defined by a provider."}
             )
+
+
+class BlockedTime(models.Model):
+    """A provider-declared date/time range during which no slot should ever
+    be computed as bookable, regardless of what `Availability` says
+    (TICKET-05 -- "Blocked ranges never appear as bookable regardless of
+    underlying working hours").
+
+    `start`/`end` are tz-aware UTC `DateTimeField`s -- unlike `Availability`,
+    a block is a one-off instant range on the calendar (e.g. "on vacation
+    Aug 20-27"), not a recurring wall-clock weekly pattern, so there's no
+    DST-resolution step to defer: the values stored here are already the
+    real instants.
+
+    Conceptually just another busy interval: `scheduling/slots.py`'s
+    `get_open_slots` doesn't know or care that a `busy_intervals` entry came
+    from here rather than TICKET-07's future `Booking` -- see
+    `SlotsView.get` in `views.py` for where a provider's blocked ranges get
+    folded into `busy_intervals` at the call site.
+    """
+
+    provider = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="blocked_times",
+    )
+    start = models.DateTimeField()
+    end = models.DateTimeField()
+    label = models.CharField(max_length=100, blank=True)
+
+    # See `Availability.owner_field_name` above. `audit_target_type` keeps
+    # `AuditLog.target_type` as the readable `"blocked_time"` rather than
+    # the default lowercased class name `"blockedtime"` -- see
+    # `audit.ownership.target_type_for`.
+    owner_field_name = "provider"
+    audit_target_type = "blocked_time"
+
+    class Meta:
+        ordering = ["start"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(start__lt=F("end")),
+                name="blocked_time_start_before_end",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.start}-{self.end} ({self.provider_id})"
+
+    def clean(self):
+        if self.provider_id and self.provider.role != self.provider.Role.PROVIDER:
+            raise ValidationError({"provider": "Blocked time can only be set for a provider."})
+        if self.start is not None and self.end is not None:
+            if self.start >= self.end:
+                raise ValidationError({"end": "end must be after start."})

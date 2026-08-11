@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import AppointmentType, Availability
+from .models import AppointmentType, Availability, BlockedTime
 from .slots import MAX_SLOT_QUERY_RANGE_DAYS
 
 
@@ -37,6 +37,24 @@ class AppointmentTypeSerializer(serializers.ModelSerializer):
         model = AppointmentType
         fields = ["id", "name", "duration_minutes"]
         read_only_fields = ["id"]
+
+
+class BlockedTimeSerializer(serializers.ModelSerializer):
+    """`provider` is deliberately not a field -- same reasoning as
+    `AvailabilitySerializer` above: the view always sets it from
+    `request.user`."""
+
+    class Meta:
+        model = BlockedTime
+        fields = ["id", "start", "end", "label"]
+        read_only_fields = ["id"]
+
+    def validate(self, attrs):
+        start = attrs.get("start", getattr(self.instance, "start", None))
+        end = attrs.get("end", getattr(self.instance, "end", None))
+        if start is not None and end is not None and start >= end:
+            raise serializers.ValidationError({"end": "end must be after start."})
+        return attrs
 
 
 class SlotSerializer(serializers.Serializer):

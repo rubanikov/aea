@@ -1,15 +1,22 @@
 import logging
+from datetime import datetime, time, timedelta
+from datetime import timezone as dt_timezone
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
+from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .models import AppointmentType, Availability
+from audit.permissions import IsOwnerOrAdmin
+from audit.services import record_audit_event
+
+from .models import AppointmentType, Availability, BlockedTime
 from .serializers import (
     AppointmentTypeSerializer,
     AvailabilitySerializer,
+    BlockedTimeSerializer,
     SlotQuerySerializer,
     SlotSerializer,
 )
@@ -22,15 +29,23 @@ DUPLICATE_APPOINTMENT_TYPE_RESPONSE = {
     "name": ["An appointment type with this name already exists."]
 }
 
-# TICKET-03 integration note (applies to every ownership check in this
-# file): these are manual `request.user == <row>.provider` checks and a
-# manual `request.user.role == PROVIDER` check, per this ticket's brief --
-# TICKET-03 is building a reusable ownership-check permission class (and an
-# audit-log write helper) in a sibling `audit` app / `accounts.permissions`
-# in parallel, and wasn't guaranteed to exist yet while this app was built.
-# Once both are merged, swap the manual checks below for that utility and
-# add the audit-log write it wires up, rather than leaving these as the
-# permanent pattern.
+# TICKET-05 retrofit: the manual `request.user == <row>.provider` ownership
+# checks this file used to have on its detail views (per TICKET-04's note,
+# deferred until TICKET-03's `audit.permissions.IsOwnerOrAdmin` existed) are
+# now `IsOwnerOrAdmin` below on `AvailabilityDetailView`/
+# `AppointmentTypeDetailView`/`BlockedTimeDetailView`. The list/create views
+# keep their own manual `request.user.role == PROVIDER` check and
+# owner-scoped `GET` queryset -- there's no existing *object* for
+# `IsOwnerOrAdmin`'s `has_object_permission` to check against on creation,
+# and the list `GET` was never an ownership check to begin with, just a
+# queryset filter.
+#
+# One real behavior change from the retrofit: a cross-provider `DELETE`/
+# `PATCH` against another provider's row now returns 403 (DRF's normal
+# `has_object_permission` denial), not 404. `IsOwnerOrAdmin` doesn't hide
+# row existence the way the old manual check did (see its docstring) --
+# hiding existence would also have to hide it from admins, defeating the
+# bypass this retrofit exists to add.
 
 
 class AvailabilityListCreateView(APIView):
@@ -69,19 +84,11 @@ class AvailabilityDetailView(APIView):
     builder / orchestrator to confirm.
     """
 
-    def _get_owned_or_404(self, request, pk):
-        try:
-            availability = Availability.objects.get(pk=pk)
-        except Availability.DoesNotExist:
-            return None
-        if availability.provider_id != request.user.id:
-            return None
-        return availability
+    permission_classes = [IsOwnerOrAdmin]
 
     def delete(self, request, pk):
-        availability = self._get_owned_or_404(request, pk)
-        if availability is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        availability = get_object_or_404(Availability, pk=pk)
+        self.check_object_permissions(request, availability)
         availability.delete()
         logger.info("availability deleted id=%s provider_id=%s", pk, request.user.id)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -119,19 +126,11 @@ class AppointmentTypeListCreateView(APIView):
 class AppointmentTypeDetailView(APIView):
     """`PATCH`/`DELETE /scheduling/appointment-types/<id>`."""
 
-    def _get_owned_or_404(self, request, pk):
-        try:
-            appointment_type = AppointmentType.objects.get(pk=pk)
-        except AppointmentType.DoesNotExist:
-            return None
-        if appointment_type.provider_id != request.user.id:
-            return None
-        return appointment_type
+    permission_classes = [IsOwnerOrAdmin]
 
     def patch(self, request, pk):
-        appointment_type = self._get_owned_or_404(request, pk)
-        if appointment_type is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        appointment_type = get_object_or_404(AppointmentType, pk=pk)
+        self.check_object_permissions(request, appointment_type)
 
         serializer = AppointmentTypeSerializer(appointment_type, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
@@ -144,11 +143,75 @@ class AppointmentTypeDetailView(APIView):
         return Response(serializer.data)
 
     def delete(self, request, pk):
-        appointment_type = self._get_owned_or_404(request, pk)
-        if appointment_type is None:
-            return Response(status=status.HTTP_404_NOT_FOUND)
+        appointment_type = get_object_or_404(AppointmentType, pk=pk)
+        self.check_object_permissions(request, appointment_type)
         appointment_type.delete()
         logger.info("appointment type deleted id=%s provider_id=%s", pk, request.user.id)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class BlockedTimeListCreateView(APIView):
+    """`GET`/`POST /scheduling/blocked-time` -- a provider's own blocked
+    date/time ranges (TICKET-05). Same ownership shape as
+    `AvailabilityListCreateView` above: `GET` only ever returns the
+    requesting user's own rows, `POST` always creates under `request.user`
+    after checking their role is `provider`.
+
+    Unlike `Availability`/`AppointmentType`, create and delete here are also
+    written to the audit log (see `BlockedTimeDetailView.delete` below) --
+    per this ticket's brief, blocking time is exactly the kind of
+    booking-adjacent state change TICKET-03's audit trail exists for. This
+    is on top of (not instead of) the admin-bypass logging
+    `IsOwnerOrAdmin` already does on its own on the detail view -- the two
+    log different facts: one that an admin used the bypass, one that the
+    row itself was created/deleted.
+    """
+
+    def get(self, request):
+        queryset = BlockedTime.objects.filter(provider=request.user)
+        return Response(BlockedTimeSerializer(queryset, many=True).data)
+
+    def post(self, request):
+        if request.user.role != User.Role.PROVIDER:
+            return Response(
+                {"detail": "Only providers can block time on their calendar."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = BlockedTimeSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        blocked_time = serializer.save(provider=request.user)
+        record_audit_event(
+            actor=request.user,
+            action="create:blocked_time",
+            target_type="blocked_time",
+            target_id=blocked_time.id,
+            metadata={
+                "start": blocked_time.start.isoformat(),
+                "end": blocked_time.end.isoformat(),
+            },
+        )
+        logger.info(
+            "blocked time created id=%s provider_id=%s", blocked_time.id, request.user.id
+        )
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class BlockedTimeDetailView(APIView):
+    """`DELETE /scheduling/blocked-time/<id>` -- remove one blocked range."""
+
+    permission_classes = [IsOwnerOrAdmin]
+
+    def delete(self, request, pk):
+        blocked_time = get_object_or_404(BlockedTime, pk=pk)
+        self.check_object_permissions(request, blocked_time)
+        blocked_time.delete()
+        record_audit_event(
+            actor=request.user,
+            action="delete:blocked_time",
+            target_type="blocked_time",
+            target_id=pk,
+        )
+        logger.info("blocked time deleted id=%s provider_id=%s", pk, request.user.id)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -202,8 +265,40 @@ class SlotsView(APIView):
                 }
             )
 
+        # TICKET-05: a provider's blocked ranges are conceptually just
+        # another busy interval (see scheduling/slots.py's module
+        # docstring) -- folded into `busy_intervals` here at the call site
+        # rather than changing `get_open_slots`'s own signature, exactly as
+        # that seam was designed for. `Booking` (TICKET-07) will add its own
+        # entries to this same list once it exists.
+        #
+        # Padded a calendar day on each side of the query window before
+        # filtering: `start`/`end` are UTC instants but the query range is
+        # calendar dates in the *provider's own timezone*, and the widest
+        # possible gap between a UTC date boundary and a local one is under
+        # 24 hours for any real-world UTC offset. Over-including a blocked
+        # row here is harmless -- it just fails every slot's overlap check
+        # and is never returned as busy -- so the padding only needs to be
+        # generous, not exact.
+        padded_start = datetime.combine(
+            params["date_from"] - timedelta(days=1), time.min, tzinfo=dt_timezone.utc
+        )
+        padded_end = datetime.combine(
+            params["date_to"] + timedelta(days=1), time.max, tzinfo=dt_timezone.utc
+        )
+        busy_intervals = [
+            (blocked.start, blocked.end)
+            for blocked in BlockedTime.objects.filter(
+                provider=provider, start__lt=padded_end, end__gt=padded_start
+            )
+        ]
+
         slots = get_open_slots(
-            provider, appointment_type, params["date_from"], params["date_to"]
+            provider,
+            appointment_type,
+            params["date_from"],
+            params["date_to"],
+            busy_intervals=busy_intervals,
         )
         return Response(
             {

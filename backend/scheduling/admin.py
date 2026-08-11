@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import AppointmentType, Availability
+from .models import AppointmentType, Availability, BlockedTime
 
 
 @admin.register(Availability)
@@ -14,3 +14,9 @@ class AvailabilityAdmin(admin.ModelAdmin):
 class AppointmentTypeAdmin(admin.ModelAdmin):
     list_display = ["provider", "name", "duration_minutes"]
     search_fields = ["provider__email", "name"]
+
+
+@admin.register(BlockedTime)
+class BlockedTimeAdmin(admin.ModelAdmin):
+    list_display = ["provider", "start", "end", "label"]
+    search_fields = ["provider__email", "label"]

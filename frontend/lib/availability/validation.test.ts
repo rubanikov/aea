@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { validateAppointmentType, validateWorkingHours } from "./validation";
+import {
+  validateAppointmentType,
+  validateBlockedTimeForm,
+  validateWorkingHours,
+} from "./validation";
 
 describe("validateAppointmentType", () => {
   it("requires a name", () => {
@@ -64,5 +68,62 @@ describe("validateWorkingHours", () => {
       monday: "End time must be after start time",
       tuesday: "End time must be after start time",
     });
+  });
+});
+
+describe("validateBlockedTimeForm", () => {
+  const VALID = {
+    label: "Vacation",
+    fromDate: "2026-08-24",
+    fromTime: "00:00",
+    toDate: "2026-08-29",
+    toTime: "23:59",
+  };
+
+  it("passes for a valid range", () => {
+    expect(validateBlockedTimeForm(VALID)).toEqual({});
+  });
+
+  it("requires each date/time field", () => {
+    expect(
+      validateBlockedTimeForm({
+        label: "",
+        fromDate: "",
+        fromTime: "",
+        toDate: "",
+        toTime: "",
+      })
+    ).toEqual({
+      fromDate: "From date is required",
+      fromTime: "From time is required",
+      toDate: "To date is required",
+      toTime: "To time is required",
+    });
+  });
+
+  it("rejects a 'to' that is before 'from', as a range error rather than a per-field one", () => {
+    expect(
+      validateBlockedTimeForm({
+        ...VALID,
+        toDate: "2026-08-20",
+        toTime: "00:00",
+      })
+    ).toEqual({ range: "End must be after start" });
+  });
+
+  it("rejects a 'to' equal to 'from'", () => {
+    expect(
+      validateBlockedTimeForm({
+        ...VALID,
+        toDate: VALID.fromDate,
+        toTime: VALID.fromTime,
+      })
+    ).toEqual({ range: "End must be after start" });
+  });
+
+  it("does not check range order until every field is present", () => {
+    expect(
+      validateBlockedTimeForm({ ...VALID, fromDate: "" })
+    ).toEqual({ fromDate: "From date is required" });
   });
 });

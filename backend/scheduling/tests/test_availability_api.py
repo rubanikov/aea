@@ -1,6 +1,11 @@
+from django.contrib.auth import get_user_model
+
+from audit.models import AuditLog
 from scheduling.models import Availability
 
-from .helpers import SchedulingAPITestCase
+from .helpers import TEST_PASSWORD, SchedulingAPITestCase
+
+User = get_user_model()
 
 
 class AvailabilityListCreateTests(SchedulingAPITestCase):
@@ -115,11 +120,15 @@ class AvailabilityDeleteTests(SchedulingAPITestCase):
         self.assertFalse(Availability.objects.filter(pk=self.availability.id).exists())
 
     def test_cannot_delete_another_providers_row(self):
+        # `IsOwnerOrAdmin` (see scheduling/views.py's TICKET-05 retrofit
+        # note) denies via `has_object_permission`, which is a 403, not the
+        # row-hiding 404 the old manual check returned -- the row does
+        # exist, this is DRF's normal "wrong owner" response.
         self.login_as(self.other_provider)
 
         response = self.delete_json(f"/scheduling/availability/{self.availability.id}")
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 403)
         self.assertTrue(Availability.objects.filter(pk=self.availability.id).exists())
 
     def test_deleting_a_nonexistent_row_returns_404(self):
@@ -128,3 +137,17 @@ class AvailabilityDeleteTests(SchedulingAPITestCase):
         response = self.delete_json("/scheduling/availability/999999")
 
         self.assertEqual(response.status_code, 404)
+
+    def test_admin_can_delete_another_providers_row_and_the_bypass_is_audited(self):
+        admin = User.objects.create_user(
+            email="admin@example.com", password=TEST_PASSWORD, role=User.Role.ADMIN
+        )
+        self.login_as(admin)
+
+        response = self.delete_json(f"/scheduling/availability/{self.availability.id}")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(Availability.objects.filter(pk=self.availability.id).exists())
+        entry = AuditLog.objects.get()
+        self.assertEqual(entry.actor, admin)
+        self.assertEqual(entry.action, "admin_bypass:delete:availability")

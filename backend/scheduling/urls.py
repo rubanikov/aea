@@ -23,5 +23,15 @@ urlpatterns = [
         views.AppointmentTypeDetailView.as_view(),
         name="appointment-type-detail",
     ),
+    path(
+        "scheduling/blocked-time",
+        views.BlockedTimeListCreateView.as_view(),
+        name="blocked-time-list",
+    ),
+    path(
+        "scheduling/blocked-time/<int:pk>",
+        views.BlockedTimeDetailView.as_view(),
+        name="blocked-time-detail",
+    ),
     path("scheduling/slots", views.SlotsView.as_view(), name="slots"),
 ]

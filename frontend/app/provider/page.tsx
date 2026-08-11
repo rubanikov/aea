@@ -1,13 +1,15 @@
 "use client";
 
 import { AppointmentTypesSection } from "@/components/availability/AppointmentTypesSection";
+import { BlockedTimeSection } from "@/components/availability/BlockedTimeSection";
 import { WorkingHoursSection } from "@/components/availability/WorkingHoursSection";
 
 /**
- * Provider availability settings (TICKET-04, frontend half): appointment
- * types (name + duration) and weekly working hours -- both required before
- * a provider is really "bookable" (enforced by later tickets, not here).
- * See `architecture.md` §2 and the approved wireframe, Screen 5.
+ * Provider availability settings (TICKET-04/TICKET-05, frontend half):
+ * appointment types (name + duration), weekly working hours, and one-off
+ * blocked time -- all required or usable before a provider is really
+ * "bookable" (enforced by later tickets, not here). See `architecture.md`
+ * §2 and the approved wireframe, Screens 5-6.
  */
 export default function ProviderAvailabilityPage() {
   return (
@@ -17,6 +19,7 @@ export default function ProviderAvailabilityPage() {
       </h1>
       <AppointmentTypesSection />
       <WorkingHoursSection />
+      <BlockedTimeSection />
     </div>
   );
 }

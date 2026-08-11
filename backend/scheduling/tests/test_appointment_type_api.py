@@ -1,6 +1,11 @@
+from django.contrib.auth import get_user_model
+
+from audit.models import AuditLog
 from scheduling.models import AppointmentType
 
-from .helpers import SchedulingAPITestCase
+from .helpers import TEST_PASSWORD, SchedulingAPITestCase
+
+User = get_user_model()
 
 
 class AppointmentTypeListCreateTests(SchedulingAPITestCase):
@@ -121,6 +126,8 @@ class AppointmentTypeDetailTests(SchedulingAPITestCase):
         self.assertEqual(self.appointment_type.duration_minutes, 20)
 
     def test_cannot_update_another_providers_appointment_type(self):
+        # See test_availability_api.py's equivalent test for why this is
+        # 403, not 404, after the TICKET-05 `IsOwnerOrAdmin` retrofit.
         self.login_as(self.other_provider)
 
         response = self.patch_json(
@@ -128,7 +135,7 @@ class AppointmentTypeDetailTests(SchedulingAPITestCase):
             {"duration_minutes": 20},
         )
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 403)
         self.appointment_type.refresh_from_db()
         self.assertEqual(self.appointment_type.duration_minutes, 15)
 
@@ -145,7 +152,7 @@ class AppointmentTypeDetailTests(SchedulingAPITestCase):
 
         response = self.delete_json(f"/scheduling/appointment-types/{self.appointment_type.id}")
 
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 403)
         self.assertTrue(AppointmentType.objects.filter(pk=self.appointment_type.id).exists())
 
     def test_updating_a_nonexistent_type_returns_404(self):
@@ -154,3 +161,17 @@ class AppointmentTypeDetailTests(SchedulingAPITestCase):
         response = self.patch_json("/scheduling/appointment-types/999999", {"duration_minutes": 20})
 
         self.assertEqual(response.status_code, 404)
+
+    def test_admin_can_delete_another_providers_appointment_type_and_the_bypass_is_audited(self):
+        admin = User.objects.create_user(
+            email="admin@example.com", password=TEST_PASSWORD, role=User.Role.ADMIN
+        )
+        self.login_as(admin)
+
+        response = self.delete_json(f"/scheduling/appointment-types/{self.appointment_type.id}")
+
+        self.assertEqual(response.status_code, 204)
+        self.assertFalse(AppointmentType.objects.filter(pk=self.appointment_type.id).exists())
+        entry = AuditLog.objects.get()
+        self.assertEqual(entry.actor, admin)
+        self.assertEqual(entry.action, "admin_bypass:delete:appointmenttype")

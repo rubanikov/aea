@@ -1,0 +1,289 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { useAuthenticatedRequest } from "@/hooks/use-authenticated-request";
+import { ApiError } from "@/lib/api/client";
+import { isFieldErrorBody, splitFieldErrors } from "@/lib/api/field-errors";
+import { zonedDateTimeToUtcIso } from "@/lib/availability/timezone";
+import {
+  validateBlockedTimeForm,
+  type BlockedTimeFieldErrors,
+  type BlockedTimeFormValues,
+} from "@/lib/availability/validation";
+import type { BlockedTime } from "@/lib/availability/types";
+import { BlockedTimeForm } from "./BlockedTimeForm";
+import { BlockedTimeRow } from "./BlockedTimeRow";
+
+const BLOCKED_TIME_PATH = "/scheduling/blocked-time";
+const KNOWN_SERVER_FIELDS = new Set(["label", "start", "end"]);
+const EMPTY_FORM: BlockedTimeFormValues = {
+  label: "",
+  fromDate: "",
+  fromTime: "",
+  toDate: "",
+  toTime: "",
+};
+
+/**
+ * Blocked time (TICKET-05, Screen 6 of the wireframe): a list of upcoming
+ * one-off ranges (vacation, an admin block) that stack on top of the
+ * provider's weekly working hours, plus an add form and remove-with-
+ * confirm. `GET`/`POST`/`DELETE /scheduling/blocked-time`, confirmed against
+ * `backend/scheduling/views.py`'s `BlockedTimeListCreateView`/
+ * `BlockedTimeDetailView` (built in parallel, in the same wave as this
+ * file) -- matches the brief's assumed contract exactly: `{id, label,
+ * start, end}`, `start`/`end` UTC ISO 8601, `label` optional on `POST`.
+ *
+ * No Edit: the brief explicitly allows skipping it in favor of delete-and-
+ * recreate if edit "adds real complexity", and it does here -- a range edit
+ * has two independent date/time pairs plus re-validation and re-conversion
+ * through the provider's timezone, all for a save path that's otherwise
+ * identical to "delete this one, add a new one" (the same simplification
+ * `WorkingHoursSection` used for its own row saves).
+ *
+ * The provider's timezone is needed to convert the form's local date/time
+ * inputs to the UTC instants the API stores, and to render existing blocks
+ * back into local wall-clock time. Reuses `AppointmentTypesSection`'s
+ * pattern for this -- a plain `GET /profile` effect -- since there's no
+ * shared hook for it in this codebase yet.
+ */
+export function BlockedTimeSection() {
+  const authFetch = useAuthenticatedRequest();
+  const [blocks, setBlocks] = useState<BlockedTime[] | null>(null); // null = loading
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [timezone, setTimezone] = useState<string | null>(null);
+
+  const [adding, setAdding] = useState(false);
+  const [formValues, setFormValues] = useState<BlockedTimeFormValues>(EMPTY_FORM);
+  const [fieldErrors, setFieldErrors] = useState<BlockedTimeFieldErrors>({});
+  const [addFormError, setAddFormError] = useState<string | null>(null);
+  const [addSaving, setAddSaving] = useState(false);
+
+  const fromDateRef = useRef<HTMLInputElement>(null);
+  const fromTimeRef = useRef<HTMLInputElement>(null);
+  const toDateRef = useRef<HTMLInputElement>(null);
+  const toTimeRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    authFetch<BlockedTime[]>(BLOCKED_TIME_PATH)
+      .then((result) => {
+        if (!cancelled) {
+          setBlocks([...result].sort((a, b) => a.start.localeCompare(b.start)));
+        }
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        if (!(error instanceof ApiError && error.status === 401)) {
+          setLoadError("Couldn't load your blocked time — please try again.");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authFetch, reloadKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    authFetch<{ timezone: string }>("/profile")
+      .then((result) => {
+        if (!cancelled) {
+          setTimezone(result.timezone);
+        }
+      })
+      .catch(() => {
+        // Display-only for the read-only line elsewhere; here it also
+        // powers UTC conversion, but a form-time error already covers a
+        // still-missing timezone -- no need to also break this section's
+        // main load state over it.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authFetch]);
+
+  useEffect(() => {
+    if (adding) {
+      fromDateRef.current?.focus();
+    }
+  }, [adding]);
+
+  function retry() {
+    setLoadError(null);
+    setBlocks(null);
+    setReloadKey((key) => key + 1);
+  }
+
+  function startAdding() {
+    setFormValues(EMPTY_FORM);
+    setFieldErrors({});
+    setAddFormError(null);
+    setAdding(true);
+  }
+
+  function focusFirstInvalid(errors: BlockedTimeFieldErrors) {
+    if (errors.fromDate) {
+      fromDateRef.current?.focus();
+    } else if (errors.fromTime) {
+      fromTimeRef.current?.focus();
+    } else if (errors.toDate) {
+      toDateRef.current?.focus();
+    } else if (errors.toTime) {
+      toTimeRef.current?.focus();
+    } else if (errors.range) {
+      // Mirrors WorkingHoursSection: an order error focuses the range's
+      // start field, not the end field the message is nominally "about".
+      fromDateRef.current?.focus();
+    }
+  }
+
+  async function handleAddSubmit() {
+    const errors = validateBlockedTimeForm(formValues);
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setAddFormError(null);
+      focusFirstInvalid(errors);
+      return;
+    }
+    if (!timezone) {
+      setAddFormError("Still finding your timezone — please try again in a moment.");
+      return;
+    }
+
+    setFieldErrors({});
+    setAddFormError(null);
+    setAddSaving(true);
+    try {
+      const created = await authFetch<BlockedTime>(BLOCKED_TIME_PATH, {
+        method: "POST",
+        body: {
+          ...(formValues.label.trim() ? { label: formValues.label.trim() } : {}),
+          start: zonedDateTimeToUtcIso(formValues.fromDate, formValues.fromTime, timezone),
+          end: zonedDateTimeToUtcIso(formValues.toDate, formValues.toTime, timezone),
+        },
+      });
+      setBlocks((current) =>
+        [...(current ?? []), created].sort((a, b) => a.start.localeCompare(b.start))
+      );
+      setAdding(false);
+    } catch (error) {
+      if (
+        error instanceof ApiError &&
+        error.status === 400 &&
+        isFieldErrorBody(error.body)
+      ) {
+        const { fieldErrors: serverFieldErrors, formError } = splitFieldErrors(
+          error.body,
+          KNOWN_SERVER_FIELDS
+        );
+        setFieldErrors({
+          range:
+            serverFieldErrors.end ?? serverFieldErrors.start ?? undefined,
+        });
+        setAddFormError(formError ?? serverFieldErrors.label ?? null);
+      } else if (!(error instanceof ApiError && error.status === 401)) {
+        setAddFormError("Couldn't add this block — please try again.");
+      }
+    } finally {
+      setAddSaving(false);
+    }
+  }
+
+  async function handleRemove(id: number): Promise<void> {
+    await authFetch(`${BLOCKED_TIME_PATH}/${id}`, { method: "DELETE" });
+    setBlocks((current) => (current ?? []).filter((block) => block.id !== id));
+  }
+
+  const showHeaderAddButton = blocks !== null && blocks.length > 0 && !adding;
+
+  return (
+    <section
+      aria-labelledby="blocked-time-heading"
+      className="flex flex-col gap-4 rounded border border-gray-200 p-6"
+    >
+      <div className="flex items-center justify-between gap-4">
+        <h2 id="blocked-time-heading" className="text-lg font-semibold">
+          Blocked time
+        </h2>
+        {showHeaderAddButton ? (
+          <button
+            type="button"
+            onClick={startAdding}
+            className="rounded bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+          >
+            + Add block
+          </button>
+        ) : null}
+      </div>
+
+      {loadError ? (
+        <div className="flex flex-col items-start gap-2">
+          <p role="alert" className="text-sm text-red-600">
+            {loadError}
+          </p>
+          <button
+            type="button"
+            onClick={retry}
+            className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50"
+          >
+            Try again
+          </button>
+        </div>
+      ) : blocks === null ? (
+        <p className="text-sm text-gray-600">Loading blocked time…</p>
+      ) : blocks.length === 0 && !adding ? (
+        <div className="flex flex-col items-start gap-3 rounded border border-dashed border-gray-300 p-4">
+          <p className="text-sm text-gray-600">
+            No blocked time yet. Add vacation or a one-off block — it stacks
+            on top of your weekly hours.
+          </p>
+          <button
+            type="button"
+            onClick={startAdding}
+            className="rounded bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+          >
+            Add block
+          </button>
+        </div>
+      ) : (
+        <>
+          <h3 className="text-sm font-medium text-gray-700">Upcoming blocks</h3>
+          <ul className="flex flex-col">
+            {blocks.map((block) => (
+              <BlockedTimeRow
+                key={block.id}
+                block={block}
+                timezone={timezone ?? "UTC"}
+                onRemove={handleRemove}
+              />
+            ))}
+          </ul>
+        </>
+      )}
+
+      {adding ? (
+        <BlockedTimeForm
+          idPrefix="new-blocked-time"
+          values={formValues}
+          onChange={setFormValues}
+          fieldErrors={fieldErrors}
+          formError={addFormError}
+          saving={addSaving}
+          onSubmit={handleAddSubmit}
+          onCancel={() => setAdding(false)}
+          fromDateInputRef={fromDateRef}
+          fromTimeInputRef={fromTimeRef}
+          toDateInputRef={toDateRef}
+          toTimeInputRef={toTimeRef}
+        />
+      ) : null}
+    </section>
+  );
+}

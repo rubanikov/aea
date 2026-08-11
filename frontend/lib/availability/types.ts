@@ -41,3 +41,30 @@ export interface AvailabilityDay {
  * day's hours change).
  */
 export type AvailabilityDayInput = Omit<AvailabilityDay, "id">;
+
+/**
+ * A provider's one-off blocked-time range (TICKET-05), as returned by
+ * `GET /scheduling/blocked-time` (`backend/scheduling/serializers.py`'s
+ * `BlockedTimeSerializer`). `start`/`end` are UTC ISO 8601 instants (unlike
+ * `AvailabilityDay`'s wall-clock `TimeField`s, a blocked range is anchored
+ * to real calendar dates, so it's already resolved to UTC) -- rendered in
+ * the provider's own timezone at display time
+ * (`lib/availability/timezone.ts`). `label` is always a string, `""` (not
+ * `null`) for an unlabeled block -- `BlockedTime.label` is a plain
+ * `CharField(blank=True)`, confirmed against
+ * `scheduling/tests/test_blocked_time_api.py::test_label_is_optional`.
+ */
+export interface BlockedTime {
+  id: number;
+  label: string;
+  start: string;
+  end: string;
+}
+
+/** Body shape for `POST /scheduling/blocked-time`. `label` is optional --
+ * omit it entirely for an unlabeled block rather than sending `""`. */
+export interface BlockedTimeInput {
+  label?: string;
+  start: string;
+  end: string;
+}
