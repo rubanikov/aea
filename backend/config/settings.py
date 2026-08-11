@@ -294,7 +294,13 @@ SIMPLE_JWT = {
     # issued before the change (each one embeds a hash of the password that
     # was current when it was minted) — not just the one used to change it.
     "CHECK_REVOKE_TOKEN": True,
-    "SIGNING_KEY": os.environ.get("JWT_SECRET_KEY", SECRET_KEY),
+    # `or`, not `.get(..., default)`: .env.example ships JWT_SECRET_KEY as
+    # a documented-empty line, so the var is *set* (to ""), not missing --
+    # .get()'s default never kicks in for that, and an empty HMAC key is a
+    # hard PyJWT error at the first token issued. `or` treats "unset" and
+    # "set to empty" the same way, which is what "falls back to
+    # SECRET_KEY" actually needs to mean here.
+    "SIGNING_KEY": os.environ.get("JWT_SECRET_KEY") or SECRET_KEY,
 }
 
 AUTH_COOKIE_SECURE = not DEBUG
