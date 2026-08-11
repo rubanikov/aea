@@ -225,6 +225,9 @@ describe("BlockedTimeSection", () => {
       start: "2026-08-24T04:00:00.000Z",
       end: "2026-08-24T21:00:00.000Z",
     });
+    // TICKET-11: no collision -- the block is created with no modal
+    // interruption, exactly as before this ticket.
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
   it("requires confirmation before removing a block, and only DELETEs after confirming", async () => {
@@ -281,5 +284,145 @@ describe("BlockedTimeSection", () => {
       expect(pushMock).toHaveBeenCalledWith("/login?session_expired=1")
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  // TICKET-11: a 409 on add means the range would strand an existing
+  // booking.
+  const SAMPLE_COLLISION = [
+    {
+      id: 601,
+      start_time: "2026-08-24T14:00:00.000Z",
+      end_time: "2026-08-24T14:30:00.000Z",
+      patient_name: "R. Kim",
+      appointment_type_name: "Check-up",
+      status: "confirmed",
+    },
+  ];
+
+  async function fillAndSubmitAddForm(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(await screen.findByRole("button", { name: "Add block" }));
+    fireEvent.change(screen.getByLabelText("From date"), {
+      target: { value: "2026-08-24" },
+    });
+    fireEvent.change(screen.getByLabelText("From time"), {
+      target: { value: "00:00" },
+    });
+    fireEvent.change(screen.getByLabelText("To date"), {
+      target: { value: "2026-08-24" },
+    });
+    fireEvent.change(screen.getByLabelText("To time"), {
+      target: { value: "17:00" },
+    });
+    const saveButton = screen.getByRole("button", { name: "Save block" });
+    await user.click(saveButton);
+    return saveButton;
+  }
+
+  it("opens the collision-warning modal -- not a generic error -- when adding a block returns 409, listing the affected appointment", async () => {
+    mockFetchRouter({
+      [BLOCKED_TIME_PATH]: (init) => {
+        if (!init || (init.method ?? "GET") === "GET") {
+          return jsonResponse([]);
+        }
+        if (init.method === "POST") {
+          return jsonResponse({ collisions: SAMPLE_COLLISION }, 409);
+        }
+        throw new Error("unexpected call");
+      },
+    });
+    const user = userEvent.setup();
+    render(<BlockedTimeSection />);
+
+    await fillAndSubmitAddForm(user);
+
+    const dialog = await screen.findByRole("alertdialog", {
+      name: /this change affects existing bookings/i,
+    });
+    expect(dialog).toHaveTextContent(
+      "You're blocking Aug 24, 2026 00:00 → Aug 24, 2026 17:00 (America/New_York)."
+    );
+    expect(screen.getByText("CONFIRMED")).toBeInTheDocument();
+    expect(
+      screen.getByText("Mon, Aug 24, 10:00–10:30am — Patient: R. Kim (Check-up)")
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/couldn't add this block/i)).not.toBeInTheDocument();
+  });
+
+  it("'Keep new hours' resubmits the same range plus the resolution, creates the block, and closes the modal", async () => {
+    const posts: Array<Record<string, unknown>> = [];
+    mockFetchRouter({
+      [BLOCKED_TIME_PATH]: (init) => {
+        if (!init || (init.method ?? "GET") === "GET") {
+          return jsonResponse([]);
+        }
+        if (init.method === "POST") {
+          const body = JSON.parse(init.body as string);
+          posts.push(body);
+          return posts.length === 1
+            ? jsonResponse({ collisions: SAMPLE_COLLISION }, 409)
+            : jsonResponse({ id: 9, label: "", collisions: SAMPLE_COLLISION, ...body }, 201);
+        }
+        throw new Error("unexpected call");
+      },
+    });
+    const user = userEvent.setup();
+    render(<BlockedTimeSection />);
+
+    await fillAndSubmitAddForm(user);
+    await screen.findByRole("alertdialog");
+    await user.click(screen.getByRole("radio", { name: /keep new hours/i }));
+    await user.click(screen.getByRole("button", { name: "Confirm my choice" }));
+
+    expect(await screen.findByText("Blocked")).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(posts).toEqual([
+      { start: "2026-08-24T04:00:00.000Z", end: "2026-08-24T21:00:00.000Z" },
+      {
+        start: "2026-08-24T04:00:00.000Z",
+        end: "2026-08-24T21:00:00.000Z",
+        resolution: "keep_new_hours",
+      },
+    ]);
+  });
+
+  it("'Cancel this change' closes the modal without creating the block, leaves the add form open with what was typed, and returns focus to Save block", async () => {
+    mockFetchRouter({
+      [BLOCKED_TIME_PATH]: (init) => {
+        if (!init || (init.method ?? "GET") === "GET") {
+          return jsonResponse([]);
+        }
+        if (init.method === "POST") {
+          return jsonResponse({ collisions: SAMPLE_COLLISION }, 409);
+        }
+        throw new Error("no block should be created after cancelling the change");
+      },
+    });
+    const user = userEvent.setup();
+    render(<BlockedTimeSection />);
+
+    await user.click(await screen.findByRole("button", { name: "Add block" }));
+    await user.type(screen.getByLabelText("Label (optional)"), "Vacation");
+    fireEvent.change(screen.getByLabelText("From date"), {
+      target: { value: "2026-08-24" },
+    });
+    fireEvent.change(screen.getByLabelText("From time"), {
+      target: { value: "00:00" },
+    });
+    fireEvent.change(screen.getByLabelText("To date"), {
+      target: { value: "2026-08-24" },
+    });
+    fireEvent.change(screen.getByLabelText("To time"), {
+      target: { value: "17:00" },
+    });
+    const saveButton = screen.getByRole("button", { name: "Save block" });
+    await user.click(saveButton);
+
+    await screen.findByRole("alertdialog");
+    await user.click(screen.getByRole("button", { name: "Go back" }));
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save block" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Label (optional)")).toHaveValue("Vacation");
+    expect(saveButton).toHaveFocus();
   });
 });

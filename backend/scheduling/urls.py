@@ -9,6 +9,11 @@ urlpatterns = [
         name="availability-list",
     ),
     path(
+        "scheduling/availability/check-collisions",
+        views.AvailabilityCollisionCheckView.as_view(),
+        name="availability-check-collisions",
+    ),
+    path(
         "scheduling/availability/<int:pk>",
         views.AvailabilityDetailView.as_view(),
         name="availability-detail",

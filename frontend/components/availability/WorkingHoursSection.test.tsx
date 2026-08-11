@@ -10,6 +10,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 const AVAILABILITY_PATH = "/scheduling/availability";
+const CHECK_COLLISIONS_PATH = "/scheduling/availability/check-collisions";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status });
@@ -22,6 +23,13 @@ function jsonResponse(body: unknown, status = 200): Response {
  * `backend/scheduling/views.py`) has no bulk save endpoint -- saving a
  * changed day does a `DELETE` per stale row plus a fresh `POST`, then a
  * final `GET` to refresh from source of truth.
+ *
+ * Defaults `check-collisions` to "no collisions" and `/profile` to a fixed
+ * timezone unless a test overrides either -- TICKET-11 added both calls
+ * (the former gates every save, the latter is only for rendering a
+ * collision's time), and every pre-existing test in this file predates and
+ * doesn't care about them, so they should stay silent no-ops by default
+ * (mirrors `BlockedTimeSection.test.tsx`'s own `/profile` default).
  */
 function mockFetchRouter(
   overrides: Partial<
@@ -33,6 +41,12 @@ function mockFetchRouter(
     const handler = overrides[path];
     if (handler) {
       return Promise.resolve(handler(init));
+    }
+    if (path === CHECK_COLLISIONS_PATH) {
+      return Promise.resolve(jsonResponse({ collisions: [] }));
+    }
+    if (path === "/profile") {
+      return Promise.resolve(jsonResponse({ timezone: "America/New_York" }));
     }
     throw new Error(`Unhandled fetch in test: ${init?.method ?? "GET"} ${path}`);
   });
@@ -194,8 +208,19 @@ describe("WorkingHoursSection", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       /working hours saved/i
     );
+    // TICKET-11: the complete proposed weekly picture is checked for
+    // collisions first -- here, no collisions, so the save proceeds exactly
+    // as it did before this ticket, with no modal interruption.
+    const collisionCheckCall = fetchMock.mock.calls.find(
+      ([url]) => new URL(url as string).pathname === CHECK_COLLISIONS_PATH
+    );
+    expect(
+      JSON.parse((collisionCheckCall?.[1] as RequestInit).body as string)
+    ).toEqual({ windows: [{ day_of_week: 0, start_time: "09:00", end_time: "17:00" }] });
     const postCall = fetchMock.mock.calls.find(
-      ([, init]) => (init as RequestInit | undefined)?.method === "POST"
+      ([url, init]) =>
+        new URL(url as string).pathname === AVAILABILITY_PATH &&
+        (init as RequestInit | undefined)?.method === "POST"
     );
     expect(
       JSON.parse((postCall?.[1] as RequestInit).body as string)
@@ -203,6 +228,7 @@ describe("WorkingHoursSection", () => {
     expect(
       screen.queryByText(/you haven't set your working hours yet/i)
     ).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
   it("saves an edited day by deleting the old row and posting the new one, and leaves untouched days alone", async () => {
@@ -311,5 +337,154 @@ describe("WorkingHoursSection", () => {
       expect(pushMock).toHaveBeenCalledWith("/login?session_expired=1")
     );
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  // TICKET-11: check-collisions gates the save sequence.
+  const SAMPLE_COLLISIONS = [
+    {
+      id: 501,
+      start_time: "2026-08-21T18:00:00.000Z",
+      end_time: "2026-08-21T18:30:00.000Z",
+      patient_name: "J. Alvarez",
+      appointment_type_name: "Follow-up",
+      status: "confirmed",
+    },
+    {
+      id: 502,
+      start_time: "2026-08-21T19:00:00.000Z",
+      end_time: "2026-08-21T19:30:00.000Z",
+      patient_name: "M. Chen",
+      appointment_type_name: "Annual Physical",
+      status: "confirmed",
+    },
+  ];
+
+  it("opens the collision-warning modal -- not a save -- when check-collisions reports a collision, listing the affected appointments with their status badge", async () => {
+    mockFetchRouter({
+      [AVAILABILITY_PATH]: (init) => {
+        const method = init?.method ?? "GET";
+        if (method === "GET") {
+          return jsonResponse([
+            { id: 1, day_of_week: 0, start_time: "09:00:00", end_time: "17:00:00" },
+            { id: 2, day_of_week: 4, start_time: "09:00:00", end_time: "17:00:00" },
+          ]);
+        }
+        throw new Error("the save sequence must not run while a collision is unresolved");
+      },
+      [CHECK_COLLISIONS_PATH]: () => jsonResponse({ collisions: SAMPLE_COLLISIONS }, 409),
+    });
+    const user = userEvent.setup();
+    render(<WorkingHoursSection />);
+
+    const fridayEnd = await screen.findByLabelText("Friday end time");
+    fireEvent.change(fridayEnd, { target: { value: "13:00" } });
+    await user.click(screen.getByRole("button", { name: /save working hours/i }));
+
+    const dialog = await screen.findByRole("alertdialog", {
+      name: /this change affects existing bookings/i,
+    });
+    expect(dialog).toHaveTextContent(
+      "You're changing Friday's hours from 09:00–17:00 to 09:00–13:00."
+    );
+    expect(screen.getAllByText("CONFIRMED")).toHaveLength(2);
+    expect(
+      screen.getByText("Fri, Aug 21, 2:00–2:30pm — Patient: J. Alvarez (Follow-up)")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Fri, Aug 21, 3:00–3:30pm — Patient: M. Chen (Annual Physical)")
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("'Keep new hours' resolves the collision, then runs the real per-day save, and closes the modal", async () => {
+    const calls: Array<{ method: string; path: string; body?: unknown }> = [];
+    let availabilityGetCount = 0;
+    mockFetchRouter({
+      [AVAILABILITY_PATH]: (init) => {
+        const method = init?.method ?? "GET";
+        if (method === "GET") {
+          availabilityGetCount += 1;
+          return availabilityGetCount === 1
+            ? jsonResponse([
+                { id: 1, day_of_week: 0, start_time: "09:00:00", end_time: "17:00:00" },
+                { id: 2, day_of_week: 4, start_time: "09:00:00", end_time: "17:00:00" },
+              ])
+            : jsonResponse([
+                { id: 1, day_of_week: 0, start_time: "09:00:00", end_time: "17:00:00" },
+                { id: 3, day_of_week: 4, start_time: "09:00:00", end_time: "13:00:00" },
+              ]);
+        }
+        if (method === "POST") {
+          const body = JSON.parse(init!.body as string);
+          calls.push({ method: "POST", path: AVAILABILITY_PATH, body });
+          return jsonResponse({ id: 3, ...body }, 201);
+        }
+        throw new Error("unexpected call");
+      },
+      [`${AVAILABILITY_PATH}/2`]: (init) => {
+        if (init?.method === "DELETE") {
+          calls.push({ method: "DELETE", path: `${AVAILABILITY_PATH}/2` });
+          return new Response(null, { status: 204 });
+        }
+        throw new Error("unexpected call");
+      },
+      [CHECK_COLLISIONS_PATH]: (init) => {
+        const body = JSON.parse(init!.body as string);
+        return body.resolution === "keep_new_hours"
+          ? jsonResponse({ collisions: SAMPLE_COLLISIONS, resolution: "keep_new_hours" })
+          : jsonResponse({ collisions: SAMPLE_COLLISIONS }, 409);
+      },
+    });
+    const user = userEvent.setup();
+    render(<WorkingHoursSection />);
+
+    const fridayEnd = await screen.findByLabelText("Friday end time");
+    fireEvent.change(fridayEnd, { target: { value: "13:00" } });
+    await user.click(screen.getByRole("button", { name: /save working hours/i }));
+
+    await screen.findByRole("alertdialog");
+    await user.click(screen.getByRole("radio", { name: /keep new hours/i }));
+    await user.click(screen.getByRole("button", { name: "Confirm my choice" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/working hours saved/i);
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(calls).toEqual([
+      { method: "DELETE", path: `${AVAILABILITY_PATH}/2` },
+      {
+        method: "POST",
+        path: AVAILABILITY_PATH,
+        body: { day_of_week: 4, start_time: "09:00", end_time: "13:00" },
+      },
+    ]);
+  });
+
+  it("'Cancel this change' discards the edit: no save happens, the modal closes, hours revert to what's saved, and focus returns to the Save button", async () => {
+    mockFetchRouter({
+      [AVAILABILITY_PATH]: (init) => {
+        const method = init?.method ?? "GET";
+        if (method === "GET") {
+          return jsonResponse([
+            { id: 1, day_of_week: 0, start_time: "09:00:00", end_time: "17:00:00" },
+            { id: 2, day_of_week: 4, start_time: "09:00:00", end_time: "17:00:00" },
+          ]);
+        }
+        throw new Error("no save should happen after cancelling the change");
+      },
+      [CHECK_COLLISIONS_PATH]: () => jsonResponse({ collisions: SAMPLE_COLLISIONS }, 409),
+    });
+    const user = userEvent.setup();
+    render(<WorkingHoursSection />);
+
+    const fridayEnd = await screen.findByLabelText("Friday end time");
+    fireEvent.change(fridayEnd, { target: { value: "13:00" } });
+    const saveButton = screen.getByRole("button", { name: /save working hours/i });
+    await user.click(saveButton);
+
+    await screen.findByRole("alertdialog");
+    await user.click(screen.getByRole("button", { name: "Go back" }));
+
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Friday end time")).toHaveValue("17:00");
+    expect(saveButton).toHaveFocus();
   });
 });

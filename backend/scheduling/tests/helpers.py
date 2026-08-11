@@ -1,8 +1,11 @@
+from datetime import timedelta
+
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import TestCase
 
 from accounts.tests.helpers import AJAX_HEADERS, TEST_PASSWORD
+from bookings.models import Booking
 
 User = get_user_model()
 
@@ -45,6 +48,40 @@ class SchedulingAPITestCase(TestCase):
     def create_patient(self, email="patient@example.com", **overrides):
         return User.objects.create_user(
             email=email, password=TEST_PASSWORD, role=User.Role.PATIENT, **overrides
+        )
+
+    def create_booking(
+        self,
+        *,
+        provider,
+        appointment_type,
+        start_time,
+        patient=None,
+        status=Booking.Status.CONFIRMED,
+    ):
+        """Creates a `Booking` row directly (bypassing
+        `bookings.services.create_booking`) -- TICKET-11's collision tests
+        only need an existing row of a given status/time to check against,
+        not to exercise the booking-creation flow itself (that's
+        `bookings/tests`' job). `end_time` is derived from
+        `appointment_type.duration_minutes`, same as the real service does.
+        """
+        if patient is None:
+            # A unique default patient per call (keyed off how many bookings
+            # already exist) -- several TICKET-11 collision tests create
+            # more than one booking per test without caring who the patient
+            # is, and `create_patient`'s own default email is a fixed
+            # constant that would otherwise collide on the second call.
+            patient = self.create_patient(
+                email=f"patient-{Booking.objects.count()}@example.com"
+            )
+        return Booking.objects.create(
+            provider=provider,
+            patient=patient,
+            appointment_type=appointment_type,
+            start_time=start_time,
+            end_time=start_time + timedelta(minutes=appointment_type.duration_minutes),
+            status=status,
         )
 
     def login_as(self, user):

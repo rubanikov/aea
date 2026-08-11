@@ -4,15 +4,20 @@ import { useEffect, useRef, useState } from "react";
 import { useAuthenticatedRequest } from "@/hooks/use-authenticated-request";
 import { ApiError } from "@/lib/api/client";
 import { isFieldErrorBody, splitFieldErrors } from "@/lib/api/field-errors";
-import { zonedDateTimeToUtcIso } from "@/lib/availability/timezone";
+import {
+  isCollisionResponseBody,
+  type AvailabilityCollision,
+} from "@/lib/availability/collisions";
+import { formatZonedDateTime, zonedDateTimeToUtcIso } from "@/lib/availability/timezone";
 import {
   validateBlockedTimeForm,
   type BlockedTimeFieldErrors,
   type BlockedTimeFormValues,
 } from "@/lib/availability/validation";
-import type { BlockedTime } from "@/lib/availability/types";
+import type { BlockedTime, BlockedTimeInput } from "@/lib/availability/types";
 import { BlockedTimeForm } from "./BlockedTimeForm";
 import { BlockedTimeRow } from "./BlockedTimeRow";
+import { CollisionWarningModal } from "./CollisionWarningModal";
 
 const BLOCKED_TIME_PATH = "/scheduling/blocked-time";
 const KNOWN_SERVER_FIELDS = new Set(["label", "start", "end"]);
@@ -23,6 +28,26 @@ const EMPTY_FORM: BlockedTimeFormValues = {
   toDate: "",
   toTime: "",
 };
+
+/** One open collision-warning modal's worth of state: the exact body that
+ * raised the collision (resent verbatim, plus a resolution, on "Keep new
+ * hours"), the affected appointments to list, and the change description to
+ * show. */
+interface CollisionState {
+  body: BlockedTimeInput;
+  collisions: AvailabilityCollision[];
+  description: string;
+}
+
+/** e.g. `("2026-08-24T04:00:00.000Z", "2026-08-24T21:00:00.000Z",
+ * "America/New_York")` -> `"You're blocking Aug 24, 2026 00:00 → Aug 24,
+ * 2026 17:00 (America/New_York)."` -- built on `formatZonedDateTime`, the
+ * same formatter `BlockedTimeRow` already uses for a saved block's range,
+ * so the collision modal's framing sentence reads exactly like the rest of
+ * this section. */
+function describeBlockedTimeChange(body: BlockedTimeInput, timezone: string): string {
+  return `You're blocking ${formatZonedDateTime(body.start, timezone)} → ${formatZonedDateTime(body.end, timezone)} (${timezone}).`;
+}
 
 /**
  * Blocked time (TICKET-05, Screen 6 of the wireframe): a list of upcoming
@@ -46,6 +71,18 @@ const EMPTY_FORM: BlockedTimeFormValues = {
  * back into local wall-clock time. Reuses `AppointmentTypesSection`'s
  * pattern for this -- a plain `GET /profile` effect -- since there's no
  * shared hook for it in this codebase yet.
+ *
+ * TICKET-11: a `409` from `POST /scheduling/blocked-time` (extended,
+ * confirmed against the backend's documented contract) means the range
+ * would strand existing bookings outside it -- `CollisionWarningModal`
+ * opens instead of the generic "Couldn't add this block" error. "Keep new
+ * hours" resubmits the exact same body plus `resolution: "keep_new_hours"`,
+ * which both flags the affected bookings and creates the block in the same
+ * response. "Cancel this change" just closes the modal -- the add form
+ * stays open with whatever the provider typed, since (unlike
+ * `WorkingHoursSection`, which is reverting an *edit* to something already
+ * saved) there's nothing saved to revert to here, only an in-progress add
+ * they may want to adjust and retry.
  */
 export function BlockedTimeSection() {
   const authFetch = useAuthenticatedRequest();
@@ -59,6 +96,11 @@ export function BlockedTimeSection() {
   const [fieldErrors, setFieldErrors] = useState<BlockedTimeFieldErrors>({});
   const [addFormError, setAddFormError] = useState<string | null>(null);
   const [addSaving, setAddSaving] = useState(false);
+
+  const [collisionState, setCollisionState] = useState<CollisionState | null>(null);
+  const [collisionTrigger, setCollisionTrigger] = useState<HTMLElement | null>(null);
+  const [confirmingCollision, setConfirmingCollision] = useState(false);
+  const [collisionError, setCollisionError] = useState<string | null>(null);
 
   const fromDateRef = useRef<HTMLInputElement>(null);
   const fromTimeRef = useRef<HTMLInputElement>(null);
@@ -160,21 +202,36 @@ export function BlockedTimeSection() {
     setFieldErrors({});
     setAddFormError(null);
     setAddSaving(true);
+
+    const body: BlockedTimeInput = {
+      ...(formValues.label.trim() ? { label: formValues.label.trim() } : {}),
+      start: zonedDateTimeToUtcIso(formValues.fromDate, formValues.fromTime, timezone),
+      end: zonedDateTimeToUtcIso(formValues.toDate, formValues.toTime, timezone),
+    };
+    // Captured before the request (and before `disabled` on this button can
+    // take effect on the next render) so it's still the real triggering
+    // element if a collision opens the modal -- same technique
+    // `WorkingHoursSection`/`BookingConfirmPanel`'s caller use.
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+
     try {
       const created = await authFetch<BlockedTime>(BLOCKED_TIME_PATH, {
         method: "POST",
-        body: {
-          ...(formValues.label.trim() ? { label: formValues.label.trim() } : {}),
-          start: zonedDateTimeToUtcIso(formValues.fromDate, formValues.fromTime, timezone),
-          end: zonedDateTimeToUtcIso(formValues.toDate, formValues.toTime, timezone),
-        },
+        body,
       });
       setBlocks((current) =>
         [...(current ?? []), created].sort((a, b) => a.start.localeCompare(b.start))
       );
       setAdding(false);
     } catch (error) {
-      if (
+      if (error instanceof ApiError && error.status === 409 && isCollisionResponseBody(error.body)) {
+        setCollisionState({
+          body,
+          collisions: error.body.collisions,
+          description: describeBlockedTimeChange(body, timezone),
+        });
+        setCollisionTrigger(trigger);
+      } else if (
         error instanceof ApiError &&
         error.status === 400 &&
         isFieldErrorBody(error.body)
@@ -194,6 +251,37 @@ export function BlockedTimeSection() {
     } finally {
       setAddSaving(false);
     }
+  }
+
+  async function handleKeepNewHours() {
+    if (!collisionState) {
+      return;
+    }
+    setConfirmingCollision(true);
+    setCollisionError(null);
+    try {
+      const created = await authFetch<BlockedTime>(BLOCKED_TIME_PATH, {
+        method: "POST",
+        body: { ...collisionState.body, resolution: "keep_new_hours" },
+      });
+      setBlocks((current) =>
+        [...(current ?? []), created].sort((a, b) => a.start.localeCompare(b.start))
+      );
+      setAdding(false);
+      setCollisionState(null);
+    } catch (error) {
+      if (!(error instanceof ApiError && error.status === 401)) {
+        setCollisionError("Couldn't add this block — please try again.");
+      }
+    } finally {
+      setConfirmingCollision(false);
+    }
+  }
+
+  function handleCancelCollisionChange() {
+    setCollisionState(null);
+    setConfirmingCollision(false);
+    setCollisionError(null);
   }
 
   async function handleRemove(id: number): Promise<void> {
@@ -282,6 +370,19 @@ export function BlockedTimeSection() {
           fromTimeInputRef={fromTimeRef}
           toDateInputRef={toDateRef}
           toTimeInputRef={toTimeRef}
+        />
+      ) : null}
+
+      {collisionState ? (
+        <CollisionWarningModal
+          description={collisionState.description}
+          collisions={collisionState.collisions}
+          timezone={timezone ?? "UTC"}
+          confirming={confirmingCollision}
+          error={collisionError}
+          onKeepNewHours={handleKeepNewHours}
+          onCancelChange={handleCancelCollisionChange}
+          triggerElement={collisionTrigger}
         />
       ) : null}
     </section>

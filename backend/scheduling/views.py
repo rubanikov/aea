@@ -13,16 +13,27 @@ from audit.permissions import IsOwnerOrAdmin
 from audit.services import record_audit_event
 from bookings.models import Booking
 
+from .collisions import find_availability_collisions, find_blocked_time_collisions
 from .models import AppointmentType, Availability, BlockedTime
 from .serializers import (
     AppointmentTypeSerializer,
+    AvailabilityCollisionCheckSerializer,
     AvailabilitySerializer,
+    BlockedTimeResolutionSerializer,
     BlockedTimeSerializer,
+    BookingCollisionSerializer,
     ProviderSerializer,
     SlotQuerySerializer,
     SlotSerializer,
 )
 from .slots import get_open_slots
+
+# TICKET-11 (edge case 3): the audit action every "provider edit accepted
+# despite orphaning a booking" write uses, for both the `Availability` and
+# `BlockedTime` paths below -- a shared string so a reviewer scanning the
+# audit log for this event doesn't have to know which of the two edit types
+# caused it.
+BOOKING_FLAGGED_AS_EXCEPTION_ACTION = "availability_change:booking_flagged_as_exception"
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -96,6 +107,100 @@ class AvailabilityDetailView(APIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+class AvailabilityCollisionCheckView(APIView):
+    """`POST /scheduling/availability/check-collisions` -- TICKET-11, edge
+    case 3 ("provider edits availability that collides with an existing
+    confirmed booking"). Detection-only: this view never creates or deletes
+    an `Availability` row itself -- the frontend still does that through the
+    existing per-row `AvailabilityListCreateView`/`AvailabilityDetailView`
+    endpoints above, exactly as `WorkingHoursSection.tsx` already does
+    (delete-and-recreate per changed day, per TICKET-05's summary).
+
+    Why a dedicated endpoint rather than checking inside the per-row
+    `POST`/`DELETE` directly: `Availability` has no bulk endpoint (TICKET-
+    04's deliberate design), so a shrink-hours save is a *sequence* of
+    DELETE-then-POST calls, one pair per changed day. Checking collisions on
+    any single call in that sequence in isolation is actively wrong, not
+    just incomplete -- at the moment a "shrink Monday" DELETE runs, the
+    replacement POST for the narrower Monday window hasn't landed yet, so
+    every active Monday booking would look orphaned even when the *final*,
+    post-save hours still cover it fine. The only point that has the true,
+    complete proposed picture is before that sequence starts, which is
+    exactly what this endpoint is for: the frontend calls it once with the
+    *entire* desired weekly state (every window that will exist once the
+    save finishes -- a day simply missing from `windows` means "no hours
+    that day", covering the "delete a day entirely" case too), gets back the
+    real answer, and only then runs its existing per-row save sequence --
+    which stays completely unguarded and unchanged on purpose. The tradeoff:
+    this is a client/backend *contract*, not a per-row DB-level invariant --
+    a client that skips this endpoint and calls the per-row `POST`/`DELETE`
+    directly gets no collision protection. Documented, not silently assumed
+    (see this ticket's handoff notes).
+
+    Body (detection -- no `resolution`): `{"windows": [{"day_of_week",
+    "start_time", "end_time"}, ...]}`. `200 {"collisions": []}` if none;
+    `409 {"collisions": [...]}` (see `BookingCollisionSerializer`) if the
+    proposed set would orphan a booking -- nothing is written either way.
+
+    Body (resolution -- the second call after the frontend shows the modal
+    and the provider picks one of its two options): add `"resolution":
+    "keep_new_hours"` or `"cancel_change"`.
+    - `"keep_new_hours"` writes one audit entry per affected booking (the
+      record of it becoming a flagged exception -- see
+      `BOOKING_FLAGGED_AS_EXCEPTION_ACTION`) and returns `200 {"collisions":
+      [...], "resolution": "keep_new_hours"}`. The frontend then runs its
+      normal per-row save sequence to actually persist `windows`.
+    - `"cancel_change"` writes nothing and returns `200 {"collisions": [],
+      "resolution": "cancel_change"}` -- a pure acknowledgment. The frontend
+      is equally free to just close the modal client-side and never call
+      this again for that choice, since there is nothing to undo (the
+      per-row save sequence never ran) -- this project takes the "call it
+      anyway" branch so the choice is always logged the same way regardless
+      of which one the provider picks, and so the frontend has one uniform
+      response shape to handle for both buttons on the modal.
+    """
+
+    def post(self, request):
+        if request.user.role != User.Role.PROVIDER:
+            return Response(
+                {"detail": "Only providers can configure working hours."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = AvailabilityCollisionCheckSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        windows = serializer.validated_data["windows"]
+        resolution = serializer.validated_data.get("resolution")
+
+        if resolution == "cancel_change":
+            return Response({"collisions": [], "resolution": resolution})
+
+        collisions = find_availability_collisions(request.user, windows)
+
+        if resolution == "keep_new_hours":
+            for collision in collisions:
+                record_audit_event(
+                    actor=request.user,
+                    action=BOOKING_FLAGGED_AS_EXCEPTION_ACTION,
+                    target_type="booking",
+                    target_id=collision["id"],
+                    metadata={"reason": "availability_shrink"},
+                )
+            return Response(
+                {
+                    "collisions": BookingCollisionSerializer(collisions, many=True).data,
+                    "resolution": resolution,
+                }
+            )
+
+        if collisions:
+            return Response(
+                {"collisions": BookingCollisionSerializer(collisions, many=True).data},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return Response({"collisions": []})
+
+
 class AppointmentTypeListCreateView(APIView):
     """`GET`/`POST /scheduling/appointment-types` -- a provider's own visit
     types. Same ownership shape as `AvailabilityListCreateView` above."""
@@ -167,6 +272,28 @@ class BlockedTimeListCreateView(APIView):
     `IsOwnerOrAdmin` already does on its own on the detail view -- the two
     log different facts: one that an admin used the bypass, one that the
     row itself was created/deleted.
+
+    `POST` is also TICKET-11's (edge case 3) second collision-guarded edit
+    path, alongside `AvailabilityCollisionCheckView` above -- but unlike
+    `Availability`, no dedicated endpoint is needed here. A block is a
+    single create per range (there's no per-row-in-a-sequence problem: one
+    `POST` *is* the entire proposed change), so this `POST` itself runs
+    `find_blocked_time_collisions` before creating anything:
+
+    - No `resolution` field, no collision: creates the row exactly as
+      before this ticket -- zero behavior change for the common case.
+    - No `resolution` field, collision found: nothing is created; `409
+      {"collisions": [...]}` (see `BookingCollisionSerializer`) so the
+      frontend can show the collision modal.
+    - `resolution="keep_new_hours"`: creates the row for real (skips the
+      collision check that would otherwise block it -- the caller already
+      saw and accepted the collisions) and writes one audit entry per
+      affected booking (`BOOKING_FLAGGED_AS_EXCEPTION_ACTION`). Response is
+      the created row plus a `collisions` key.
+    - `resolution="cancel_change"`: creates nothing; `200 {"collisions": [],
+      "resolution": "cancel_change"}` -- a pure acknowledgment, same "the
+      frontend may skip calling this" note as
+      `AvailabilityCollisionCheckView`.
     """
 
     def get(self, request):
@@ -179,8 +306,27 @@ class BlockedTimeListCreateView(APIView):
                 {"detail": "Only providers can block time on their calendar."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+
+        resolution_serializer = BlockedTimeResolutionSerializer(data=request.data)
+        resolution_serializer.is_valid(raise_exception=True)
+        resolution = resolution_serializer.validated_data.get("resolution")
+
+        if resolution == "cancel_change":
+            return Response({"collisions": [], "resolution": resolution})
+
         serializer = BlockedTimeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
+        proposed = serializer.validated_data
+        collisions = find_blocked_time_collisions(
+            request.user, proposed["start"], proposed["end"]
+        )
+
+        if collisions and resolution != "keep_new_hours":
+            return Response(
+                {"collisions": BookingCollisionSerializer(collisions, many=True).data},
+                status=status.HTTP_409_CONFLICT,
+            )
+
         blocked_time = serializer.save(provider=request.user)
         record_audit_event(
             actor=request.user,
@@ -192,10 +338,23 @@ class BlockedTimeListCreateView(APIView):
                 "end": blocked_time.end.isoformat(),
             },
         )
+        if resolution == "keep_new_hours":
+            for collision in collisions:
+                record_audit_event(
+                    actor=request.user,
+                    action=BOOKING_FLAGGED_AS_EXCEPTION_ACTION,
+                    target_type="booking",
+                    target_id=collision["id"],
+                    metadata={"reason": "blocked_time_overlap", "blocked_time_id": blocked_time.id},
+                )
         logger.info(
             "blocked time created id=%s provider_id=%s", blocked_time.id, request.user.id
         )
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        response_data = dict(serializer.data)
+        if resolution == "keep_new_hours":
+            response_data["collisions"] = BookingCollisionSerializer(collisions, many=True).data
+        return Response(response_data, status=status.HTTP_201_CREATED)
 
 
 class BlockedTimeDetailView(APIView):

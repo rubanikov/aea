@@ -1,11 +1,19 @@
+from datetime import datetime
+from datetime import timezone as dt_timezone
+
 from django.contrib.auth import get_user_model
 
 from audit.models import AuditLog
-from scheduling.models import BlockedTime
+from bookings.models import Booking
+from scheduling.models import AppointmentType, BlockedTime
 
 from .helpers import TEST_PASSWORD, SchedulingAPITestCase
 
 User = get_user_model()
+
+
+def _utc(*args):
+    return datetime(*args, tzinfo=dt_timezone.utc)
 
 
 class BlockedTimeListCreateTests(SchedulingAPITestCase):
@@ -126,6 +134,121 @@ class BlockedTimeListCreateTests(SchedulingAPITestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), [])
+
+
+class BlockedTimeCollisionTests(SchedulingAPITestCase):
+    """TICKET-11, project.md edge case 3: `POST /scheduling/blocked-time`
+    guarded against orphaning an existing confirmed booking. Pure
+    collision-detection logic is covered directly in `test_collisions.py`;
+    this class exercises the HTTP contract on top of it.
+    """
+
+    def setUp(self):
+        self.provider = self.create_provider()
+        self.patient = self.create_patient()
+        self.appointment_type = AppointmentType.objects.create(
+            provider=self.provider, name="Follow-up", duration_minutes=60
+        )
+        self.booking = self.create_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=_utc(2026, 8, 17, 9, 0),
+            patient=self.patient,
+        )
+
+    def test_a_block_that_does_not_overlap_any_booking_is_created_with_no_collisions(self):
+        self.login_as(self.provider)
+
+        response = self.post_json(
+            "/scheduling/blocked-time",
+            {"start": "2026-08-20T00:00:00Z", "end": "2026-08-27T00:00:00Z"},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertNotIn("collisions", response.json())
+        self.assertEqual(BlockedTime.objects.count(), 1)
+
+    def test_a_block_that_would_orphan_a_confirmed_booking_is_rejected_with_409(self):
+        self.login_as(self.provider)
+
+        response = self.post_json(
+            "/scheduling/blocked-time",
+            {"start": "2026-08-17T08:00:00Z", "end": "2026-08-17T12:00:00Z"},
+        )
+
+        self.assertEqual(response.status_code, 409)
+        body = response.json()
+        self.assertEqual(len(body["collisions"]), 1)
+        entry = body["collisions"][0]
+        self.assertEqual(entry["id"], self.booking.id)
+        self.assertEqual(entry["patient_name"], self.patient.name)
+        self.assertEqual(entry["appointment_type_name"], "Follow-up")
+        self.assertEqual(entry["status"], "confirmed")
+        # Nothing was created.
+        self.assertEqual(BlockedTime.objects.count(), 0)
+        self.assertEqual(AuditLog.objects.count(), 0)
+
+    def test_keep_new_hours_creates_the_block_and_writes_an_audit_entry_per_booking(self):
+        self.login_as(self.provider)
+
+        response = self.post_json(
+            "/scheduling/blocked-time",
+            {
+                "start": "2026-08-17T08:00:00Z",
+                "end": "2026-08-17T12:00:00Z",
+                "resolution": "keep_new_hours",
+            },
+        )
+
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertEqual(len(body["collisions"]), 1)
+        self.assertEqual(body["collisions"][0]["id"], self.booking.id)
+        self.assertEqual(BlockedTime.objects.count(), 1)
+
+        # The booking itself is never touched.
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.CONFIRMED)
+
+        actions = list(AuditLog.objects.values_list("action", flat=True))
+        self.assertIn("create:blocked_time", actions)
+        self.assertIn("availability_change:booking_flagged_as_exception", actions)
+        flag_entry = AuditLog.objects.get(
+            action="availability_change:booking_flagged_as_exception"
+        )
+        self.assertEqual(flag_entry.target_type, "booking")
+        self.assertEqual(flag_entry.target_id, str(self.booking.id))
+        self.assertNotIn("patient", str(flag_entry.metadata))
+
+    def test_cancel_change_creates_nothing(self):
+        self.login_as(self.provider)
+
+        response = self.post_json(
+            "/scheduling/blocked-time",
+            {
+                "start": "2026-08-17T08:00:00Z",
+                "end": "2026-08-17T12:00:00Z",
+                "resolution": "cancel_change",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"collisions": [], "resolution": "cancel_change"})
+        self.assertEqual(BlockedTime.objects.count(), 0)
+        self.assertEqual(AuditLog.objects.count(), 0)
+
+    def test_a_cancelled_booking_never_appears_in_the_collision_list(self):
+        self.booking.status = Booking.Status.CANCELLED
+        self.booking.save(update_fields=["status"])
+        self.login_as(self.provider)
+
+        response = self.post_json(
+            "/scheduling/blocked-time",
+            {"start": "2026-08-17T08:00:00Z", "end": "2026-08-17T12:00:00Z"},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(BlockedTime.objects.count(), 1)
 
 
 class BlockedTimeDeleteTests(SchedulingAPITestCase):

@@ -5,6 +5,11 @@ import { useAuthenticatedRequest } from "@/hooks/use-authenticated-request";
 import { ApiError } from "@/lib/api/client";
 import { isFieldErrorBody, splitFieldErrors } from "@/lib/api/field-errors";
 import {
+  isCollisionResponseBody,
+  type AvailabilityCollision,
+  type AvailabilityWindowInput,
+} from "@/lib/availability/collisions";
+import {
   WEEKDAYS,
   dayOfWeekFromIndex,
   dayOfWeekToIndex,
@@ -15,10 +20,12 @@ import {
   type WorkingHoursRow,
 } from "@/lib/availability/validation";
 import type { AvailabilityDay } from "@/lib/availability/types";
+import { CollisionWarningModal } from "./CollisionWarningModal";
 
 const DEFAULT_START_TIME = "09:00";
 const DEFAULT_END_TIME = "17:00";
 const AVAILABILITY_PATH = "/scheduling/availability";
+const CHECK_COLLISIONS_PATH = "/scheduling/availability/check-collisions";
 
 interface SavedState {
   rows: WorkingHoursRow[];
@@ -29,6 +36,15 @@ interface SavedState {
    * per day, so saving a change deletes *every* existing row for that day
    * before creating the replacement, keeping the two in sync. */
   idsByDay: Record<DayOfWeek, number[]>;
+}
+
+/** One open collision-warning modal's worth of state: the proposed windows
+ * it was raised against (resent verbatim on "Keep new hours"), the
+ * affected appointments to list, and the change description to show. */
+interface CollisionState {
+  windows: AvailabilityWindowInput[];
+  collisions: AvailabilityCollision[];
+  description: string;
 }
 
 /** Tolerates "HH:MM:SS" (DRF's default `TimeField` serialization,
@@ -85,6 +101,49 @@ function buildSavedState(days: readonly AvailabilityDay[]): SavedState {
   return { rows: rowsFromApi(days), idsByDay: groupIdsByDay(days) };
 }
 
+/** The complete proposed weekly picture (TICKET-11): every currently-
+ * enabled row's day/start/end, in the shape `check-collisions`'s `windows`
+ * expects. A day toggled off (or never enabled) is simply absent, which the
+ * backend takes to mean "no hours that day" -- covering a day being deleted
+ * entirely, not just shortened. */
+function buildProposedWindows(rows: readonly WorkingHoursRow[]): AvailabilityWindowInput[] {
+  return rows
+    .filter((row) => row.enabled)
+    .map((row) => ({
+      day_of_week: dayOfWeekToIndex(row.day),
+      start_time: row.startTime,
+      end_time: row.endTime,
+    }));
+}
+
+function formatRange(row: WorkingHoursRow): string {
+  return row.enabled ? `${row.startTime}–${row.endTime}` : "unavailable";
+}
+
+/** e.g. "You're changing Friday's hours from 09:00–17:00 to 09:00–13:00."
+ * -- the wireframe's (Screen 7) framing sentence, built from a diff between
+ * what was last saved and what's about to be submitted. Falls back to a
+ * generic sentence in the (unusual) case a collision is raised without any
+ * row actually differing. */
+function describeWorkingHoursChange(
+  previous: readonly WorkingHoursRow[],
+  next: readonly WorkingHoursRow[]
+): string {
+  const changes = WEEKDAYS.map(({ label }, index) => {
+    const before = previous[index];
+    const after = next[index];
+    const changed =
+      before.enabled !== after.enabled ||
+      (after.enabled &&
+        (before.startTime !== after.startTime || before.endTime !== after.endTime));
+    return changed ? `${label}'s hours from ${formatRange(before)} to ${formatRange(after)}` : null;
+  }).filter((line): line is string => line !== null);
+
+  return changes.length > 0
+    ? `You're changing ${changes.join("; ")}.`
+    : "This change affects existing bookings.";
+}
+
 /**
  * Weekly working hours: a checkbox + start/end time per weekday inside a
  * `<fieldset>`, matching Screen 5 of the wireframe. A single start/end
@@ -99,6 +158,17 @@ function buildSavedState(days: readonly AvailabilityDay[]): SavedState {
  * alone; a day that changed has its previous row(s) deleted and, if still
  * enabled, a new one created. This keeps the single "Save" button the
  * wireframe shows despite the backend being row-oriented.
+ *
+ * TICKET-11: before that per-day save sequence ever runs, the complete
+ * proposed weekly picture is sent to `POST
+ * /scheduling/availability/check-collisions`. No collision (`200`) proceeds
+ * exactly as before -- zero behavior change. A collision (`409`) opens
+ * `CollisionWarningModal` instead of saving anything; "Keep new hours"
+ * re-calls the same endpoint with `resolution: "keep_new_hours"` and then
+ * runs the real save sequence, while "Cancel this change" (also Esc/Go
+ * back) discards the proposed edit client-side only -- the backend's own
+ * docs say either is fine for that resolution, and a second round-trip buys
+ * nothing when nothing needs to change server-side.
  */
 export function WorkingHoursSection() {
   const authFetch = useAuthenticatedRequest();
@@ -111,6 +181,12 @@ export function WorkingHoursSection() {
   const [formError, setFormError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [timezone, setTimezone] = useState<string | null>(null);
+
+  const [collisionState, setCollisionState] = useState<CollisionState | null>(null);
+  const [collisionTrigger, setCollisionTrigger] = useState<HTMLElement | null>(null);
+  const [confirmingCollision, setConfirmingCollision] = useState(false);
+  const [collisionError, setCollisionError] = useState<string | null>(null);
 
   const checkboxRefs = useRef<Partial<Record<DayOfWeek, HTMLInputElement | null>>>({});
   const startRefs = useRef<Partial<Record<DayOfWeek, HTMLInputElement | null>>>({});
@@ -145,6 +221,26 @@ export function WorkingHoursSection() {
     };
   }, [authFetch, reloadKey]);
 
+  useEffect(() => {
+    // Same "no shared hook for this yet" pattern as `BlockedTimeSection`.
+    // Only needed to render a collision's time in the provider's own
+    // timezone -- display-only, so a failure here just falls back to UTC
+    // rather than breaking this section's main load state.
+    let cancelled = false;
+
+    authFetch<{ timezone: string }>("/profile")
+      .then((result) => {
+        if (!cancelled) {
+          setTimezone(result.timezone);
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authFetch]);
+
   function retry() {
     setLoadError(null);
     setRows(null);
@@ -178,21 +274,13 @@ export function WorkingHoursSection() {
     checkboxRefs.current.monday?.focus();
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  /** The actual per-day delete/recreate save sequence -- unchanged from
+   * before this ticket, just extracted so both the no-collision path and
+   * "Keep new hours" (after its own resolution round-trip) can run it. */
+  async function runSaveSequence() {
     if (!rows || !savedState) {
       return;
     }
-
-    setSaved(false);
-    setFormError(null);
-    const clientErrors = validateWorkingHours(rows);
-    if (Object.keys(clientErrors).length > 0) {
-      setRowErrors(clientErrors);
-      focusFirstInvalid(clientErrors);
-      return;
-    }
-    setRowErrors({});
     setSaving(true);
 
     const serverErrors: Partial<Record<DayOfWeek, string>> = {};
@@ -272,6 +360,96 @@ export function WorkingHoursSection() {
       setSaved(true);
     }
     setSaving(false);
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!rows || !savedState) {
+      return;
+    }
+
+    setSaved(false);
+    setFormError(null);
+    const clientErrors = validateWorkingHours(rows);
+    if (Object.keys(clientErrors).length > 0) {
+      setRowErrors(clientErrors);
+      focusFirstInvalid(clientErrors);
+      return;
+    }
+    setRowErrors({});
+    setSaving(true);
+
+    // Captured before any awaits (and before `disabled` on the Save button
+    // can take effect on the next render) so it's still the real triggering
+    // element -- same technique `BookingConfirmPanel`'s caller uses.
+    const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const windows = buildProposedWindows(rows);
+
+    try {
+      await authFetch(CHECK_COLLISIONS_PATH, {
+        method: "POST",
+        body: { windows },
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 409 && isCollisionResponseBody(error.body)) {
+        setCollisionState({
+          windows,
+          collisions: error.body.collisions,
+          description: describeWorkingHoursChange(savedState.rows, rows),
+        });
+        setCollisionTrigger(trigger);
+        setSaving(false);
+        return;
+      }
+      if (error instanceof ApiError && error.status === 401) {
+        setSaving(false);
+        return;
+      }
+      setFormError("Couldn't save your working hours — please try again.");
+      setSaving(false);
+      return;
+    }
+
+    // No collision -- proceed exactly as before this ticket.
+    await runSaveSequence();
+  }
+
+  async function handleKeepNewHours() {
+    if (!collisionState) {
+      return;
+    }
+    setConfirmingCollision(true);
+    setCollisionError(null);
+    try {
+      await authFetch(CHECK_COLLISIONS_PATH, {
+        method: "POST",
+        body: { windows: collisionState.windows, resolution: "keep_new_hours" },
+      });
+    } catch (error) {
+      setConfirmingCollision(false);
+      if (!(error instanceof ApiError && error.status === 401)) {
+        setCollisionError("Couldn't save your working hours — please try again.");
+      }
+      return;
+    }
+    setCollisionState(null);
+    setConfirmingCollision(false);
+    await runSaveSequence();
+  }
+
+  function handleCancelCollisionChange() {
+    setCollisionState(null);
+    setConfirmingCollision(false);
+    setCollisionError(null);
+    setSaving(false);
+    setRowErrors({});
+    setFormError(null);
+    if (savedState) {
+      // "Cancel this change" keeps the provider's current hours -- revert
+      // the form back to what's actually saved rather than leaving it
+      // showing the discarded edit.
+      setRows(savedState.rows);
+    }
   }
 
   if (loadError) {
@@ -429,6 +607,19 @@ export function WorkingHoursSection() {
           {saving ? "Saving…" : "Save working hours"}
         </button>
       </form>
+
+      {collisionState ? (
+        <CollisionWarningModal
+          description={collisionState.description}
+          collisions={collisionState.collisions}
+          timezone={timezone ?? "UTC"}
+          confirming={confirmingCollision}
+          error={collisionError}
+          onKeepNewHours={handleKeepNewHours}
+          onCancelChange={handleCancelCollisionChange}
+          triggerElement={collisionTrigger}
+        />
+      ) : null}
     </section>
   );
 }
