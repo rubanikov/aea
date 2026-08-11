@@ -9,6 +9,9 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Claude Code local tooling state (not part of the project)
+.claude/
+
 # Python (backend/) — see backend/.gitignore for the full set
 __pycache__/
 *.pyc
