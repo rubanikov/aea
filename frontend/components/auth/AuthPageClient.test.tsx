@@ -53,4 +53,13 @@ describe("AuthPageClient", () => {
     render(<AuthPageClient />);
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
+
+  it("shows the account-deleted confirmation when the query param is set (post-deletion redirect, TICKET-14)", () => {
+    currentSearchParams = new URLSearchParams("account_deleted=1");
+    render(<AuthPageClient />);
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      /account has been deleted/i
+    );
+  });
 });

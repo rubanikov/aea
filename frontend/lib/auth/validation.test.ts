@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  validateDeleteAccount,
   validateLogin,
   validatePasswordChange,
   validateRegister,
@@ -98,6 +99,20 @@ describe("validatePasswordChange", () => {
         newPassword: "newpass123",
         confirmNewPassword: "newpass123",
       })
+    ).toEqual({});
+  });
+});
+
+describe("validateDeleteAccount", () => {
+  it("requires the current password", () => {
+    expect(validateDeleteAccount({ currentPassword: "" })).toEqual({
+      currentPassword: "Current password is required",
+    });
+  });
+
+  it("passes once a password is entered", () => {
+    expect(
+      validateDeleteAccount({ currentPassword: "oldpass1" })
     ).toEqual({});
   });
 });

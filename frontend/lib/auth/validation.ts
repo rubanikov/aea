@@ -85,3 +85,24 @@ export function validatePasswordChange(
 
   return errors;
 }
+
+export interface DeleteAccountValues {
+  currentPassword: string;
+}
+
+/**
+ * Requires the current password before an account-deletion request is even
+ * sent -- the typed-confirmation step TICKET-14 calls for, so the confirm
+ * action can't fire on an accidental click (see `DeleteAccountSection`).
+ */
+export function validateDeleteAccount(
+  values: DeleteAccountValues
+): FieldErrors {
+  const errors: FieldErrors = {};
+
+  if (!values.currentPassword) {
+    errors.currentPassword = "Current password is required";
+  }
+
+  return errors;
+}

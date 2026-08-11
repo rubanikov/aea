@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { ProfileForm } from "@/components/settings/ProfileForm";
 import { PasswordForm } from "@/components/settings/PasswordForm";
+import { DeleteAccountSection } from "@/components/settings/DeleteAccountSection";
 
 const ROLE_HOME: Record<string, string> = {
   patient: "/patient",
@@ -12,10 +13,9 @@ const ROLE_HOME: Record<string, string> = {
 };
 
 /**
- * Account settings: profile view/edit and password update. Reachable by any
- * authenticated role (`proxy.ts` gates `/settings` on "logged in", not a
- * specific role) -- account deletion ("Danger zone") is TICKET-14's scope,
- * not built here.
+ * Account settings: profile view/edit, password update, and account
+ * deletion ("Danger zone", TICKET-14). Reachable by any authenticated role
+ * (`proxy.ts` gates `/settings` on "logged in", not a specific role).
  */
 export default function SettingsPage() {
   const user = useCurrentUser();
@@ -44,6 +44,13 @@ export default function SettingsPage() {
           Password
         </h2>
         <PasswordForm />
+      </section>
+
+      <section aria-labelledby="danger-zone-heading" className="flex flex-col gap-4">
+        <h2 id="danger-zone-heading" className="text-lg font-semibold">
+          Danger zone
+        </h2>
+        <DeleteAccountSection />
       </section>
     </div>
   );

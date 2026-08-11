@@ -63,6 +63,12 @@ class User(AbstractUser):
     role = models.CharField(max_length=20, choices=Role.choices, default=Role.PATIENT)
     phone = models.CharField(max_length=32, blank=True)
     timezone = models.CharField(max_length=64, default="UTC")
+    # Set by TICKET-14's account-deletion flow when this row's PHI fields
+    # get scrubbed. The row itself is never hard-deleted (see
+    # `accounts.views.DeleteAccountView`) so `AuditLog.actor` keeps
+    # resolving by id — this timestamp is how "was this account scrubbed"
+    # stays queryable/auditable after the fact.
+    deleted_at = models.DateTimeField(null=True, blank=True)
 
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []

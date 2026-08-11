@@ -4,7 +4,10 @@ import zoneinfo
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.utils import timezone as django_timezone
 from rest_framework import serializers
+
+from audit.services import record_audit_event
 
 User = get_user_model()
 
@@ -133,3 +136,59 @@ class ChangePasswordSerializer(serializers.Serializer):
         user.set_password(self.validated_data["new_password"])
         user.save(update_fields=["password"])
         return user
+
+
+def _cancel_upcoming_appointments(user):
+    """Cancels the patient's upcoming appointments as part of account
+    deletion.
+
+    Currently a no-op: `Booking` doesn't exist yet (TICKET-07). Once it
+    does, this should cancel every upcoming `Booking` owned by `user` and
+    return the count cancelled -- `DeleteAccountSerializer.save` already
+    surfaces that count in the endpoint's response, so the frontend
+    contract (`cancelled_appointments_count`) doesn't need to change when
+    this is wired up.
+
+    # TODO(TICKET-07/09): cancel real Booking rows once that model exists
+    """
+    return 0
+
+
+class DeleteAccountSerializer(serializers.Serializer):
+    """`POST /profile/delete-account`. The current password is required as
+    server-side proof of intent -- a typed-confirmation modal is a
+    client-side UX affordance (see the ticket), not a substitute for
+    actually re-proving who's asking for an irreversible action."""
+
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+    def validate_password(self, value):
+        user = self.context["request"].user
+        if not user.check_password(value):
+            raise serializers.ValidationError("Incorrect password.")
+        return value
+
+    def save(self):
+        user = self.context["request"].user
+
+        # Logged while the actor's own identifying fields are still intact
+        # -- the entry itself only ever references `user.id`, which stays
+        # valid after the scrub below (the row is never hard-deleted).
+        record_audit_event(
+            actor=user,
+            action="account:deletion_requested",
+            target_type="user",
+            target_id=user.id,
+            metadata={"role": user.role},
+        )
+        cancelled_count = _cancel_upcoming_appointments(user)
+
+        user.name = ""
+        user.phone = ""
+        user.email = f"deleted-user-{user.id}@deleted.invalid"
+        user.is_active = False
+        user.deleted_at = django_timezone.now()
+        user.set_unusable_password()
+        user.save()
+
+        return cancelled_count

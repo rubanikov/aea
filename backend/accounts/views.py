@@ -12,6 +12,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .csrf import enforce_ajax_header
 from .serializers import (
     ChangePasswordSerializer,
+    DeleteAccountSerializer,
     LoginSerializer,
     RegisterSerializer,
     UserSerializer,
@@ -81,6 +82,22 @@ class LoginView(APIView):
         return response
 
 
+def _revoke_session(request, response):
+    """Blacklists the current refresh token (if present) and clears both
+    auth cookies on `response`. Shared by `LogoutView` and
+    `DeleteAccountView` — a successful account deletion logs the user out
+    the exact same way `POST /auth/logout` does, rather than duplicating
+    the mechanism."""
+    raw_refresh = request.COOKIES.get(REFRESH_COOKIE_NAME)
+    if raw_refresh:
+        try:
+            RefreshToken(raw_refresh).blacklist()
+        except TokenError:
+            pass  # already expired/invalid -- nothing left to revoke
+
+    clear_auth_cookies(response)
+
+
 class LogoutView(APIView):
     """`POST /auth/logout` — requires a valid session (default
     `IsAuthenticated`). Blacklists the refresh token so it can't be used to
@@ -88,16 +105,9 @@ class LogoutView(APIView):
     sending the access token on the very next request as a result."""
 
     def post(self, request):
-        raw_refresh = request.COOKIES.get(REFRESH_COOKIE_NAME)
-        if raw_refresh:
-            try:
-                RefreshToken(raw_refresh).blacklist()
-            except TokenError:
-                pass  # already expired/invalid -- nothing left to revoke
-
         logger.info("user logged out id=%s", request.user.id)
         response = Response(status=status.HTTP_204_NO_CONTENT)
-        clear_auth_cookies(response)
+        _revoke_session(request, response)
         return response
 
 
@@ -190,4 +200,25 @@ class ChangePasswordView(APIView):
         access_token, refresh_token = issue_tokens_for_user(request.user)
         response = Response(status=status.HTTP_204_NO_CONTENT)
         set_auth_cookies(response, access_token, refresh_token)
+        return response
+
+
+class DeleteAccountView(APIView):
+    """`POST /profile/delete-account` — TICKET-14. Requires the current
+    password re-submitted as server-side proof of intent (a client-side
+    confirmation modal alone isn't enough for an irreversible action — see
+    `DeleteAccountSerializer`). Scrubs the account's PHI fields in place
+    (never a hard delete, so `AuditLog.actor` keeps resolving by id — see
+    `accounts/models.py`'s `deleted_at` field) and logs the session out the
+    same way `POST /auth/logout` does.
+    """
+
+    def post(self, request):
+        serializer = DeleteAccountSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        cancelled_appointments_count = serializer.save()
+
+        logger.info("account deletion requested id=%s", request.user.id)
+        response = Response({"cancelled_appointments_count": cancelled_appointments_count})
+        _revoke_session(request, response)
         return response

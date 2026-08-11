@@ -20,7 +20,7 @@ describe("SettingsPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the profile and password sections, but no danger-zone/delete section (TICKET-14's scope)", () => {
+  it("renders the profile, password, and danger-zone sections", () => {
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
     render(<SettingsPage />);
 
@@ -30,8 +30,12 @@ describe("SettingsPage", () => {
     expect(
       screen.getByRole("heading", { name: "Password" })
     ).toBeInTheDocument();
-    expect(screen.queryByText(/danger zone/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/delete account/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "Danger zone" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /request deletion/i })
+    ).toBeInTheDocument();
   });
 
   it("links back to the current user's role home", () => {

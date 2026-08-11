@@ -6,18 +6,22 @@ import { useSearchParams } from "next/navigation";
 import { LoginForm } from "./LoginForm";
 import { RegisterForm } from "./RegisterForm";
 import { readSessionExpiredMessage } from "@/lib/auth/session-expired";
+import { readAccountDeletedMessage } from "@/lib/auth/account-deleted";
 
 type Mode = "login" | "register";
 
 /**
  * Tabbed register/login screen. Reads the `session_expired` query param
  * (set by `hooks/use-current-user.ts` / `hooks/use-authenticated-request.ts`
- * when an authenticated fetch 401s elsewhere in the app) and surfaces it as
- * a clear message above the forms.
+ * when an authenticated fetch 401s elsewhere in the app) and the
+ * `account_deleted` param (set by `DeleteAccountSection` after a successful
+ * deletion request, TICKET-14) and surfaces either as a clear message above
+ * the forms.
  */
 export function AuthPageClient() {
   const searchParams = useSearchParams();
   const sessionExpiredMessage = readSessionExpiredMessage(searchParams);
+  const accountDeletedMessage = readAccountDeletedMessage(searchParams);
 
   const [mode, setMode] = useState<Mode>("login");
   const [prefillEmail, setPrefillEmail] = useState("");
@@ -45,6 +49,16 @@ export function AuthPageClient() {
           className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800"
         >
           {sessionExpiredMessage}
+        </p>
+      ) : null}
+
+      {accountDeletedMessage ? (
+        <p
+          role="status"
+          aria-live="polite"
+          className="rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-800"
+        >
+          {accountDeletedMessage}
         </p>
       ) : null}
 
