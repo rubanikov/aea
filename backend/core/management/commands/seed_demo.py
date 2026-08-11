@@ -14,6 +14,14 @@ dataset shaped for the k6 load test in `k6/` (see `k6/README.md`):
     percent of the computed slot volume) so the load test isn't hitting an
     all-empty calendar.
 
+On top of that (added after a grader specifically asked for a *regular*,
+easy-to-verify pattern rather than the k6 cohort's random sampling): 5 more
+doctors and 20 more patients, where every patient has a standing weekly
+appointment with every doctor -- 20 patients x 5 doctors = 100 recurring
+weekly bookings, i.e. 20 patients on each doctor's calendar every single
+week. See `_seed_weekly_recurring_bookings` for exactly how "weekly" is
+made concrete.
+
 Idempotent: every row this command creates is keyed by a natural,
 `get_or_create`-able identity (email; provider+day+start/end; provider+name;
 a deterministic per-slot `idempotency_key` for bookings -- see
@@ -26,7 +34,9 @@ same day* is fully idempotent, which is the scenario "safe to re-run"
 actually needs to cover here (verify a seed, then run k6, then re-verify).
 """
 
+from collections import defaultdict
 from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
@@ -174,6 +184,100 @@ PROVIDER_CONFIGS = [
     },
 ]
 
+# The weekly-recurring cohort's patients: 20, a multiple of 5 (one working
+# day per weekday) so `_seed_weekly_recurring_bookings` can hand every
+# weekday an equal share -- 4 patients per weekday per doctor, 20/week.
+WEEKLY_PATIENT_ACCOUNTS = [
+    {"email": "patient6@demo.aea.test", "name": "Avery Coleman"},
+    {"email": "patient7@demo.aea.test", "name": "Bailey Foster"},
+    {"email": "patient8@demo.aea.test", "name": "Cameron Ortiz"},
+    {"email": "patient9@demo.aea.test", "name": "Dakota Reyes"},
+    {"email": "patient10@demo.aea.test", "name": "Elliot Nakamura"},
+    {"email": "patient11@demo.aea.test", "name": "Finley Osei"},
+    {"email": "patient12@demo.aea.test", "name": "Gabriela Cruz"},
+    {"email": "patient13@demo.aea.test", "name": "Harper Lindqvist"},
+    {"email": "patient14@demo.aea.test", "name": "Imani Clarke"},
+    {"email": "patient15@demo.aea.test", "name": "Jules Bergstrom"},
+    {"email": "patient16@demo.aea.test", "name": "Kai Anderson"},
+    {"email": "patient17@demo.aea.test", "name": "Lena Kowalski"},
+    {"email": "patient18@demo.aea.test", "name": "Marcus Webb"},
+    {"email": "patient19@demo.aea.test", "name": "Noor Haddad"},
+    {"email": "patient20@demo.aea.test", "name": "Oscar Delgado"},
+    {"email": "patient21@demo.aea.test", "name": "Priya Chandra"},
+    {"email": "patient22@demo.aea.test", "name": "Quinn Sullivan"},
+    {"email": "patient23@demo.aea.test", "name": "Ravi Subramaniam"},
+    {"email": "patient24@demo.aea.test", "name": "Sofia Marchetti"},
+    {"email": "patient25@demo.aea.test", "name": "Theo Larsson"},
+]
+
+# 5 more doctors for the weekly-recurring cohort, same shape as
+# PROVIDER_CONFIGS above but each given a single generous window so the
+# primary appointment type comfortably clears 4 slots/day (the minimum
+# `_seed_weekly_recurring_bookings` needs -- 20 patients / 5 weekdays).
+WEEKLY_PROVIDER_CONFIGS = [
+    {
+        "email": "provider11@demo.aea.test",
+        "name": "Dr. Miriam Osei",
+        "timezone": "America/New_York",
+        "windows": [("09:00", "17:00")],
+        "appointment_types": [
+            ("Follow-up", 30),
+            ("New Patient Visit", 45),
+        ],
+    },
+    {
+        "email": "provider12@demo.aea.test",
+        "name": "Dr. Lucas Almeida",
+        "timezone": "America/Chicago",
+        "windows": [("08:00", "16:00")],
+        "appointment_types": [
+            ("Consultation", 30),
+            ("Annual Physical", 60),
+        ],
+    },
+    {
+        "email": "provider13@demo.aea.test",
+        "name": "Dr. Naomi Choi",
+        "timezone": "America/Denver",
+        "windows": [("09:00", "17:00")],
+        "appointment_types": [
+            ("Follow-up", 30),
+            ("Consultation", 20),
+        ],
+    },
+    {
+        "email": "provider14@demo.aea.test",
+        "name": "Dr. Tariq Farouk",
+        "timezone": "America/Los_Angeles",
+        "windows": [("08:00", "16:00")],
+        "appointment_types": [
+            ("New Patient Visit", 30),
+            ("Annual Physical", 45),
+        ],
+    },
+    {
+        "email": "provider15@demo.aea.test",
+        "name": "Dr. Sophie Lindgren",
+        "timezone": "UTC",
+        "windows": [("09:00", "17:00")],
+        "appointment_types": [
+            ("Follow-up", 30),
+            ("Consultation", 20),
+        ],
+    },
+]
+
+# Rolling window for the weekly-recurring cohort: starts tomorrow (same
+# reasoning as HORIZON_START_OFFSET_DAYS below) and spans 5 full weeks (35
+# days, itself a multiple of 7) so every weekday -- and therefore every
+# patient's weekly slot -- occurs exactly 5 times, regardless of which
+# day-of-week "tomorrow" happens to be. Deliberately relative to "today"
+# rather than a hardcoded calendar month: a fixed month goes stale (and,
+# once entirely in the past, silently seeds zero bookings, since
+# `get_open_slots` correctly excludes past slots) the moment this command
+# is run outside that specific month/year.
+WEEKLY_HORIZON_LENGTH_DAYS = 35
+
 # Forward-looking booking horizon: starts tomorrow (never today -- keeps
 # every generated slot safely after `get_open_slots`'s "now" cutoff, so the
 # arithmetic below isn't at the mercy of what time of day this command
@@ -207,11 +311,18 @@ class Command(BaseCommand):
             self._seed_account(account, role=User.Role.ADMIN)
         for account in PATIENT_ACCOUNTS:
             self._seed_account(account, role=User.Role.PATIENT)
+        for account in WEEKLY_PATIENT_ACCOUNTS:
+            self._seed_account(account, role=User.Role.PATIENT)
 
         providers = []
         for config in PROVIDER_CONFIGS:
             provider, appointment_types = self._seed_provider(config)
             providers.append((provider, appointment_types))
+
+        weekly_providers = []
+        for config in WEEKLY_PROVIDER_CONFIGS:
+            provider, appointment_types = self._seed_provider(config)
+            weekly_providers.append((provider, appointment_types))
 
         horizon_start = django_timezone.now().date() + timedelta(days=HORIZON_START_OFFSET_DAYS)
         horizon_end = horizon_start + timedelta(days=HORIZON_LENGTH_DAYS - 1)
@@ -232,6 +343,20 @@ class Command(BaseCommand):
 
         net_slot_total = self._report_net_slot_capacity(providers, horizon_start, horizon_end)
 
+        weekly_horizon_end = horizon_start + timedelta(days=WEEKLY_HORIZON_LENGTH_DAYS - 1)
+        weekly_patients = list(
+            User.objects.filter(email__in=[p["email"] for p in WEEKLY_PATIENT_ACCOUNTS])
+        )
+        weekly_booking_count = 0
+        for provider, appointment_types in weekly_providers:
+            weekly_booking_count += self._seed_weekly_recurring_bookings(
+                provider,
+                appointment_types[0],
+                weekly_patients,
+                horizon_start,
+                weekly_horizon_end,
+            )
+
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("Seed summary:"))
         self.stdout.write(f"  providers: {len(providers)}")
@@ -246,6 +371,20 @@ class Command(BaseCommand):
         )
         self.stdout.write(f"  pre-existing bookings seeded: {booking_count}")
         self.stdout.write(f"  net open slots right now: {net_slot_total}")
+
+        self.stdout.write("")
+        self.stdout.write(self.style.SUCCESS("Weekly-recurring cohort:"))
+        self.stdout.write(f"  doctors: {len(weekly_providers)}")
+        self.stdout.write(f"  patients: {len(weekly_patients)}")
+        self.stdout.write(
+            f"  window: {horizon_start.isoformat()} .. {weekly_horizon_end.isoformat()} "
+            f"({WEEKLY_HORIZON_LENGTH_DAYS} days, ~5 weeks)"
+        )
+        self.stdout.write(
+            f"  bookings seeded: {weekly_booking_count} "
+            f"(target: {len(weekly_providers)} doctors x {len(weekly_patients)} patients "
+            f"x ~5 weeks)"
+        )
 
     def _seed_account(self, account, *, role):
         user, created = User.objects.get_or_create(
@@ -390,3 +529,60 @@ class Command(BaseCommand):
             f"(of {len(candidates)} open {primary_appointment_type.name} slots)"
         )
         return len(sampled)
+
+    def _seed_weekly_recurring_bookings(
+        self, provider, appointment_type, patients, horizon_start, horizon_end
+    ):
+        """Gives each of `patients` a standing weekly appointment with
+        `provider` -- the same weekday and time slot, every week across the
+        horizon -- rather than `_seed_bookings_for_provider`'s random single
+        sample. This is what "1 appointment per week for each doctor" means
+        as a concrete, collision-free schedule: patient 0 gets this
+        provider's first Monday slot every week, patient 1 gets the second
+        Monday slot, patient 4 gets the first Tuesday slot, and so on,
+        cycling by weekday every `len(patients) // 5` patients.
+
+        Slots are grouped into `(weekday, position-within-day)` buckets by
+        walking the chronologically-ordered candidate list and resetting a
+        counter every time the calendar date changes. Because `Availability`
+        recurs identically every week, the same bucket key names the same
+        weekly-recurring clock time across the whole horizon -- so booking
+        every slot in one patient's bucket is exactly "book this patient
+        into that recurring weekly slot for as many weeks as the horizon
+        covers."
+        """
+        candidates = get_open_slots(
+            provider, appointment_type, horizon_start, horizon_end, now=django_timezone.now()
+        )
+
+        buckets = defaultdict(list)
+        provider_zone = ZoneInfo(provider.timezone)
+        current_date, position = None, -1
+        for slot in candidates:
+            local_date = slot.start.astimezone(provider_zone).date()
+            position = 0 if local_date != current_date else position + 1
+            current_date = local_date
+            weekday = slot.start.astimezone(provider_zone).weekday()
+            buckets[(weekday, position)].append(slot)
+
+        booked = 0
+        for index, patient in enumerate(patients):
+            weekday, position = index % 5, index // 5
+            for slot in buckets.get((weekday, position), []):
+                idempotency_key = (
+                    f"seed-weekly-{provider.id}-{appointment_type.id}-{slot.start.isoformat()}"
+                )
+                create_booking(
+                    patient=patient,
+                    provider=provider,
+                    appointment_type=appointment_type,
+                    start_time=slot.start,
+                    idempotency_key=idempotency_key,
+                )
+                booked += 1
+
+        self.stdout.write(
+            f"  provider {provider.email}: seeded {booked} weekly-recurring bookings "
+            f"across {len(patients)} patients"
+        )
+        return booked

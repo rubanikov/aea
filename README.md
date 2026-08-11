@@ -30,7 +30,7 @@ cd backend
 python -m venv .venv && source .venv/Scripts/activate   # Windows Git Bash; use .venv/bin/activate on macOS/Linux
 pip install -r requirements-dev.txt
 python manage.py migrate
-python manage.py seed_demo       # ~10 providers, patients, an admin, and sample bookings — see below
+python manage.py seed_demo       # 15 providers, 25 patients, an admin, and sample bookings — see below
 python manage.py runserver 0.0.0.0:8000
 ```
 Confirm it's up: `curl http://localhost:8000/health` → `{"status": "ok", "database": "reachable"}`.
@@ -50,9 +50,11 @@ Open `http://localhost:3000`.
 
 | Role | Email |
 |---|---|
-| Patient | `patient@demo.aea.test` (also `patient2@demo.aea.test`–`patient5@demo.aea.test` — there is no `patient1`; the first patient is the unnumbered one) |
-| Provider | `provider1@demo.aea.test`–`provider10@demo.aea.test` |
+| Patient | `patient@demo.aea.test` (also `patient2@demo.aea.test`–`patient25@demo.aea.test` — there is no `patient1`; the first patient is the unnumbered one) |
+| Provider | `provider1@demo.aea.test`–`provider15@demo.aea.test` |
 | Admin | `admin@demo.aea.test` |
+
+`patient6`–`patient25` and `provider11`–`provider15` are a second, more regular cohort layered on top of the first: each of those 20 patients has a standing weekly appointment with each of those 5 doctors (100 recurring weekly bookings total, so any of those 5 doctors' calendars shows all 20 of those patients every single week) — useful if you want a clean, predictable pattern to look at rather than the original 10 providers' randomly-sampled bookings.
 
 Each provider already has working hours, a few appointment types (10–60 min, per real scheduling norms — see `tech-stack-research.md`), and a handful of pre-existing bookings, so there's real data to click through immediately rather than an empty first-run state.
 
