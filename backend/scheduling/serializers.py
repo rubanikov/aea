@@ -1,7 +1,10 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from .models import AppointmentType, Availability, BlockedTime
 from .slots import MAX_SLOT_QUERY_RANGE_DAYS
+
+User = get_user_model()
 
 
 class AvailabilitySerializer(serializers.ModelSerializer):
@@ -55,6 +58,21 @@ class BlockedTimeSerializer(serializers.ModelSerializer):
         if start is not None and end is not None and start >= end:
             raise serializers.ValidationError({"end": "end must be after start."})
         return attrs
+
+
+class ProviderSerializer(serializers.ModelSerializer):
+    """Output shape for `GET /scheduling/providers` -- a patient-facing
+    provider picker (TICKET-06). Deliberately narrower than
+    `accounts.serializers.UserSerializer`: `email`/`phone` aren't public in
+    the way "which providers exist to book with" needs to be, so this
+    exposes only what picking a provider requires -- `id`, display `name`,
+    and `timezone` (surfaced for TICKET-06's dual-timezone display).
+    """
+
+    class Meta:
+        model = User
+        fields = ["id", "name", "timezone"]
+        read_only_fields = fields
 
 
 class SlotSerializer(serializers.Serializer):

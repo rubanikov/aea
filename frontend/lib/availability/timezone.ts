@@ -79,3 +79,46 @@ export function formatZonedDateTime(isoTimestamp: string, timeZone: string): str
   const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
   return `${lookup.month} ${lookup.day}, ${lookup.year} ${lookup.hour}:${lookup.minute}`;
 }
+
+/**
+ * The wall-clock "YYYY-MM-DD" date a UTC instant falls on when observed in
+ * `timeZone` -- e.g. `("2026-08-24T02:00:00.000Z", "America/New_York")` ->
+ * `"2026-08-23"` (22:00 the previous day in EDT). Used (TICKET-06) to bucket
+ * open slots by the local calendar date they land on for a given viewer --
+ * the patient's own zone for "which day does this slot show under", the
+ * provider's for cross-checking -- independent of which date the API's
+ * `date_from`/`date_to` query range was expressed in. Same
+ * `Intl.DateTimeFormat().formatToParts` technique as `formatZonedDateTime`,
+ * just narrowed to the date portion and ISO-ordered so the result sorts and
+ * compares correctly as a plain string key.
+ */
+export function zonedDateKey(isoTimestamp: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(isoTimestamp));
+  const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${lookup.year}-${lookup.month}-${lookup.day}`;
+}
+
+/**
+ * Wall-clock time-of-day for a UTC instant, observed in `timeZone` and
+ * rendered 12-hour with a lowercase am/pm suffix and no leading zero -- the
+ * wireframe's slot-button format (e.g. `"9:00am"`, `"12:30pm"`). Reads
+ * `dayPeriod` off `Intl`'s own parts (rather than computing am/pm from the
+ * hour number by hand) and strips it down to bare letters, since some
+ * locales/ICU builds render it as `"AM"` and others as `"a.m."`.
+ */
+export function zonedTimeLabel(isoTimestamp: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    hour: "numeric",
+    minute: "2-digit",
+    hourCycle: "h12",
+  }).formatToParts(new Date(isoTimestamp));
+  const lookup = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  const period = (lookup.dayPeriod ?? "").replace(/[^a-zA-Z]/g, "").toLowerCase();
+  return `${lookup.hour}:${lookup.minute}${period}`;
+}

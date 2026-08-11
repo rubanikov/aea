@@ -15,6 +15,14 @@ export function formatDuration(minutes: number): string {
   return minutes === 1 ? "1 minute" : `${minutes} minutes`;
 }
 
+/** Short "N min" form for compact contexts -- e.g. the patient-facing
+ * appointment-type picker's "Follow-up (15 min)" (TICKET-06's brief gives
+ * this exact wording), distinct from `formatDuration`'s full-word "15
+ * minutes" used in the provider's own appointment-type list. */
+export function formatDurationShort(minutes: number): string {
+  return `${minutes} min`;
+}
+
 /** `DURATION_OPTIONS`, plus `current` if it isn't already in the list --
  * mirrors `lib/timezones.ts`'s `timezoneOptions` so an unusual value from
  * the backend (or a type created before the preset list changed) is never

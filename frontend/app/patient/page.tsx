@@ -1,11 +1,17 @@
+"use client";
+
+import { BookingFlow } from "@/components/booking/BookingFlow";
+
+/**
+ * Patient dashboard (TICKET-06): the provider/service picker and open-slot
+ * browser, replacing TICKET-01's placeholder. Booking a slot (TICKET-07)
+ * and any "upcoming appointments" summary are later tickets' scope.
+ */
 export default function PatientDashboardPage() {
   return (
-    <div>
-      <h1 className="text-xl font-semibold">Patient dashboard — coming soon</h1>
-      <p className="mt-2 text-sm text-gray-600">
-        Booking and upcoming appointments land in later tickets. Account
-        settings are available now, from the nav above.
-      </p>
+    <div className="mx-auto flex max-w-4xl flex-col gap-8">
+      <h1 className="text-2xl font-semibold tracking-tight">Book an appointment</h1>
+      <BookingFlow />
     </div>
   );
 }

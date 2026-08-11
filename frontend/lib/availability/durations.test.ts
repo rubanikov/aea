@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { durationOptions, formatDuration } from "./durations";
+import { durationOptions, formatDuration, formatDurationShort } from "./durations";
 
 describe("formatDuration", () => {
   it("labels a duration in minutes, never a bare number", () => {
@@ -8,6 +8,12 @@ describe("formatDuration", () => {
 
   it("uses the singular 'minute' for 1", () => {
     expect(formatDuration(1)).toBe("1 minute");
+  });
+});
+
+describe("formatDurationShort", () => {
+  it("labels a duration in the compact 'N min' form", () => {
+    expect(formatDurationShort(15)).toBe("15 min");
   });
 });
 

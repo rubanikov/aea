@@ -34,4 +34,10 @@ urlpatterns = [
         name="blocked-time-detail",
     ),
     path("scheduling/slots", views.SlotsView.as_view(), name="slots"),
+    path("scheduling/providers", views.ProviderListView.as_view(), name="provider-list"),
+    path(
+        "scheduling/providers/<int:pk>/appointment-types",
+        views.ProviderAppointmentTypesView.as_view(),
+        name="provider-appointment-type-list",
+    ),
 ]

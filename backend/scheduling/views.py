@@ -17,6 +17,7 @@ from .serializers import (
     AppointmentTypeSerializer,
     AvailabilitySerializer,
     BlockedTimeSerializer,
+    ProviderSerializer,
     SlotQuerySerializer,
     SlotSerializer,
 )
@@ -213,6 +214,42 @@ class BlockedTimeDetailView(APIView):
         )
         logger.info("blocked time deleted id=%s provider_id=%s", pk, request.user.id)
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class ProviderListView(APIView):
+    """`GET /scheduling/providers` -- every bookable provider (TICKET-06:
+    a patient needs to discover *who* they can book with before they can
+    ask `SlotsView` below for that provider's open slots). Patient-facing
+    like `SlotsView`: no ownership check, just the project's default
+    `IsAuthenticated` -- there's no owner to scope this list to, it's the
+    same list for every requesting user.
+    """
+
+    def get(self, request):
+        providers = User.objects.filter(role=User.Role.PROVIDER).order_by("name", "id")
+        return Response(ProviderSerializer(providers, many=True).data)
+
+
+class ProviderAppointmentTypesView(APIView):
+    """`GET /scheduling/providers/<id>/appointment-types` -- one provider's
+    visit types (TICKET-06: a patient needs to know what services a
+    provider offers, and each one's duration, before requesting slots for
+    one via `SlotsView` below). Unlike `AppointmentTypeListCreateView`
+    above -- which is owner-scoped to `request.user` for a provider
+    managing their own types -- this is keyed off the `<id>` in the URL and
+    open to any authenticated user, the same "browsing is the point" shape
+    as `SlotsView`.
+
+    `404`s if `<id>` doesn't resolve to a provider at all -- a provider
+    that exists but simply hasn't configured any types yet is a `200` with
+    an empty list, same distinction `SlotsView`'s `bookable` flag draws
+    between "no such provider" and "not yet bookable".
+    """
+
+    def get(self, request, pk):
+        provider = get_object_or_404(User, pk=pk, role=User.Role.PROVIDER)
+        appointment_types = AppointmentType.objects.filter(provider=provider)
+        return Response(AppointmentTypeSerializer(appointment_types, many=True).data)
 
 
 class SlotsView(APIView):
