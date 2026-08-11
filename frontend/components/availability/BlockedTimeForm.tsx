@@ -28,9 +28,9 @@ interface BlockedTimeFormProps {
 /**
  * The "add a blocked-time range" form: an optional label plus From/To date
  * and time, entered in the provider's own timezone (converted to UTC at
- * submit time -- see `BlockedTimeSection.tsx`). Fully controlled, one
+ * submit time; see `BlockedTimeSection.tsx`). Fully controlled, one
  * `values` object like `AuditLogFilters` rather than `AppointmentTypeForm`'s
- * one-prop-per-field -- five fields makes the single-object shape the
+ * one-prop-per-field: five fields makes the single-object shape the
  * lighter prop list. There's no edit variant of this form (see
  * `BlockedTimeSection.tsx`'s docstring for why), so unlike
  * `AppointmentTypeForm` this one has exactly one call site.

@@ -1,15 +1,16 @@
 /**
- * Pure calendar-grid math for the patient-facing date picker (TICKET-06): a
- * 6-week, Sunday-first month grid, plus the small set of formatting
- * helpers the picker and slot list need. No date library -- matching
+ * Pure calendar-grid math for the patient-facing date picker: a 6-week,
+ * Sunday-first month grid, plus the small set of formatting helpers the
+ * picker and slot list need. No date library, matching
  * `lib/availability/timezone.ts`'s "native only" precedent, and this needs
  * even less: day-of-week and days-in-month for a given Gregorian
  * year/month/day never depend on any real-world clock or timezone, so this
- * can use `Date`'s *local* constructor purely as calendar arithmetic (never
- * to represent a real instant, and never read back as UTC) without any
- * DST/offset risk. Actual timezone conversion -- a UTC slot instant to the
- * patient's local calendar date/time -- happens separately, in
- * `lib/availability/timezone.ts`'s `zonedDateKey`/`zonedTimeLabel`.
+ * can use `Date`'s *local* constructor purely as calendar arithmetic
+ * (never to represent a real instant, and never read back as UTC)
+ * without any DST/offset risk. Actual timezone conversion, from a UTC
+ * slot instant to the patient's local calendar date/time, happens
+ * separately, in `lib/availability/timezone.ts`'s
+ * `zonedDateKey`/`zonedTimeLabel`.
  */
 
 export interface YearMonth {
@@ -23,7 +24,7 @@ export interface CalendarDay {
   month: number;
   day: number;
   /** "YYYY-MM-DD", matching the `/scheduling/slots` API's `date_from`/
-   * `date_to` format and `zonedDateKey`'s output -- the shared key used to
+   * `date_to` format and `zonedDateKey`'s output: the shared key used to
    * look up "does this day have any open slots". */
   dateKey: string;
   /** `false` for the leading/trailing days from adjacent months shown to
@@ -56,7 +57,7 @@ const WEEKDAY_NAMES = [
   "Saturday",
 ];
 
-/** Sunday-first weekday header row, matching the wireframe. */
+/** Sunday-first weekday header row. */
 export const WEEKDAY_HEADERS: readonly string[] = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 function pad2(value: number): string {
@@ -86,7 +87,7 @@ export function formatMonthYear({ year, month }: YearMonth): string {
 }
 
 function daysInMonth(year: number, month: number): number {
-  // Day 0 of the *next* month is the last day of `month` -- ordinary
+  // Day 0 of the *next* month is the last day of `month`: ordinary
   // calendar arithmetic, not a real-instant lookup (see module docstring).
   return new Date(year, month, 0).getDate();
 }

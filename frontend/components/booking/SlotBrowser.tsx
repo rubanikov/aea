@@ -30,9 +30,9 @@ const SLOTS_PATH = "/scheduling/slots";
 
 /** Groups a flat slot list by the calendar date each slot's *start* falls
  * on in `timeZone`, sorted within each date by start time. Exported for
- * `RescheduleDialog` (TICKET-10), which needs the exact same grouping over
- * its own (differently-sourced) slot list -- real grouping/sorting logic,
- * not a one-line formatter, so it's shared rather than re-derived. */
+ * `RescheduleDialog`, which needs the exact same grouping over its own
+ * (differently-sourced) slot list; real grouping/sorting logic, not a
+ * one-line formatter, so it's shared rather than re-derived. */
 export function groupSlotsByLocalDate(
   slots: readonly Slot[],
   timeZone: string
@@ -54,23 +54,23 @@ export function groupSlotsByLocalDate(
 }
 
 /**
- * Screen 2 of the wireframe (date/slot browser half): a month calendar
+ * The date/slot browser half of the booking screen: a month calendar
  * (bold = has open slots) next to a time-slot grid for whichever date is
  * selected, both in the patient's own timezone, with the provider's zone
- * surfaced alongside for context. Clicking an open slot (TICKET-07) opens
+ * surfaced alongside for context. Clicking an open slot opens
  * `BookingConfirmPanel`, which owns the actual `POST /bookings` call; this
  * component's own role in booking is just tracking which slot/panel is
- * open and reacting to the two outcomes that affect the list underneath --
- * a success removes that slot immediately, a lost race (409) triggers a
+ * open and reacting to the two outcomes that affect the list underneath: a
+ * success removes that slot immediately, a lost race (409) triggers a
  * refetch of the whole list.
  *
- * Fetches `GET /scheduling/slots` once per visible month (not once per
- * selected date) -- the calendar's bold/dimmed markers need the whole
+ * Fetches `GET /scheduling/slots` once per visible month, not once per
+ * selected date. The calendar's bold/dimmed markers need the whole
  * month's data anyway, so selecting a different date within that month
  * only re-filters the already-loaded response, firing no new request.
  * `date_from`/`date_to` are the visible month's full 6-week grid bounds
  * (`monthGrid`, `lib/scheduling/calendar.ts`), which already extends into
- * the adjacent months on both sides -- more than enough padding for a slot
+ * the adjacent months on both sides, more than enough padding for a slot
  * near a month boundary to land on a different local calendar date than
  * the provider-local date the API bounds it by (see `SlotsView` in
  * `backend/scheduling/views.py`, which reasons about the same kind of
@@ -97,7 +97,7 @@ export function SlotBrowser({
 
   // The slot a patient has clicked to open `BookingConfirmPanel`, plus the
   // `<button>` that opened it (so the panel can return focus there on
-  // close) -- both null when the panel is closed.
+  // close). Both null when the panel is closed.
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
   const [triggerElement, setTriggerElement] = useState<HTMLElement | null>(null);
 
@@ -130,7 +130,7 @@ export function SlotBrowser({
   }, [authFetch, provider.id, appointmentType.id, visibleMonth, reloadKey]);
 
   /** Clears the currently-loaded slots and bumps `reloadKey`, which the
-   * fetch effect above is keyed on -- forces a fresh `GET` of the same
+   * fetch effect above is keyed on, forcing a fresh `GET` of the same
    * date range. */
   function refreshSlots() {
     setSlotsResponse(null);
@@ -146,8 +146,8 @@ export function SlotBrowser({
     setSlotsResponse(null);
     setLoadError(null);
     setVisibleMonth(nextMonth);
-    // Navigating months moves the selected date to that month's 1st --
-    // whatever was selected before almost certainly isn't in the new
+    // Navigating months moves the selected date to that month's 1st.
+    // Whatever was selected before almost certainly isn't in the new
     // month, and the newly-loaded response has no data for it yet anyway.
     setSelectedDateKey(dateKey(nextMonth.year, nextMonth.month, 1));
   }
@@ -163,7 +163,7 @@ export function SlotBrowser({
   function handleSelectSlot(slot: Slot) {
     // Captures the clicked slot `<button>` via `document.activeElement`
     // rather than threading the DOM event through `TimeSlotGrid`'s
-    // `onSelectSlot={(slot: Slot) => void}` prop -- a real click focuses
+    // `onSelectSlot={(slot: Slot) => void}` prop. A real click focuses
     // its target before the click handler runs (the browser's own default,
     // and `@testing-library/user-event`'s `click()` reproduces the same
     // sequence), so this reliably is that button. Handed to
@@ -176,7 +176,7 @@ export function SlotBrowser({
     setSelectedSlot(null);
   }
 
-  /** The booking succeeded -- remove it from the open list right away so it
+  /** The booking succeeded; remove it from the open list right away so it
    * can't be selected again in this session, independent of the next
    * background refetch (e.g. a month navigation). */
   function handleBookingSuccess(bookedSlot: Slot) {
@@ -190,7 +190,7 @@ export function SlotBrowser({
     );
   }
 
-  /** Lost the race (409) and the patient chose "Choose another time" --
+  /** Lost the race (409) and the patient chose "Choose another time":
    * close the panel and refetch, since the slot list this session loaded is
    * now known to be stale. */
   function handleSlotUnavailable() {

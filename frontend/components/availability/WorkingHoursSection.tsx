@@ -31,10 +31,10 @@ interface SavedState {
   rows: WorkingHoursRow[];
   /** Every currently-saved row id for a day, keyed by `DayOfWeek`. The
    * backend's model permits more than one `Availability` row per day (for
-   * per-day breaks/sub-ranges -- a wireframe nice-to-have this ticket
-   * skips, "use your judgment"); this UI only ever shows/edits one range
-   * per day, so saving a change deletes *every* existing row for that day
-   * before creating the replacement, keeping the two in sync. */
+   * per-day breaks/sub-ranges, a nice-to-have this UI skips); this UI only
+   * ever shows/edits one range per day, so saving a change deletes *every*
+   * existing row for that day before creating the replacement, keeping
+   * the two in sync. */
   idsByDay: Record<DayOfWeek, number[]>;
 }
 
@@ -47,9 +47,8 @@ interface CollisionState {
   description: string;
 }
 
-/** Tolerates "HH:MM:SS" (DRF's default `TimeField` serialization,
- * confirmed against `backend/scheduling/tests/test_availability_api.py`)
- * as well as "HH:MM" (what `<input type="time">` uses). */
+/** Tolerates "HH:MM:SS" (DRF's default `TimeField` serialization) as well
+ * as "HH:MM" (what `<input type="time">` uses). */
 function normalizeTime(value: string): string {
   return value.length > 5 ? value.slice(0, 5) : value;
 }
@@ -58,7 +57,7 @@ function rowsFromApi(days: readonly AvailabilityDay[]): WorkingHoursRow[] {
   const byDayIndex = new Map<number, AvailabilityDay>();
   for (const day of days) {
     // If a day somehow has more than one saved row, this UI only surfaces
-    // one range per day -- keep the earliest (the API orders by
+    // one range per day. Keep the earliest (the API orders by
     // `day_of_week, start_time`, so the first match wins deterministically).
     if (!byDayIndex.has(day.day_of_week)) {
       byDayIndex.set(day.day_of_week, day);
@@ -101,10 +100,10 @@ function buildSavedState(days: readonly AvailabilityDay[]): SavedState {
   return { rows: rowsFromApi(days), idsByDay: groupIdsByDay(days) };
 }
 
-/** The complete proposed weekly picture (TICKET-11): every currently-
- * enabled row's day/start/end, in the shape `check-collisions`'s `windows`
- * expects. A day toggled off (or never enabled) is simply absent, which the
- * backend takes to mean "no hours that day" -- covering a day being deleted
+/** The complete proposed weekly picture: every currently-enabled row's
+ * day/start/end, in the shape `check-collisions`'s `windows` expects. A
+ * day toggled off (or never enabled) is simply absent, which the backend
+ * takes to mean "no hours that day", covering a day being deleted
  * entirely, not just shortened. */
 function buildProposedWindows(rows: readonly WorkingHoursRow[]): AvailabilityWindowInput[] {
   return rows
@@ -121,8 +120,8 @@ function formatRange(row: WorkingHoursRow): string {
 }
 
 /** e.g. "You're changing Friday's hours from 09:00–17:00 to 09:00–13:00."
- * -- the wireframe's (Screen 7) framing sentence, built from a diff between
- * what was last saved and what's about to be submitted. Falls back to a
+ * The collision modal's framing sentence, built from a diff between what
+ * was last saved and what's about to be submitted. Falls back to a
  * generic sentence in the (unusual) case a collision is raised without any
  * row actually differing. */
 function describeWorkingHoursChange(
@@ -146,29 +145,26 @@ function describeWorkingHoursChange(
 
 /**
  * Weekly working hours: a checkbox + start/end time per weekday inside a
- * `<fieldset>`, matching Screen 5 of the wireframe. A single start/end
- * range per day (no per-day break/sub-range support -- a deliberate
- * simplification the ticket explicitly allows).
+ * `<fieldset>`. A single start/end range per day, with no per-day
+ * break/sub-range support, a deliberate simplification.
  *
  * `GET /scheduling/availability` on mount. There is no bulk save endpoint
- * and no `PATCH` for an existing row (confirmed against
- * `backend/scheduling/views.py` -- only `GET`/`POST` on the collection and
- * `DELETE` on a row), so "Save working hours" reconciles day-by-day: a day
- * whose enabled/start/end state hasn't changed since the last load is left
- * alone; a day that changed has its previous row(s) deleted and, if still
- * enabled, a new one created. This keeps the single "Save" button the
- * wireframe shows despite the backend being row-oriented.
+ * and no `PATCH` for an existing row, only `GET`/`POST` on the collection
+ * and `DELETE` on a row, so "Save working hours" reconciles day-by-day: a
+ * day whose enabled/start/end state hasn't changed since the last load is
+ * left alone; a day that changed has its previous row(s) deleted and, if
+ * still enabled, a new one created. This keeps the single "Save" button
+ * despite the backend being row-oriented.
  *
- * TICKET-11: before that per-day save sequence ever runs, the complete
- * proposed weekly picture is sent to `POST
- * /scheduling/availability/check-collisions`. No collision (`200`) proceeds
- * exactly as before -- zero behavior change. A collision (`409`) opens
- * `CollisionWarningModal` instead of saving anything; "Keep new hours"
- * re-calls the same endpoint with `resolution: "keep_new_hours"` and then
- * runs the real save sequence, while "Cancel this change" (also Esc/Go
- * back) discards the proposed edit client-side only -- the backend's own
- * docs say either is fine for that resolution, and a second round-trip buys
- * nothing when nothing needs to change server-side.
+ * Before that per-day save sequence ever runs, the complete proposed
+ * weekly picture is sent to `POST /scheduling/availability/check-collisions`.
+ * No collision (`200`) proceeds exactly as before, zero behavior change.
+ * A collision (`409`) opens `CollisionWarningModal` instead of saving
+ * anything; "Keep new hours" re-calls the same endpoint with
+ * `resolution: "keep_new_hours"` and then runs the real save sequence,
+ * while "Cancel this change" (also Esc/Go back) discards the proposed
+ * edit client-side only, since a second round-trip buys nothing when
+ * nothing needs to change server-side.
  */
 export function WorkingHoursSection() {
   const authFetch = useAuthenticatedRequest();
@@ -224,7 +220,7 @@ export function WorkingHoursSection() {
   useEffect(() => {
     // Same "no shared hook for this yet" pattern as `BlockedTimeSection`.
     // Only needed to render a collision's time in the provider's own
-    // timezone -- display-only, so a failure here just falls back to UTC
+    // timezone, display-only, so a failure here just falls back to UTC
     // rather than breaking this section's main load state.
     let cancelled = false;
 
@@ -274,9 +270,9 @@ export function WorkingHoursSection() {
     checkboxRefs.current.monday?.focus();
   }
 
-  /** The actual per-day delete/recreate save sequence -- unchanged from
-   * before this ticket, just extracted so both the no-collision path and
-   * "Keep new hours" (after its own resolution round-trip) can run it. */
+  /** The actual per-day delete/recreate save sequence, extracted so both
+   * the no-collision path and "Keep new hours" (after its own resolution
+   * round-trip) can run it. */
   async function runSaveSequence() {
     if (!rows || !savedState) {
       return;
@@ -347,7 +343,7 @@ export function WorkingHoursSection() {
       const refreshed = await authFetch<AvailabilityDay[]>(AVAILABILITY_PATH);
       applyLoaded(refreshed);
     } catch {
-      // Best-effort refresh -- if it fails too, keep the last-known local
+      // Best-effort refresh; if it fails too, keep the last-known local
       // state rather than losing the provider's in-progress edits.
     }
 
@@ -381,7 +377,7 @@ export function WorkingHoursSection() {
 
     // Captured before any awaits (and before `disabled` on the Save button
     // can take effect on the next render) so it's still the real triggering
-    // element -- same technique `BookingConfirmPanel`'s caller uses.
+    // element, same technique `BookingConfirmPanel`'s caller uses.
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const windows = buildProposedWindows(rows);
 
@@ -410,7 +406,7 @@ export function WorkingHoursSection() {
       return;
     }
 
-    // No collision -- proceed exactly as before this ticket.
+    // No collision: proceed with the normal save.
     await runSaveSequence();
   }
 
@@ -445,7 +441,7 @@ export function WorkingHoursSection() {
     setRowErrors({});
     setFormError(null);
     if (savedState) {
-      // "Cancel this change" keeps the provider's current hours -- revert
+      // "Cancel this change" keeps the provider's current hours: revert
       // the form back to what's actually saved rather than leaving it
       // showing the discarded edit.
       setRows(savedState.rows);

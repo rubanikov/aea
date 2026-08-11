@@ -17,11 +17,11 @@ import { AuditLogTable } from "./AuditLogTable";
  * Admin audit-log viewer: filter row, results table, pagination. Loads via
  * `GET /audit-log` through `useAuthenticatedRequest()` so 401 handling
  * (silent refresh, then redirect-to-login) is the same as every other
- * authenticated page -- this component never rolls its own fetch/401 logic.
+ * authenticated page; this component never rolls its own fetch/401 logic.
  *
  * `draftFilters` is what the filter inputs show; `appliedFilters` is what's
- * actually driving the current fetch. They only converge on Apply/Clear --
- * this is what makes the filter row "explicit Apply", not
+ * actually driving the current fetch. They only converge on Apply/Clear,
+ * which is what makes the filter row "explicit Apply", not
  * filter-as-you-type.
  */
 export function AuditLogViewer() {
@@ -38,8 +38,8 @@ export function AuditLogViewer() {
   const [error, setError] = useState<string | null>(null);
   // The query this request cycle is for, and the query `data`/`error` last
   // resolved for. `loading` is derived from the two disagreeing rather than
-  // its own imperative `setLoading(true/false)` -- an effect shouldn't set
-  // state that's really just a computation of its own inputs.
+  // its own imperative `setLoading(true/false)`, since an effect shouldn't
+  // set state that's really just a computation of its own inputs.
   const requestQuery = `${buildAuditLogQuery(appliedFilters, page)}#${retryToken}`;
   const [resolvedQuery, setResolvedQuery] = useState<string | null>(null);
   const loading = resolvedQuery !== requestQuery;

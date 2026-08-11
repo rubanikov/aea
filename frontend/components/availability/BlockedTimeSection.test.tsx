@@ -11,9 +11,8 @@ vi.mock("next/navigation", () => ({
 
 const BLOCKED_TIME_PATH = "/scheduling/blocked-time";
 
-// Exactly the wireframe's (Screen 6) two example rows, in UTC as the API
-// would send them for a provider on America/New_York (EDT, UTC-4 in both
-// August and September).
+// Two example rows, in UTC as the API would send them for a provider on
+// America/New_York (EDT, UTC-4 in both August and September).
 const SAMPLE_BLOCKS = [
   {
     id: 1,
@@ -34,10 +33,10 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 /**
- * Routes `fetch` by pathname -- this section fires two independent requests
- * on mount (blocked time + the timezone-conversion `GET /profile`), so
- * tests shouldn't be coupled to which fires first. `/profile` defaults to a
- * successful America/New_York response unless a test overrides it.
+ * Routes `fetch` by pathname, since this section fires two independent
+ * requests on mount (blocked time + the timezone-conversion `GET /profile`),
+ * so tests shouldn't be coupled to which fires first. `/profile` defaults
+ * to a successful America/New_York response unless a test overrides it.
  */
 function mockFetchRouter(
   overrides: Partial<
@@ -134,9 +133,8 @@ describe("BlockedTimeSection", () => {
   it("defaults an unlabeled block's display name to 'Blocked'", async () => {
     mockFetchRouter({
       [BLOCKED_TIME_PATH]: () =>
-        // The real API sends "" (not null) for an unset label -- a plain
-        // `CharField(blank=True)`, confirmed against
-        // `backend/scheduling/tests/test_blocked_time_api.py`.
+        // The real API sends "" (not null) for an unset label: a plain
+        // `CharField(blank=True)`.
         jsonResponse([{ id: 5, label: "", start: SAMPLE_BLOCKS[0].start, end: SAMPLE_BLOCKS[0].end }]),
     });
     render(<BlockedTimeSection />);
@@ -225,8 +223,7 @@ describe("BlockedTimeSection", () => {
       start: "2026-08-24T04:00:00.000Z",
       end: "2026-08-24T21:00:00.000Z",
     });
-    // TICKET-11: no collision -- the block is created with no modal
-    // interruption, exactly as before this ticket.
+    // No collision: the block is created with no modal interruption.
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 
@@ -286,8 +283,7 @@ describe("BlockedTimeSection", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  // TICKET-11: a 409 on add means the range would strand an existing
-  // booking.
+  // A 409 on add means the range would strand an existing booking.
   const SAMPLE_COLLISION = [
     {
       id: 601,
@@ -318,7 +314,7 @@ describe("BlockedTimeSection", () => {
     return saveButton;
   }
 
-  it("opens the collision-warning modal -- not a generic error -- when adding a block returns 409, listing the affected appointment", async () => {
+  it("opens the collision-warning modal (not a generic error) when adding a block returns 409, listing the affected appointment", async () => {
     mockFetchRouter({
       [BLOCKED_TIME_PATH]: (init) => {
         if (!init || (init.method ?? "GET") === "GET") {

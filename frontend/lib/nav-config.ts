@@ -12,14 +12,11 @@ export interface RoleNavConfig {
 }
 
 /**
- * Per-role nav structure for the app shell. Later tickets add real screens
- * here as they land (see `wireframes.html` for what each role's nav
- * eventually needs). The provider role is the first to outgrow a single
- * placeholder link: `/provider` (availability settings, TICKET-04/05/14)
- * and `/provider/calendar` (the day-to-day agenda, TICKET-08) are two
- * separate screens per the wireframe, so "Dashboard" is relabeled to
- * "Availability" here rather than staying a generic name now that there's
- * a second, more frequently-used provider screen to distinguish it from.
+ * Per-role nav structure for the app shell. The provider role has two
+ * screens, `/provider` (availability settings) and `/provider/calendar`
+ * (the day-to-day agenda), so its dashboard link is labeled "Availability"
+ * rather than a generic "Dashboard", to distinguish it from the more
+ * frequently-used calendar screen.
  */
 export const ROLE_NAV: Record<Role, RoleNavConfig> = {
   patient: {

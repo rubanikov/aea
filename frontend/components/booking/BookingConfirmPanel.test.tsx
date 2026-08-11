@@ -201,7 +201,7 @@ describe("BookingConfirmPanel", () => {
     expect(confirmation).toHaveTextContent(/you're booked/i);
     expect(confirmation).toHaveTextContent("Confirmation #501");
     expect(onBooked).toHaveBeenCalledWith(SLOT);
-    // The form is gone -- can't double-book from a stale confirm button.
+    // The form is gone; can't double-book from a stale confirm button.
     expect(screen.queryByRole("button", { name: "Confirm booking" })).not.toBeInTheDocument();
   });
 

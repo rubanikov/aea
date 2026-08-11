@@ -10,7 +10,7 @@ interface AuditLogPaginationProps {
 }
 
 /**
- * Page N of M, real Prev/Next buttons (focusable, clearly labeled -- not
+ * Page N of M, real Prev/Next buttons (focusable, clearly labeled, not
  * bare arrow icons), and a "Showing X-Y of Z" count. The count text is
  * plain, visible text rather than an `aria-live` region: it's read
  * naturally by anything that reads the page, so extra ARIA plumbing here

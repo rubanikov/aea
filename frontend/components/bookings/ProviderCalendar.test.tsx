@@ -13,9 +13,8 @@ const PROFILE_PATH = "/profile";
 const BOOKINGS_PATH = "/bookings";
 const TIMEZONE = "America/New_York";
 
-// Exactly the wireframe's (Screen 8) sample day -- Tuesday, August 18,
-// 2026 -- in UTC as the API would send it for a provider on
-// America/New_York (EDT, UTC-4 in August).
+// Tuesday, August 18, 2026, in UTC as the API would send it for a
+// provider on America/New_York (EDT, UTC-4 in August).
 const NEW_PATIENT_VISIT = {
   id: 1,
   patient_id: 101,
@@ -46,8 +45,8 @@ const LAB_REVIEW = {
   status: "completed",
 };
 
-// Not in the wireframe -- added so a still-`confirmed`, not-yet-started
-// booking exists to exercise "Mark no-show" disabled state.
+// A still-`confirmed`, not-yet-started booking, to exercise the
+// "Mark no-show" disabled state.
 const AFTERNOON_CHECKUP = {
   id: 4,
   patient_id: 104,
@@ -63,7 +62,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 /** Routes `fetch` by pathname (query strings are ignored, matching every
- * other section's test router in this codebase) -- `/profile` defaults to
+ * other section's test router in this codebase). `/profile` defaults to
  * a successful America/New_York response unless a test overrides it. */
 function mockFetchRouter(
   overrides: Partial<
@@ -88,10 +87,10 @@ function mockFetchRouter(
 describe("ProviderCalendar", () => {
   beforeEach(() => {
     // Freezes only `Date`/`Date.now()` (not setTimeout/setInterval), so
-    // `userEvent`/`waitFor`/`findBy*` all keep working on real timers
-    // exactly as in every other test in this codebase -- "now" is 11:00am
+    // `userEvent`/`waitFor`/`findBy*` all keep working on real timers,
+    // exactly as in every other test in this codebase. "now" is 11:00am
     // ET on Tuesday, August 18, 2026: after New Patient Visit's and
-    // Follow-up's start times, before Lab Review's and the Checkup's --
+    // Follow-up's start times, before Lab Review's and the Checkup's,
     // the split "Mark no-show" disabled-until-start-passed depends on.
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-08-18T15:00:00.000Z"));
@@ -216,7 +215,7 @@ describe("ProviderCalendar", () => {
       screen.queryByRole("button", { name: /Lab Review/ })
     ).not.toBeInTheDocument();
 
-    // Role-appropriate actions on a confirmed row -- and never a
+    // Role-appropriate actions on a confirmed row, and never a
     // confirm/decline action anywhere on this screen.
     const context = "New Patient Visit with R. Nikov, 9:00–9:45am";
     expect(
@@ -438,7 +437,7 @@ describe("ProviderCalendar", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Can't mark no-show before the appointment start time."
     );
-    // The row's own status is unchanged -- a rejected transition never
+    // The row's own status is unchanged; a rejected transition never
     // silently updates the UI.
     expect(screen.getByText("CONFIRMED")).toBeInTheDocument();
   });

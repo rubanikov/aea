@@ -3,9 +3,7 @@
 import { BookingFlow } from "@/components/booking/BookingFlow";
 
 /**
- * Patient dashboard (TICKET-06): the provider/service picker and open-slot
- * browser, replacing TICKET-01's placeholder. Booking a slot (TICKET-07)
- * and any "upcoming appointments" summary are later tickets' scope.
+ * Patient dashboard: the provider/service picker and open-slot browser.
  */
 export default function PatientDashboardPage() {
   return (

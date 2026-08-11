@@ -17,7 +17,7 @@ const APPOINTMENT_TYPES_PATH = "/scheduling/providers/10/appointment-types";
 const SLOTS_PATH = "/scheduling/slots";
 const RESCHEDULE_PATH = "/bookings/1/reschedule";
 
-// Starts well outside the notice window -- this dialog itself doesn't
+// Starts well outside the notice window. This dialog itself doesn't
 // re-check that client-side (its caller, `AppointmentCard`, already gates
 // opening it at all on that), so the fixture's own start time isn't
 // otherwise significant here beyond being a fixed, known value to assert
@@ -343,7 +343,7 @@ describe("RescheduleDialog", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "This booking cannot be cancelled within 24 hours of its start time."
     );
-    // Still on the confirm step -- can retry immediately.
+    // Still on the confirm step, can retry immediately.
     expect(screen.getByRole("button", { name: "Confirm new time" })).toBeEnabled();
   });
 

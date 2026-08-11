@@ -13,7 +13,7 @@ vi.mock("next/navigation", () => ({
 
 const NOW = new Date("2026-08-12T09:00:00.000Z");
 
-// Starts 24h+ from NOW -- Cancel/Reschedule should be enabled.
+// Starts 24h+ from NOW: Cancel/Reschedule should be enabled.
 const ANNUAL_PHYSICAL: PatientBooking = {
   id: 1,
   provider_id: 10,
@@ -26,8 +26,7 @@ const ANNUAL_PHYSICAL: PatientBooking = {
   reminder_sent: false,
 };
 
-// Starts 14h from NOW -- inside the 24h notice window, matching the
-// wireframe's own sample row.
+// Starts 14h from NOW: inside the 24h notice window.
 const LAB_REVIEW: PatientBooking = {
   id: 2,
   provider_id: 10,
@@ -47,7 +46,7 @@ const CANCELLED_VISIT: PatientBooking = {
 };
 
 /** Stubs `fetch` so opening the reschedule dialog doesn't hit a real
- * network call -- the appointment-types request it fires on mount just
+ * network call. The appointment-types request it fires on mount just
  * hangs, matching `SlotBrowser.test.tsx`'s own "assert the loading state,
  * never resolve" precedent for tests that only need to prove the dialog
  * opened, not drive its full flow (that's `RescheduleDialog.test.tsx`'s
@@ -161,9 +160,8 @@ describe("AppointmentCard", () => {
     expect(rescheduleButton).toBeDisabled();
     expect(cancelButton).toBeDisabled();
 
-    // 23:00Z on Aug 12 is 14h after 09:00Z -- matching the wireframe's own
-    // "Starts in 14h" sample framing exactly. One shared reason, referenced
-    // by both buttons -- not two copies of the same text.
+    // 23:00Z on Aug 12 is 14h after 09:00Z. One shared reason, referenced
+    // by both buttons, not two copies of the same text.
     const reason = screen.getByText(
       /Starts in 14h — inside the 24h change window\. Call the office to change this visit\./
     );
@@ -240,7 +238,7 @@ describe("AppointmentCard", () => {
 
   it("surfaces the server's specific rejection message on a 400 (the notice-window race)", async () => {
     // Exact wording from `backend/bookings/exceptions.py`'s
-    // `CancellationNoticeTooShort`, confirmed against the real endpoint.
+    // `CancellationNoticeTooShort`.
     const onCancel = vi.fn().mockRejectedValue(
       new ApiError(400, {
         detail: "This booking cannot be cancelled within 24 hours of its start time.",

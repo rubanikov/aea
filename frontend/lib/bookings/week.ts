@@ -1,12 +1,12 @@
 /**
- * Pure week-strip math for the provider calendar (TICKET-08, Screen 8 of
- * the wireframe): a Monday-first week, independent of
- * `lib/scheduling/calendar.ts`'s Sunday-first month grid, which is a
- * different screen (the patient date picker) with its own convention. Same
- * "calendar-only, no real instant" arithmetic that module already
- * established -- a Gregorian day offset never depends on any real-world
- * clock or timezone, so this can use `Date`'s *local* constructor purely
- * for day-counting, never to represent a real instant.
+ * Pure week-strip math for the provider calendar: a Monday-first week,
+ * independent of `lib/scheduling/calendar.ts`'s Sunday-first month grid,
+ * which belongs to a different screen (the patient date picker) with its
+ * own convention. Uses the same "calendar-only, no real instant"
+ * arithmetic that module established: a Gregorian day offset never
+ * depends on any real-world clock or timezone, so this can use `Date`'s
+ * *local* constructor purely for day-counting, never to represent a real
+ * instant.
  */
 
 import { dateKey, parseDateKey } from "@/lib/scheduling/calendar";
@@ -42,7 +42,7 @@ function shiftDateKey(key: string, days: number): string {
   return dateKey(shifted.getFullYear(), shifted.getMonth() + 1, shifted.getDate());
 }
 
-/** Monday=0 .. Sunday=6, unlike `Date.getDay()`'s Sunday=0 -- the offset
+/** Monday=0 .. Sunday=6, unlike `Date.getDay()`'s Sunday=0. The offset
  * back to that week's Monday. */
 function mondayIndexOf(key: string): number {
   const { year, month, day } = parseDateKey(key);
@@ -73,10 +73,10 @@ function shortMonthDay(key: string): { month: string; day: number; year: number 
 }
 
 /**
- * e.g. `("2026-08-17")` -> `"Week of Aug 17–23, 2026"`, matching the
- * wireframe's header -- crossing a month or year boundary cleanly (e.g.
- * `"Week of Aug 31–Sep 6, 2026"`, `"Week of Dec 29, 2026–Jan 4, 2027"`)
- * rather than dropping the second month/year.
+ * e.g. `("2026-08-17")` -> `"Week of Aug 17–23, 2026"`. Crosses a month or
+ * year boundary cleanly (e.g. `"Week of Aug 31–Sep 6, 2026"`,
+ * `"Week of Dec 29, 2026–Jan 4, 2027"`) rather than dropping the second
+ * month/year.
  */
 export function formatWeekRange(weekStartKey: string): string {
   const start = shortMonthDay(weekStartKey);

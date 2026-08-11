@@ -19,17 +19,15 @@ function jsonResponse(body: unknown, status = 200): Response {
 /**
  * Routes `fetch` by exact pathname (`/scheduling/availability` for the
  * collection, `/scheduling/availability/<id>` for a row's `DELETE`) rather
- * than call order, since the real API (confirmed against
- * `backend/scheduling/views.py`) has no bulk save endpoint -- saving a
+ * than call order, since the real API has no bulk save endpoint: saving a
  * changed day does a `DELETE` per stale row plus a fresh `POST`, then a
  * final `GET` to refresh from source of truth.
  *
  * Defaults `check-collisions` to "no collisions" and `/profile` to a fixed
- * timezone unless a test overrides either -- TICKET-11 added both calls
- * (the former gates every save, the latter is only for rendering a
- * collision's time), and every pre-existing test in this file predates and
- * doesn't care about them, so they should stay silent no-ops by default
- * (mirrors `BlockedTimeSection.test.tsx`'s own `/profile` default).
+ * timezone unless a test overrides either. The former gates every save,
+ * the latter is only for rendering a collision's time, and most tests in
+ * this file don't care about them, so they should stay silent no-ops by
+ * default (mirrors `BlockedTimeSection.test.tsx`'s own `/profile` default).
  */
 function mockFetchRouter(
   overrides: Partial<
@@ -115,7 +113,7 @@ describe("WorkingHoursSection", () => {
   it("renders previously saved hours (day_of_week as an integer, times with seconds) pre-filled and checked, with the empty-state banner hidden", async () => {
     mockFetchRouter({
       [AVAILABILITY_PATH]: () =>
-        // Monday=0, Friday=4 -- matches backend/scheduling/models.py's
+        // Monday=0, Friday=4, matching backend/scheduling/models.py's
         // `Availability.DayOfWeek` (Python's date.weekday()).
         jsonResponse([
           { id: 1, day_of_week: 0, start_time: "09:00:00", end_time: "17:00:00" },
@@ -208,9 +206,8 @@ describe("WorkingHoursSection", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       /working hours saved/i
     );
-    // TICKET-11: the complete proposed weekly picture is checked for
-    // collisions first -- here, no collisions, so the save proceeds exactly
-    // as it did before this ticket, with no modal interruption.
+    // The complete proposed weekly picture is checked for collisions first.
+    // Here, no collisions, so the save proceeds with no modal interruption.
     const collisionCheckCall = fetchMock.mock.calls.find(
       ([url]) => new URL(url as string).pathname === CHECK_COLLISIONS_PATH
     );
@@ -275,7 +272,7 @@ describe("WorkingHoursSection", () => {
         body: { day_of_week: 0, start_time: "09:00", end_time: "18:00" },
       },
     ]);
-    // Friday (id 2) was never touched -- no DELETE for it.
+    // Friday (id 2) was never touched, so no DELETE for it.
     expect(
       fetchMock.mock.calls.some(([url]) => (url as string).endsWith("/2"))
     ).toBe(false);
@@ -339,7 +336,7 @@ describe("WorkingHoursSection", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  // TICKET-11: check-collisions gates the save sequence.
+  // check-collisions gates the save sequence.
   const SAMPLE_COLLISIONS = [
     {
       id: 501,
@@ -359,7 +356,7 @@ describe("WorkingHoursSection", () => {
     },
   ];
 
-  it("opens the collision-warning modal -- not a save -- when check-collisions reports a collision, listing the affected appointments with their status badge", async () => {
+  it("opens the collision-warning modal (not a save) when check-collisions reports a collision, listing the affected appointments with their status badge", async () => {
     mockFetchRouter({
       [AVAILABILITY_PATH]: (init) => {
         const method = init?.method ?? "GET";

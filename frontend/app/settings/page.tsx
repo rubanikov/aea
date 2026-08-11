@@ -14,7 +14,7 @@ const ROLE_HOME: Record<string, string> = {
 
 /**
  * Account settings: profile view/edit, password update, and account
- * deletion ("Danger zone", TICKET-14). Reachable by any authenticated role
+ * deletion ("Danger zone"). Reachable by any authenticated role
  * (`proxy.ts` gates `/settings` on "logged in", not a specific role).
  */
 export default function SettingsPage() {

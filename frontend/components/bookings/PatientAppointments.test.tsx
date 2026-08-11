@@ -28,7 +28,7 @@ const UPCOMING_CONFIRMED = {
   status: "confirmed",
 };
 
-// Starts 14h from NOW -- inside the 24h notice window.
+// Starts 14h from NOW: inside the 24h notice window.
 const INSIDE_NOTICE_WINDOW = {
   id: 2,
   provider_id: 10,
@@ -232,7 +232,7 @@ describe("PatientAppointments", () => {
       "/bookings/1/cancel": (init) => {
         if (init?.method === "PATCH") {
           // The real endpoint's response (`BookingSerializer`'s canonical
-          // shape) has no `provider_name`/`appointment_type_name` -- only
+          // shape) has no `provider_name`/`appointment_type_name`. Only
           // `status` (plus other `_id` fields this UI doesn't use) is
           // real here, proving the card doesn't lose its display names by
           // blindly trusting this response as a full `PatientBooking`.
@@ -257,7 +257,7 @@ describe("PatientAppointments", () => {
     await user.click(screen.getByRole("button", { name: "Confirm cancel" }));
 
     // Re-classified out of Upcoming (whose tab stays active) the moment the
-    // PATCH resolves -- no full page reload needed to see it move.
+    // PATCH resolves; no full page reload needed to see it move.
     await waitFor(() =>
       expect(screen.queryByText("Annual Physical — Dr. Amara Osei")).not.toBeInTheDocument()
     );
@@ -312,15 +312,15 @@ describe("PatientAppointments", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "This booking cannot be cancelled within 24 hours of its start time."
     );
-    // Nothing was updated -- still shown, still confirmed.
+    // Nothing was updated; still shown, still confirmed.
     expect(screen.getByText("CONFIRMED")).toBeInTheDocument();
   });
 
   it("reschedules an appointment end to end: pick a new slot, confirm, PATCH /bookings/:id/reschedule, then refetches the list", async () => {
     const NEW_SLOT = { start: "2026-08-12T14:00:00.000Z", end: "2026-08-12T14:30:00.000Z" };
     // The patient's own timezone (`usePatientTimeZone`) is whatever this
-    // machine/CI runner's own zone resolves to -- this file's header
-    // comment assumes that's UTC, which doesn't hold everywhere, so (like
+    // machine/CI runner's own zone resolves to. This file's header comment
+    // assumes that's UTC, which doesn't hold everywhere, so (like
     // `SlotBrowser.test.tsx`'s own `TODAY_KEY`/`TOMORROW_KEY`) the expected
     // display strings below are computed with the same conversion the
     // component itself uses rather than hardcoded against one assumed zone.
@@ -342,7 +342,7 @@ describe("PatientAppointments", () => {
         // First load: the original booking. After the reschedule dialog's
         // "Done" triggers a refetch (`refetchBookings`, per this
         // component's own docstring), the old booking is now `cancelled`
-        // and a new one exists at the new time -- exactly the two-row
+        // and a new one exists at the new time, exactly the two-row
         // change a plain refetch (not a local merge) is meant to pick up.
         return mineRequests === 1
           ? jsonResponse([UPCOMING_CONFIRMED])
@@ -407,7 +407,7 @@ describe("PatientAppointments", () => {
     await screen.findByRole("status");
     await user.click(screen.getByRole("button", { name: "Done" }));
 
-    // The dialog is gone and the list reflects the change -- the same
+    // The dialog is gone and the list reflects the change: the same
     // appointment card, now at its new time.
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(await screen.findByText(new RegExp(newRange))).toBeInTheDocument();

@@ -32,6 +32,4 @@ class HasRole(BasePermission):
         return user.role in self.roles
 
 
-IsPatient = HasRole(User.Role.PATIENT)
-IsProvider = HasRole(User.Role.PROVIDER)
 IsAdminRole = HasRole(User.Role.ADMIN)

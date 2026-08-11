@@ -29,8 +29,9 @@ export interface WorkingHoursRow {
  * Validates every *enabled* row's time range, returning a specific message
  * per invalid day (never a single form-level error) so each row can show
  * its own inline error next to the fields that are actually wrong.
- * Disabled days aren't validated -- an unavailable day has no time range to
- * be wrong about. "HH:MM" 24-hour strings compare correctly with `<=`.
+ * Disabled days aren't validated, since an unavailable day has no time
+ * range to be wrong about. "HH:MM" 24-hour strings compare correctly
+ * with `<=`.
  */
 export function validateWorkingHours(
   rows: readonly WorkingHoursRow[]
@@ -51,7 +52,7 @@ export function validateWorkingHours(
 
 /** The blocked-time add form's local field state: label plus a "From"/"To"
  * date and time, each entered in the provider's own timezone (converted to
- * a UTC ISO instant at submit time -- see `lib/availability/timezone.ts`). */
+ * a UTC ISO instant at submit time; see `lib/availability/timezone.ts`). */
 export interface BlockedTimeFormValues {
   label: string;
   fromDate: string;
@@ -66,7 +67,7 @@ export type BlockedTimeFieldErrors = {
   toDate?: string;
   toTime?: string;
   /** Set when every individual field is present but the range itself is
-   * backwards -- kept separate from the per-field errors above so it can be
+   * backwards. Kept separate from the per-field errors above so it can be
    * shown once, next to the range, rather than duplicated on both fields. */
   range?: string;
 };
@@ -74,7 +75,7 @@ export type BlockedTimeFieldErrors = {
 /**
  * Validates the blocked-time add form: every field required, then (only
  * once all four are present) "to" must be strictly after "from". Comparing
- * the "YYYY-MM-DDTHH:MM" strings directly is safe here -- both are wall-clock
+ * the "YYYY-MM-DDTHH:MM" strings directly is safe here: both are wall-clock
  * values in the same (provider's) timezone, so lexical and chronological
  * order agree without needing to resolve either to an actual instant.
  */

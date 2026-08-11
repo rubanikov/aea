@@ -25,14 +25,13 @@ interface AppointmentTabsProps {
 }
 
 /**
- * The Upcoming/Past/Cancelled tab strip (TICKET-09; wireframe Screen 3) --
- * a real `role="tablist"`/`role="tab"` pair with roving `tabIndex` and
- * arrow-key switching (Left/Right cycle, Home/End jump to the ends),
- * matching the WAI-ARIA tabs pattern. No `role="tab"` convention existed
- * anywhere in this codebase before this ticket to reuse (`AuthPageClient`'s
- * login/signup switcher is a `role="group"` of `aria-pressed` buttons, a
- * different pattern for a different job -- two mutually exclusive forms,
- * not three views over one already-loaded list); established here.
+ * The Upcoming/Past/Cancelled tab strip: a real `role="tablist"`/
+ * `role="tab"` pair with roving `tabIndex` and arrow-key switching
+ * (Left/Right cycle, Home/End jump to the ends), matching the WAI-ARIA
+ * tabs pattern. `AuthPageClient`'s login/signup switcher uses a different
+ * pattern for a different job, a `role="group"` of `aria-pressed` buttons
+ * for two mutually exclusive forms, not three views over one
+ * already-loaded list.
  */
 export function AppointmentTabs({ active, onChange }: AppointmentTabsProps) {
   const tabRefs = useRef<Partial<Record<AppointmentTab, HTMLButtonElement | null>>>({});

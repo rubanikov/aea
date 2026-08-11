@@ -31,8 +31,8 @@ const EMPTY_FORM: BlockedTimeFormValues = {
 
 /** One open collision-warning modal's worth of state: the exact body that
  * raised the collision (resent verbatim, plus a resolution, on "Keep new
- * hours"), the affected appointments to list, and the change description to
- * show. */
+ * hours"), the affected appointments to list, and the change description
+ * to show. */
 interface CollisionState {
   body: BlockedTimeInput;
   collisions: AvailabilityCollision[];
@@ -41,7 +41,7 @@ interface CollisionState {
 
 /** e.g. `("2026-08-24T04:00:00.000Z", "2026-08-24T21:00:00.000Z",
  * "America/New_York")` -> `"You're blocking Aug 24, 2026 00:00 → Aug 24,
- * 2026 17:00 (America/New_York)."` -- built on `formatZonedDateTime`, the
+ * 2026 17:00 (America/New_York)."` Built on `formatZonedDateTime`, the
  * same formatter `BlockedTimeRow` already uses for a saved block's range,
  * so the collision modal's framing sentence reads exactly like the rest of
  * this section. */
@@ -50,18 +50,14 @@ function describeBlockedTimeChange(body: BlockedTimeInput, timezone: string): st
 }
 
 /**
- * Blocked time (TICKET-05, Screen 6 of the wireframe): a list of upcoming
- * one-off ranges (vacation, an admin block) that stack on top of the
- * provider's weekly working hours, plus an add form and remove-with-
- * confirm. `GET`/`POST`/`DELETE /scheduling/blocked-time`, confirmed against
- * `backend/scheduling/views.py`'s `BlockedTimeListCreateView`/
- * `BlockedTimeDetailView` (built in parallel, in the same wave as this
- * file) -- matches the brief's assumed contract exactly: `{id, label,
- * start, end}`, `start`/`end` UTC ISO 8601, `label` optional on `POST`.
+ * Blocked time: a list of upcoming one-off ranges (vacation, an admin
+ * block) that stack on top of the provider's weekly working hours, plus
+ * an add form and remove-with-confirm. Uses
+ * `GET`/`POST`/`DELETE /scheduling/blocked-time`: `{id, label, start,
+ * end}`, `start`/`end` UTC ISO 8601, `label` optional on `POST`.
  *
- * No Edit: the brief explicitly allows skipping it in favor of delete-and-
- * recreate if edit "adds real complexity", and it does here -- a range edit
- * has two independent date/time pairs plus re-validation and re-conversion
+ * No Edit: delete-and-recreate covers it instead, since a range edit has
+ * two independent date/time pairs plus re-validation and re-conversion
  * through the provider's timezone, all for a save path that's otherwise
  * identical to "delete this one, add a new one" (the same simplification
  * `WorkingHoursSection` used for its own row saves).
@@ -69,16 +65,15 @@ function describeBlockedTimeChange(body: BlockedTimeInput, timezone: string): st
  * The provider's timezone is needed to convert the form's local date/time
  * inputs to the UTC instants the API stores, and to render existing blocks
  * back into local wall-clock time. Reuses `AppointmentTypesSection`'s
- * pattern for this -- a plain `GET /profile` effect -- since there's no
+ * pattern for this, a plain `GET /profile` effect, since there's no
  * shared hook for it in this codebase yet.
  *
- * TICKET-11: a `409` from `POST /scheduling/blocked-time` (extended,
- * confirmed against the backend's documented contract) means the range
- * would strand existing bookings outside it -- `CollisionWarningModal`
- * opens instead of the generic "Couldn't add this block" error. "Keep new
+ * A `409` from `POST /scheduling/blocked-time` means the range would
+ * strand existing bookings outside it: `CollisionWarningModal` opens
+ * instead of the generic "Couldn't add this block" error. "Keep new
  * hours" resubmits the exact same body plus `resolution: "keep_new_hours"`,
- * which both flags the affected bookings and creates the block in the same
- * response. "Cancel this change" just closes the modal -- the add form
+ * which both flags the affected bookings and creates the block in the
+ * same response. "Cancel this change" just closes the modal; the add form
  * stays open with whatever the provider typed, since (unlike
  * `WorkingHoursSection`, which is reverting an *edit* to something already
  * saved) there's nothing saved to revert to here, only an in-progress add
@@ -142,7 +137,7 @@ export function BlockedTimeSection() {
       .catch(() => {
         // Display-only for the read-only line elsewhere; here it also
         // powers UTC conversion, but a form-time error already covers a
-        // still-missing timezone -- no need to also break this section's
+        // still-missing timezone, so no need to also break this section's
         // main load state over it.
       });
 
@@ -210,7 +205,7 @@ export function BlockedTimeSection() {
     };
     // Captured before the request (and before `disabled` on this button can
     // take effect on the next render) so it's still the real triggering
-    // element if a collision opens the modal -- same technique
+    // element if a collision opens the modal, same technique
     // `WorkingHoursSection`/`BookingConfirmPanel`'s caller use.
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 

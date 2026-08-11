@@ -13,7 +13,7 @@ interface PasswordFieldProps
 /**
  * Password input with a real show/hide toggle button (`aria-pressed`, and
  * an `aria-label` that includes the field's label so multiple password
- * fields on one form -- e.g. "New password" / "Confirm password" -- get
+ * fields on one form, e.g. "New password" / "Confirm password", get
  * distinct accessible names).
  */
 export function PasswordField({

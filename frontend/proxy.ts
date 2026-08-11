@@ -6,11 +6,11 @@ import { resolveRouteAccess } from "./lib/auth/route-guard";
 /**
  * Role-gated route guard. Runs on the server before `/patient`, `/provider`,
  * `/admin`, and `/settings` routes render, so an unauthenticated or
- * wrong-role visit is redirected rather than rendered -- this is real,
+ * wrong-role visit is redirected rather than rendered. This is real,
  * request-time enforcement, not client-side nav hiding.
  *
  * Determines the visitor's role by calling `GET /auth/me` server-side,
- * forwarding the incoming request's cookies -- the same source of truth
+ * forwarding the incoming request's cookies, the same source of truth
  * client components use (`useCurrentUser`), never a cookie decoded locally.
  */
 export async function proxy(request: NextRequest) {
@@ -27,7 +27,7 @@ export async function proxy(request: NextRequest) {
 /**
  * Looks up the requesting visitor's role via `GET /auth/me`, forwarding
  * whatever cookies arrived on the incoming request (the httpOnly session
- * cookie is opaque to this code -- the backend is the only thing that can
+ * cookie is opaque to this code; the backend is the only thing that can
  * verify it). Returns `null` for "no session" *and* for any failure to
  * reach the backend, so a down/unreachable auth service fails closed
  * (rejects the visit) rather than open.

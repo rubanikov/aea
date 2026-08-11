@@ -15,12 +15,11 @@ const KNOWN_SERVER_FIELDS = new Set(["name", "duration_minutes"]);
 
 /**
  * Appointment types: list with inline edit, confirm-before-delete, and an
- * add-new form, plus a read-only timezone line (Screen 5 of the wireframe).
- * `GET`/`POST`/`PATCH`/`DELETE /scheduling/appointment-types` per the
- * brief's assumed API contract -- adapt once `backend/scheduling/` exists.
- * The timezone display reuses the already-real `GET /profile` (TICKET-02)
- * rather than assuming a new scheduling-specific field the brief doesn't
- * document; it's read-only here (edit it from Account settings).
+ * add-new form, plus a read-only timezone line. Uses
+ * `GET`/`POST`/`PATCH`/`DELETE /scheduling/appointment-types`. The
+ * timezone display reuses the existing `GET /profile` rather than a new
+ * scheduling-specific field; it's read-only here (edit it from Account
+ * settings).
  */
 export function AppointmentTypesSection() {
   const authFetch = useAuthenticatedRequest();
@@ -70,7 +69,7 @@ export function AppointmentTypesSection() {
         }
       })
       .catch(() => {
-        // Display-only -- if it fails to load, just omit the line rather
+        // Display-only; if it fails to load, just omit the line rather
         // than blocking or cluttering this section with a second error.
       });
 

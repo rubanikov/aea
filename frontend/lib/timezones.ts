@@ -31,7 +31,7 @@ export const TIMEZONES: readonly string[] = [
   "Pacific/Auckland",
 ];
 
-/** `TIMEZONES`, plus `current` if it isn't already in the list -- so an
+/** `TIMEZONES`, plus `current` if it isn't already in the list, so an
  * unrecognized value from the backend is never silently dropped from the
  * picker. */
 export function timezoneOptions(current: string | undefined): readonly string[] {

@@ -18,12 +18,11 @@ interface WeekStripProps {
 
 /**
  * Week navigation (prev/next/Today) plus a Monday-first day strip with
- * per-day appointment counts (Screen 8 of the wireframe). Each day is a
- * real `<button>` with a full-date-plus-count `aria-label` (e.g.
- * "Tuesday, August 18, 2026, 3 appointments") -- the same disambiguating-
- * label convention `AuditLogPagination`'s Prev/Next buttons already
- * established elsewhere in this codebase -- rather than a bare number a
- * screen reader would read out of context. The visible count is
+ * per-day appointment counts. Each day is a real `<button>` with a
+ * full-date-plus-count `aria-label` (e.g. "Tuesday, August 18, 2026, 3
+ * appointments"), the same disambiguating-label convention
+ * `AuditLogPagination`'s Prev/Next buttons already use, rather than a bare
+ * number a screen reader would read out of context. The visible count is
  * `aria-hidden` since the label already carries it, so it isn't announced
  * twice.
  */
@@ -50,7 +49,7 @@ export function WeekStrip({
           >
             «
           </button>
-          {/* Plain text, not a heading -- the one real `<h2>` per screen is
+          {/* Plain text, not a heading: the one real `<h2>` per screen is
            * the selected day's date in `DayAgenda`; this is navigational
            * status ("which week am I looking at"), not a section title. */}
           <p className="text-base font-semibold">{formatWeekRange(weekStartKey)}</p>

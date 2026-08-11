@@ -24,7 +24,7 @@ type Mode = "view" | "edit" | "confirm-delete";
 /**
  * A single appointment type: view mode (name, "45 minutes"-style duration,
  * Edit/Remove), inline edit mode (`AppointmentTypeForm`), and an inline
- * delete confirmation -- deleting is a two-step action so a misclick can't
+ * delete confirmation. Deleting is a two-step action so a misclick can't
  * destroy a type a provider is relying on.
  */
 export function AppointmentTypeRow({

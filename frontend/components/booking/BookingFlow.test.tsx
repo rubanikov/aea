@@ -51,8 +51,8 @@ describe("BookingFlow", () => {
   });
 
   it("moves into the slot browser once a provider and appointment type are chosen, and Back to services returns to the picker", async () => {
-    // No `Intl.DateTimeFormat` mock here (unlike `use-patient-timezone.test.tsx`)
-    // -- `SlotBrowser` also calls `new Intl.DateTimeFormat(...)` for real
+    // No `Intl.DateTimeFormat` mock here (unlike `use-patient-timezone.test.tsx`):
+    // `SlotBrowser` also calls `new Intl.DateTimeFormat(...)` for real
     // zoned formatting, which a simple `resolvedOptions`-only stub can't
     // stand in for. These assertions don't depend on which zone gets
     // detected, so the real one (whatever this environment reports) is

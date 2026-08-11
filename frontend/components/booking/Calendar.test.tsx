@@ -47,7 +47,7 @@ describe("Calendar", () => {
       name: "Sunday, August 16, 2026, in the past, not bookable",
     });
     expect(pastDay).toHaveAttribute("aria-disabled", "true");
-    // Dimmed/past days stay keyboard-reachable -- aria-disabled, not the
+    // Dimmed/past days stay keyboard-reachable: aria-disabled, not the
     // native `disabled` attribute, which would drop them from the tab
     // order.
     expect(pastDay).not.toBeDisabled();

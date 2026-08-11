@@ -9,7 +9,7 @@ Decision date: 2026-08-10. This document turns the findings in `tech-stack-resea
 | Layer | Choice | Why (from `tech-stack-research.md`) |
 |---|---|---|
 | Backend | **Django** | `select_for_update(nowait=, skip_locked=)` is a first-class, typed API for the row-lock guard — directly usable for §3 below. Avoid Node+Prisma: no native `FOR UPDATE` support (unresolved upstream issue), disqualifying for a 20-point pass/fail concurrency gate. |
-| Database + Auth | **Supabase** (Postgres) | RLS + `auth.uid()` gives a DB-enforced row-ownership layer matching the brief's RBAC requirement, and matching the "role + row-level check" pattern every mature system in prior art uses (§5 below). |
+| Database | **Postgres** (Supabase-compatible connection string, plain `DATABASE_URL` in this build — see §6) | `select_for_update()` needs real row locks; SQLite is a silent no-op there. Auth is a custom JWT-cookie system rather than Supabase Auth, which took RLS off the table — see §6 for the full reasoning and what still enforces row-ownership instead. |
 | Backend hosting | **Railway** | Render's free tier explicitly forbids background worker/cron service types — a hard blocker for the reminder job (§6). |
 | Frontend hosting | **Vercel** | First-party Next.js integration; self-serve BAA path if this ever needs to be real. |
 | Email | **Resend** | Only real free-tier option; reminder bodies stay PHI-free by design (no BAA available). |

@@ -1,12 +1,11 @@
 import { ProviderCalendar } from "@/components/bookings/ProviderCalendar";
 
 /**
- * Provider calendar/agenda route (TICKET-08, frontend half) -- a new route,
- * deliberately separate from `/provider` (availability settings, TICKET-04/
- * 05/14). The approved wireframe splits these into two distinct screens
- * (Screen 5 vs. Screen 8): availability *rules* (working hours, appointment
- * types, blocked time) vs. the actual booked appointments against them --
- * a different concern each, not a tab within the same page.
+ * Provider calendar/agenda route, deliberately separate from `/provider`
+ * (availability settings). Availability *rules* (working hours,
+ * appointment types, blocked time) and the actual booked appointments
+ * against them are a different concern each, not a tab within the same
+ * page.
  */
 export default function ProviderCalendarPage() {
   return (

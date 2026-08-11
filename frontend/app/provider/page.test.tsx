@@ -12,7 +12,7 @@ describe("ProviderAvailabilityPage", () => {
   });
 
   it("renders the appointment types and weekly working hours sections", () => {
-    // Neither request in either section resolves during this test -- both
+    // Neither request in either section resolves during this test; both
     // stay in their loading state, which is all this smoke test cares about.
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
     render(<ProviderAvailabilityPage />);

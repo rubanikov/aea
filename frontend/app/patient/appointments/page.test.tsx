@@ -12,7 +12,7 @@ describe("PatientAppointmentsPage", () => {
   });
 
   it("renders the heading, a 'Book new' link back to the booking flow, and the appointment list", () => {
-    // The list request never resolves during this test -- it stays in its
+    // The list request never resolves during this test; it stays in its
     // loading state, which is all this smoke test cares about.
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
     render(<PatientAppointmentsPage />);

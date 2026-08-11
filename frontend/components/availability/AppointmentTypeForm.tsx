@@ -22,7 +22,7 @@ interface AppointmentTypeFormProps {
 /**
  * Name + duration fields shared by "add a new appointment type"
  * (`AppointmentTypesSection`) and "edit this one" (`AppointmentTypeRow`).
- * Fully controlled -- the caller owns the field values, saving state, and
+ * Fully controlled: the caller owns the field values, saving state, and
  * error state, and does its own client validation before calling
  * `onSubmit` (see both call sites for the identical shape, matching this
  * codebase's existing forms rather than a shared submit-handling hook).

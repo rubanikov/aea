@@ -2,10 +2,10 @@
  * Carries the "your account was deleted" confirmation across the redirect to
  * `/login` triggered by a successful account-deletion request (see
  * `components/settings/DeleteAccountSection.tsx`). Mirrors
- * `lib/auth/session-expired.ts`'s query-param handoff -- the deletion
- * response ends the session server-side (same as logout), so the message has
- * to survive the navigation away from `/settings` some other way than
- * component state.
+ * `lib/auth/session-expired.ts`'s query-param handoff: the deletion
+ * response ends the session server-side (same as logout), so the message
+ * has to survive the navigation away from `/settings` some other way
+ * than component state.
  */
 export const ACCOUNT_DELETED_PARAM = "account_deleted";
 

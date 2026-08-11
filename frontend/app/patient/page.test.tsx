@@ -12,7 +12,7 @@ describe("PatientDashboardPage", () => {
   });
 
   it("renders the booking flow's provider picker", () => {
-    // The providers request never resolves during this test -- the picker
+    // The providers request never resolves during this test; the picker
     // stays in its loading state, which is all this smoke test cares about.
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
     render(<PatientDashboardPage />);

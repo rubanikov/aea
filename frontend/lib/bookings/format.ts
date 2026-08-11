@@ -4,13 +4,10 @@ import { CANCELLATION_NOTICE_HOURS } from "./status";
 import type { BookingStatus } from "./types";
 
 /**
- * Icon + text for each `BookingStatus` value -- TICKET-08's accept
- * criteria: status is shown with text/icon, never color alone. No
- * booking-status badge convention existed anywhere in this codebase before
- * this ticket; established here (see `BookingStatusBadge`) as what other
- * screens showing a booking's status should reuse rather than reinventing
- * their own (e.g. TICKET-11's collision-warning modal, built in parallel,
- * is expected to reuse this same convention per its own ticket text).
+ * Icon + text for each `BookingStatus` value. Status is always shown with
+ * text/icon, never color alone (see `BookingStatusBadge`); other screens
+ * that show a booking's status should reuse this rather than rolling
+ * their own.
  */
 export const BOOKING_STATUS_DISPLAY: Record<BookingStatus, { icon: string; text: string }> = {
   requested: { icon: "○", text: "REQUESTED" },
@@ -42,15 +39,13 @@ export function formatBookingTimeRange(
 
 /**
  * e.g. `("...T15:00:00.000Z", "...T15:30:00.000Z", "America/Chicago")` ->
- * `"Tuesday, August 18, 2026, 10:00–10:30am"` -- "My Appointments"
- * (TICKET-09; wireframe Screen 3) card's date+time line. Built from the
- * same zoned-conversion + full-date helpers `BookingConfirmPanel`'s own
- * (unexported) `formatSlotRange` already uses -- duplicated here rather
- * than imported from there, since that helper belongs to a different
- * ticket's component and isn't exported (matching this codebase's existing
- * precedent of small per-screen formatting duplication, e.g.
- * `formatBookingTimeRange` itself vs. `SlotBrowser`/`TimeSlotGrid`'s own
- * time formatting).
+ * `"Tuesday, August 18, 2026, 10:00–10:30am"`, the date+time line on a
+ * "My Appointments" card. Built from the same zoned-conversion + full-date
+ * helpers `BookingConfirmPanel`'s own (unexported) `formatSlotRange`
+ * already uses; duplicated here rather than imported, since that helper
+ * isn't exported and this codebase already has small per-screen
+ * formatting duplication elsewhere (e.g. `formatBookingTimeRange` vs.
+ * `SlotBrowser`/`TimeSlotGrid`'s own time formatting).
  */
 export function formatAppointmentDateTime(
   startIso: string,
@@ -64,10 +59,9 @@ export function formatAppointmentDateTime(
 
 /**
  * e.g. `hoursUntilStart: 13.4` -> `"Starts in 14h — inside the 24h change
- * window. Call the office to change this visit."` -- matching the
- * wireframe's own framing (Screen 3) exactly, minus its leading lock icon
- * (rendered separately, `aria-hidden`, by the caller -- matching
- * `BookingStatusBadge`'s icon/text split). The hour count is always
+ * window. Call the office to change this visit."` The leading lock icon
+ * is rendered separately, `aria-hidden`, by the caller, matching
+ * `BookingStatusBadge`'s icon/text split. The hour count is always
  * rounded up (`Math.ceil`) so "13.4h left" reads as the safer "14h" rather
  * than an optimistic "13h", and clamped to zero rather than going negative
  * for the rare render where the start time has already passed by the time

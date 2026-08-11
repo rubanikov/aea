@@ -8,7 +8,7 @@ interface AppShellProps {
   /**
    * The role this shell is for. Callers are each role's own layout
    * (`app/patient/layout.tsx` etc.), so this is a static fact of which
-   * layout rendered -- `proxy.ts` has already guaranteed only a matching
+   * layout rendered; `proxy.ts` has already guaranteed only a matching
    * visitor reaches it. It is not read from `useCurrentUser()`, which is
    * mock/display-only and must not drive what's considered "allowed".
    */
@@ -18,8 +18,8 @@ interface AppShellProps {
 
 /**
  * Persistent top nav + content area shared by every role section. This is
- * the "shape" later tickets mount their real screens into -- the nav links
- * list will grow as those tickets add routes.
+ * the shape each role's real screens mount into as the nav links list
+ * grows.
  */
 export function AppShell({ role, children }: AppShellProps) {
   const nav = ROLE_NAV[role];

@@ -1,8 +1,7 @@
 /**
- * One row of the audit log, as returned by `GET /audit-log` (see
- * `tickets/TICKET-03.md`). References IDs only -- no names/DOB/contact
- * details ever land in `actor`/`action`/`target_id`, per that ticket's
- * accept criteria, so this type carries no PHI-shaped fields.
+ * One row of the audit log, as returned by `GET /audit-log`. References
+ * IDs only: no names, DOB, or contact details ever land in
+ * `actor`/`action`/`target_id`, so this type carries no PHI-shaped fields.
  */
 export interface AuditLogEntry {
   id: string;
@@ -11,7 +10,7 @@ export interface AuditLogEntry {
   action: string;
   target_type: string;
   target_id: string;
-  /** ISO 8601, always UTC -- see `lib/audit/format.ts`. */
+  /** ISO 8601, always UTC; see `lib/audit/format.ts`. */
   timestamp: string;
   metadata?: unknown;
 }

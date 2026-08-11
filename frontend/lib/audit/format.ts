@@ -2,7 +2,7 @@
  * Formats an ISO 8601 timestamp as an explicit UTC string, e.g.
  * `2026-08-10 14:32:07Z`.
  *
- * Deliberately not routed through any local-timezone formatting -- the
+ * Deliberately not routed through any local-timezone formatting: the
  * audit log is meant to be a single, unambiguous source of truth, and
  * showing it in the viewer's local time would undermine that (two admins
  * looking at the same entry from different timezones should see the same

@@ -15,7 +15,7 @@ const KNOWN_SERVER_FIELDS = new Set(["name", "email", "password"]);
 interface RegisterFormProps {
   /**
    * Registration succeeded but the immediate follow-up login attempt
-   * failed -- the parent should switch to the login tab, pre-filled with
+   * failed. The parent should switch to the login tab, pre-filled with
    * this email, rather than leaving the visitor stuck.
    */
   onRegisteredButLoginFailed?: (email: string) => void;

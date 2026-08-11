@@ -16,10 +16,10 @@ type Mode = "view" | "confirm-delete";
 /**
  * One blocked-time range: label (or a "Blocked" default), its date/time
  * range rendered in the provider's own timezone, and an inline two-step
- * delete confirmation -- the same pattern `AppointmentTypeRow` established,
+ * delete confirmation, the same pattern `AppointmentTypeRow` established,
  * so a misclick can't remove a block a provider is relying on. There's no
- * Edit here: per the ticket, editing is skipped in favor of delete-and-
- * recreate (see `BlockedTimeSection.tsx`'s docstring).
+ * Edit here: editing is skipped in favor of delete-and-recreate (see
+ * `BlockedTimeSection.tsx`'s docstring).
  */
 export function BlockedTimeRow({ block, timezone, onRemove }: BlockedTimeRowProps) {
   const [mode, setMode] = useState<Mode>("view");

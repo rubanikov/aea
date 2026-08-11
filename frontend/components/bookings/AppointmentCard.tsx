@@ -17,7 +17,7 @@ interface AppointmentCardProps {
   timezone: string;
   onCancel: (id: number) => Promise<void>;
   /** Called after a reschedule succeeds and the patient dismisses the
-   * dialog's confirmation ("Done") -- see `RescheduleDialog`'s own
+   * dialog's confirmation ("Done"); see `RescheduleDialog`'s own
    * `onRescheduled` doc for why it fires there rather than the instant the
    * PATCH resolves. The parent should refetch its list (see
    * `PatientAppointments`'s `refetchBookings`). */
@@ -31,48 +31,44 @@ interface AppointmentCardProps {
 type Mode = "view" | "confirm-cancel";
 
 /**
- * One appointment card in "My Appointments" (TICKET-09; wireframe Screen
- * 3): status badge, appointment type + provider name, the date/time in the
- * patient's own timezone, and -- on a still-`confirmed` row only --
- * Reschedule and Cancel.
+ * One appointment card in "My Appointments": status badge, appointment
+ * type + provider name, the date/time in the patient's own timezone, and,
+ * on a still-`confirmed` row only, Reschedule and Cancel.
  *
- * Reschedule (TICKET-10) opens `RescheduleDialog`, a focus-trapped modal
- * launched from this card -- chosen over a dedicated route (there is no
- * `GET /bookings/:id` to hydrate one, only the list-returning
- * `GET /bookings/mine` this card's own data already came from) or an
- * in-card expansion (a full month calendar + time grid inside one row of an
- * already-scrollable list reads worse than the same picker in an overlay,
- * and this card is already juggling its own view/confirm-cancel inline
- * modes). See `RescheduleDialog`'s own docstring for the full reasoning.
+ * Reschedule opens `RescheduleDialog`, a focus-trapped modal launched from
+ * this card, chosen over a dedicated route (there is no `GET /bookings/:id`
+ * to hydrate one, only the list-returning `GET /bookings/mine` this card's
+ * own data already came from) or an in-card expansion (a full month
+ * calendar + time grid inside one row of an already-scrollable list reads
+ * worse than the same picker in an overlay, and this card is already
+ * juggling its own view/confirm-cancel inline modes). See
+ * `RescheduleDialog`'s own docstring for the full reasoning.
  *
  * Cancel stays a two-step inline confirm (view -> confirm-cancel -> view),
- * matching `AppointmentTypeRow`'s delete confirmation rather than a modal --
+ * matching `AppointmentTypeRow`'s delete confirmation rather than a modal:
  * cancelling one's own already-booked appointment is a single yes/no
  * question, not a multi-step picker, so it doesn't need a modal's own
  * overlay and focus trap the way Reschedule's real picker does.
  *
  * The 24h notice window is checked client-side first
- * (`isWithinCancellationNoticeWindow`) purely for immediate feedback --
- * both Reschedule and Cancel are disabled with the same visible,
+ * (`isWithinCancellationNoticeWindow`) purely for immediate feedback.
+ * Both Reschedule and Cancel are disabled with the same visible,
  * `aria-describedby`-linked reason before a doomed request is ever sent
  * (matching `AgendaRow`'s disabled-"Mark no-show"-with-reason convention),
- * since the ticket is explicit that "the notice rule is identical for both
- * actions" -- one shared reason paragraph, not two copies of the same
- * text. The real enforcement is server-side on both
- * `PATCH /bookings/:id/cancel` and `PATCH /bookings/:id/reschedule`; if a
- * race lets a click through right at the boundary, the server's own 400
- * `{"detail": "..."}` message is surfaced verbatim via
- * `extractBookingErrorDetail` -- here for cancel, inside `RescheduleDialog`
- * for reschedule.
+ * since the notice rule is identical for both actions: one shared reason
+ * paragraph, not two copies of the same text. The real enforcement is
+ * server-side on both `PATCH /bookings/:id/cancel` and
+ * `PATCH /bookings/:id/reschedule`; if a race lets a click through right at
+ * the boundary, the server's own 400 `{"detail": "..."}` message is
+ * surfaced verbatim via `extractBookingErrorDetail`, here for cancel,
+ * inside `RescheduleDialog` for reschedule.
  *
- * "Reminder sent" (TICKET-12's addendum, filling in the spot this ticket
- * originally only reserved): a small `✉ Reminder sent` note, below the
- * date/time line and above the actions, shown whenever
- * `booking.reminder_sent` is true -- driven by
- * `PatientBookingListSerializer`'s `reminder_sent` field, not derived
- * client-side, since whether the 24h email actually went out is a backend
- * fact (`reminders.models.ReminderLog`), not something this card can infer
- * from `start_time` alone.
+ * "Reminder sent": a small `✉ Reminder sent` note, below the date/time
+ * line and above the actions, shown whenever `booking.reminder_sent` is
+ * true. Driven by `PatientBookingListSerializer`'s `reminder_sent` field,
+ * not derived client-side, since whether the 24h email actually went out
+ * is a backend fact (`reminders.models.ReminderLog`), not something this
+ * card can infer from `start_time` alone.
  */
 export function AppointmentCard({
   booking,
@@ -116,9 +112,9 @@ export function AppointmentCard({
 
   function openReschedule() {
     // Captures the clicked `<button>` via `document.activeElement` rather
-    // than the click event itself -- a real click focuses its target before
+    // than the click event itself. A real click focuses its target before
     // the handler runs (matching `SlotBrowser`'s own `handleSelectSlot`
-    // precedent) -- purely so `RescheduleDialog` can return focus there on
+    // precedent), purely so `RescheduleDialog` can return focus there on
     // close.
     setRescheduleTrigger(document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setRescheduleOpen(true);

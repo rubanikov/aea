@@ -64,7 +64,7 @@ python manage.py test                 # full suite — needs DJANGO_SECRET_KEY s
 ```
 ```bash
 cd frontend
-npm test -- --run && npx tsc --noEmit && npm run lint
+npm test && npm run typecheck && npm run lint
 ```
 Both are what CI runs on every push (`.github/workflows/ci.yml`).
 

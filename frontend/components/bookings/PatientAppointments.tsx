@@ -19,41 +19,37 @@ const EMPTY_TAB_MESSAGE: Record<AppointmentTab, string> = {
 };
 
 /**
- * Patient's own appointment list (TICKET-09; wireframe Screen 3):
- * Upcoming/Past/Cancelled tabs over one fetched list, plus the cancel
- * action per card.
+ * Patient's own appointment list: Upcoming/Past/Cancelled tabs over one
+ * fetched list, plus the cancel action per card.
  *
- * `GET /bookings/mine` does not exist in `backend/bookings/` yet as of
- * this ticket -- `GET /bookings` explicitly 403s a patient caller (see
- * `PatientBooking`'s docstring, `lib/bookings/types.ts`) -- so it's called
- * exactly per the brief's assumed contract. Adapt once the real endpoint
- * exists; note any drift.
+ * `GET /bookings` explicitly 403s a patient caller (see `PatientBooking`'s
+ * docstring, `lib/bookings/types.ts`), so this screen calls
+ * `GET /bookings/mine` instead.
  *
  * Tabs are derived client-side from this one fetched list
- * (`classifyAppointmentTab`) rather than three separate requests -- a
+ * (`classifyAppointmentTab`) rather than three separate requests, since a
  * demo-sized patient appointment list doesn't justify the extra round
- * trips (the ticket's own guidance).
+ * trips.
  *
- * The patient's own timezone comes from `usePatientTimeZone` (browser-
- * detected), the same convention `SlotBrowser`/`BookingFlow` already
- * established for TICKET-06 -- not a second, competing "read the stored
- * profile timezone" convention. Its brief `null` (pre-hydration) window is
- * treated as part of the loading state, same as `BookingFlow` does.
+ * The patient's own timezone comes from `usePatientTimeZone`
+ * (browser-detected), the same convention `SlotBrowser`/`BookingFlow`
+ * already use, not a second, competing "read the stored profile timezone"
+ * convention. Its brief `null` (pre-hydration) window is treated as part
+ * of the loading state, same as `BookingFlow` does.
  *
- * `PATCH /bookings/:id/cancel` (reconciled against the real backend,
- * `backend/bookings/views.py`'s `BookingCancelView`) matches this ticket's
- * assumed contract exactly on path/method/error shape, but its success
- * response is `BookingSerializer`'s canonical shape (`{id, provider_id,
- * patient_id, appointment_type_id, start_time, end_time, status}`) --
- * display names like `provider_name` aren't in it. `handleCancel` below
- * only reads `.status` off that response and merges it onto the
- * already-known local booking, rather than replacing the row outright, so
- * the card doesn't lose its provider/appointment-type name on cancel.
+ * `PATCH /bookings/:id/cancel` matches path/method/error shape, but its
+ * success response is `BookingSerializer`'s canonical shape (`{id,
+ * provider_id, patient_id, appointment_type_id, start_time, end_time,
+ * status}`); display names like `provider_name` aren't in it.
+ * `handleCancel` below only reads `.status` off that response and merges
+ * it onto the already-known local booking, rather than replacing the row
+ * outright, so the card doesn't lose its provider/appointment-type name
+ * on cancel.
  *
- * Reschedule (TICKET-10, `RescheduleDialog`, launched from `AppointmentCard`)
- * reacts differently on success: `refetchBookings` below does a plain
+ * Reschedule (`RescheduleDialog`, launched from `AppointmentCard`) reacts
+ * differently on success: `refetchBookings` below does a plain
  * `GET /bookings/mine` refetch rather than a local merge. A reschedule
- * doesn't fit `handleCancel`'s single-row-`status`-flip merge shape -- it
+ * doesn't fit `handleCancel`'s single-row-`status`-flip merge shape: it
  * turns the old booking `cancelled` *and* creates a new one at the new
  * time, so a local patch would mean reconstructing a whole second
  * `PatientBooking` row from `RescheduleDialog`'s response by hand. A rarer
@@ -92,15 +88,14 @@ export function PatientAppointments() {
     };
   }, [authFetch, reloadKey]);
 
-  /** Bumps `reloadKey`, which the fetch effect above is keyed on -- forces a
+  /** Bumps `reloadKey`, which the fetch effect above is keyed on, forcing a
    * fresh `GET /bookings/mine`. Used by the load-error "Try again" button
-   * and, per TICKET-10's own brief, as the reaction to a successful
-   * reschedule: the old booking is now `cancelled` and a new one exists at
-   * the new time, a two-row change a plain refetch handles more honestly
-   * than hand-merging locally (unlike `handleCancel` below, which *does*
-   * merge in place -- a single row's `status` flip is a much smaller, safer
-   * surface for a local patch than a reschedule's "one row disappears, a
-   * different one appears" shape). */
+   * and as the reaction to a successful reschedule: the old booking is now
+   * `cancelled` and a new one exists at the new time, a two-row change a
+   * plain refetch handles more honestly than hand-merging locally (unlike
+   * `handleCancel` below, which *does* merge in place: a single row's
+   * `status` flip is a much smaller, safer surface for a local patch than
+   * a reschedule's "one row disappears, a different one appears" shape). */
   function refetchBookings() {
     setBookings(null);
     setReloadKey((key) => key + 1);

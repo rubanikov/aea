@@ -1,17 +1,16 @@
 /**
- * Converting between a provider's wall-clock date/time (what the blocked-
+ * Converts between a provider's wall-clock date/time (what the blocked-
  * time form's native `<input type="date">`/`<input type="time">` pair
  * collects) and the UTC ISO instant the API stores, using only built-in
- * `Intl`/`Date` -- no date-timezone library. Per the ticket: add one only if
- * this genuinely can't be done correctly, and it can.
+ * `Intl`/`Date`, no date-timezone library.
  */
 
 /** The offset (in ms) such that `local wall-clock time = utcMillis +
  * offset` for the given IANA zone, at (approximately) `utcMillis`. Computed
  * by formatting that instant in the target zone and re-reading the result
- * as if it were UTC -- the same single-pass technique used by
- * `date-fns-tz`'s `zonedTimeToUtc`. Not exact for a wall-clock time that
- * falls inside the one-hour window a DST transition itself creates (an
+ * as if it were UTC, the same single-pass technique `date-fns-tz`'s
+ * `zonedTimeToUtc` uses. Not exact for a wall-clock time that falls
+ * inside the one-hour window a DST transition itself creates (an
  * ambiguous or skipped local time); an acceptable gap for a feature this
  * small, since blocked-time ranges aren't tied to precise instants.
  */
@@ -40,7 +39,7 @@ function timeZoneOffsetMillis(utcMillis: number, timeZone: string): number {
 
 /**
  * Converts a "YYYY-MM-DD" date and "HH:MM" time, interpreted as wall-clock
- * time in `timeZone`, to a UTC ISO 8601 string -- e.g.
+ * time in `timeZone`, to a UTC ISO 8601 string, e.g.
  * `("2026-08-24", "00:00", "America/New_York")` ->
  * `"2026-08-24T04:00:00.000Z"`.
  */
@@ -82,15 +81,15 @@ export function formatZonedDateTime(isoTimestamp: string, timeZone: string): str
 
 /**
  * The wall-clock "YYYY-MM-DD" date a UTC instant falls on when observed in
- * `timeZone` -- e.g. `("2026-08-24T02:00:00.000Z", "America/New_York")` ->
- * `"2026-08-23"` (22:00 the previous day in EDT). Used (TICKET-06) to bucket
- * open slots by the local calendar date they land on for a given viewer --
- * the patient's own zone for "which day does this slot show under", the
- * provider's for cross-checking -- independent of which date the API's
+ * `timeZone`, e.g. `("2026-08-24T02:00:00.000Z", "America/New_York")` ->
+ * `"2026-08-23"` (22:00 the previous day in EDT). Used to bucket open
+ * slots by the local calendar date they land on for a given viewer: the
+ * patient's own zone for "which day does this slot show under", the
+ * provider's for cross-checking, independent of which date the API's
  * `date_from`/`date_to` query range was expressed in. Same
  * `Intl.DateTimeFormat().formatToParts` technique as `formatZonedDateTime`,
- * just narrowed to the date portion and ISO-ordered so the result sorts and
- * compares correctly as a plain string key.
+ * just narrowed to the date portion and ISO-ordered so the result sorts
+ * and compares correctly as a plain string key.
  */
 export function zonedDateKey(isoTimestamp: string, timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -105,11 +104,11 @@ export function zonedDateKey(isoTimestamp: string, timeZone: string): string {
 
 /**
  * Wall-clock time-of-day for a UTC instant, observed in `timeZone` and
- * rendered 12-hour with a lowercase am/pm suffix and no leading zero -- the
- * wireframe's slot-button format (e.g. `"9:00am"`, `"12:30pm"`). Reads
- * `dayPeriod` off `Intl`'s own parts (rather than computing am/pm from the
- * hour number by hand) and strips it down to bare letters, since some
- * locales/ICU builds render it as `"AM"` and others as `"a.m."`.
+ * rendered 12-hour with a lowercase am/pm suffix and no leading zero, e.g.
+ * `"9:00am"`, `"12:30pm"`. Reads `dayPeriod` off `Intl`'s own parts
+ * (rather than computing am/pm from the hour number by hand) and strips
+ * it down to bare letters, since some locales/ICU builds render it as
+ * `"AM"` and others as `"a.m."`.
  */
 export function zonedTimeLabel(isoTimestamp: string, timeZone: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {

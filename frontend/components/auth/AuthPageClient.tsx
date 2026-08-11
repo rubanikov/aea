@@ -15,8 +15,8 @@ type Mode = "login" | "register";
  * (set by `hooks/use-current-user.ts` / `hooks/use-authenticated-request.ts`
  * when an authenticated fetch 401s elsewhere in the app) and the
  * `account_deleted` param (set by `DeleteAccountSection` after a successful
- * deletion request, TICKET-14) and surfaces either as a clear message above
- * the forms.
+ * deletion request) and surfaces either as a clear message above the
+ * forms.
  */
 export function AuthPageClient() {
   const searchParams = useSearchParams();

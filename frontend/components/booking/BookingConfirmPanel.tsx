@@ -18,12 +18,11 @@ const BOOKINGS_PATH = "/bookings";
 const HEADING_ID = "booking-confirm-heading";
 const REASON_ID = "booking-confirm-reason";
 
-/** Reconciled against the real backend (`backend/bookings/views.py`'s
- * `BookingCreateView`, `IDEMPOTENCY_KEY_HEADER`): a request header, not the
- * body field this ticket's brief originally assumed -- a plain retry that
- * resends the identical JSON body still carries the same header
- * automatically, with no extra work by the caller beyond generating the key
- * once (see `idempotencyKey` below). */
+/** Matches `backend/bookings/views.py`'s `BookingCreateView`: the
+ * idempotency key is a request header, not a body field. A plain retry
+ * that resends the identical JSON body still carries the same header
+ * automatically, with no extra work by the caller beyond generating the
+ * key once (see `idempotencyKey` below). */
 const IDEMPOTENCY_KEY_HEADER = "Idempotency-Key";
 
 const FOCUSABLE_SELECTOR =
@@ -34,7 +33,7 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
 }
 
 /** e.g. `("2026-08-18T15:00:00.000Z", "2026-08-18T15:30:00.000Z", "America/Chicago")`
- * -> `"Tuesday, August 18, 2026, 10:00am–10:30am"` -- the confirm panel's
+ * -> `"Tuesday, August 18, 2026, 10:00am–10:30am"`. The confirm panel's
  * per-timezone line, built from the same zoned-conversion helpers
  * `SlotBrowser`/`TimeSlotGrid` already use (`lib/availability/timezone.ts`,
  * `lib/scheduling/calendar.ts`) rather than a new date library. */
@@ -52,19 +51,19 @@ interface BookingConfirmPanelProps {
   slot: Slot;
   patientTimeZone: string;
   /** The slot `<button>` that opened this panel (captured by the caller via
-   * `document.activeElement` at click time -- a real click focuses its
+   * `document.activeElement` at click time, since a real click focuses its
    * target before the click handler runs). Focus returns here when the
    * panel closes, per the WAI-ARIA dialog pattern; if it's no longer in the
    * document by then (a successful booking removes its slot button from the
    * grid underneath), focus is simply left wherever the browser puts it. */
   triggerElement: HTMLElement | null;
-  /** Cancel, the [x], or Esc/backdrop-equivalent close -- no booking was
+  /** Cancel, the [x], or Esc/backdrop-equivalent close: no booking was
    * made (or, from the success view, the user is done looking at the
    * confirmation). Never called while a request is in flight. */
   onClose: () => void;
   /** The booking succeeded. Called once, right when the success view first
    * renders, so the caller can remove this slot from the open list
-   * immediately -- independent of whether the user has dismissed the
+   * immediately, independent of whether the user has dismissed the
    * confirmation yet. */
   onBooked: (bookedSlot: Slot) => void;
   /** The booking lost the race (409) and the user chose "Choose another
@@ -74,33 +73,26 @@ interface BookingConfirmPanelProps {
 }
 
 /**
- * Screen 2's confirm panel (TICKET-07): opened by clicking an open slot in
- * `SlotBrowser`/`TimeSlotGrid`. A real focus-trapped dialog -- nothing else
- * in this codebase is a modal yet, so this establishes that pattern fresh
- * (`role="dialog"`, `aria-modal`, focus moves in on open and back to the
- * triggering slot button on close, Esc closes/cancels, Tab/Shift+Tab wrap
- * within the dialog's own focusable elements).
+ * The booking confirm panel: opened by clicking an open slot in
+ * `SlotBrowser`/`TimeSlotGrid`. A real focus-trapped dialog (`role="dialog"`,
+ * `aria-modal`, focus moves in on open and back to the triggering slot
+ * button on close, Esc closes/cancels, Tab/Shift+Tab wrap within the
+ * dialog's own focusable elements).
  *
  * Auto-accept means there's no "held for you" countdown and no pending
  * state: clicking "Confirm booking" either succeeds immediately (the
  * booking comes back already `status: "confirmed"`) or fails, most
- * interestingly with a 409 when someone else books the same slot first --
- * rendered as its own distinct "no longer available" view, not a form
- * error, since the form itself is no longer actionable at that point.
- *
- * Reconciled against the real backend (`backend/bookings/`, built in
- * parallel): body/response shapes and the 400 vs. 409 split all match this
- * ticket's original assumed contract exactly. The one thing that didn't --
- * the idempotency key is a request header, not a body field -- is fixed up
- * where the request is built, below (`IDEMPOTENCY_KEY_HEADER`).
+ * interestingly with a 409 when someone else books the same slot first.
+ * That's rendered as its own distinct "no longer available" view, not a
+ * form error, since the form itself is no longer actionable at that point.
  *
  * The "reason for visit" field is collected but intentionally never sent:
- * `BookingCreateSerializer` (`backend/bookings/serializers.py`) has no field
- * for it -- a plain `serializers.Serializer`, so an extra body key would
- * just be silently ignored rather than rejected, but there's still no
- * reason to send data the API doesn't define anywhere. Kept in the UI
- * because the approved wireframe shows it, as a client-side-only nicety for
- * now until a real field exists to send it to.
+ * `BookingCreateSerializer` (`backend/bookings/serializers.py`) has no
+ * field for it. It's a plain `serializers.Serializer`, so an extra body
+ * key would just be silently ignored rather than rejected, but there's
+ * still no reason to send data the API doesn't define anywhere. Kept in
+ * the UI because the approved wireframe shows it, a client-side-only
+ * nicety for now until a real field exists to send it to.
  */
 export function BookingConfirmPanel({
   provider,
@@ -121,7 +113,7 @@ export function BookingConfirmPanel({
   const triggerElementRef = useRef(triggerElement);
 
   // One idempotency key per confirm-panel-open (this component's mount),
-  // not per click or per attempt -- a retry of the *same* booking attempt
+  // not per click or per attempt. A retry of the *same* booking attempt
   // after a transient error reuses this *same* key, so even a genuine
   // client-side double-fire is safe server-side. The disable-on-click guard
   // below is the first line of defense; this is the backstop.
@@ -147,9 +139,9 @@ export function BookingConfirmPanel({
 
   function closeOrChooseAnother() {
     if (status === "submitting") {
-      // Nothing to cancel client-side -- the request is already in flight
-      // and the idempotency key makes it safe either way -- so ignore
-      // rather than let Esc abandon the dialog mid-request.
+      // Nothing to cancel client-side: the request is already in flight
+      // and the idempotency key makes it safe either way. Ignore rather
+      // than let Esc abandon the dialog mid-request.
       return;
     }
     if (status === "conflict") {
@@ -196,7 +188,7 @@ export function BookingConfirmPanel({
       return;
     }
     // Disables the button on this same tick, before the request even
-    // starts -- the client-side half of the double-submit guard.
+    // starts: the client-side half of the double-submit guard.
     setStatus("submitting");
     setErrorMessage(null);
     try {
@@ -217,7 +209,7 @@ export function BookingConfirmPanel({
         setStatus("conflict");
       } else if (error instanceof ApiError && error.status === 401) {
         // The shared auth hook is already handling this (refresh-and-retry,
-        // then redirect on failure) -- just stop showing "Booking…" so the
+        // then redirect on failure). Just stop showing "Booking…" so the
         // button isn't left disabled if the redirect is delayed.
         setStatus("form");
       } else {

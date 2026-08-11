@@ -11,7 +11,7 @@ npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) (Next.js will pick the
-next free port if 3000 is taken — check the terminal output).
+next free port if 3000 is taken; check the terminal output).
 
 Copy the root `.env.example` and fill in `NEXT_PUBLIC_API_URL` (and the
 backend vars, for the backend) if you need to point at a non-default API URL.
@@ -28,9 +28,8 @@ backend vars, for the backend) if you need to point at a non-default API URL.
 | `npm test` | Run the Vitest suite once (CI-friendly) |
 | `npm run test:watch` | Vitest in watch mode, for local dev |
 
-## Auth, roles & account settings (TICKET-02)
+## Auth, roles & account settings
 
-Registration, login, and session handling are real as of this ticket —
 `lib/api/client.ts` is the one place that talks to the backend
 (`NEXT_PUBLIC_API_URL`, default `http://localhost:8000`), always with
 `credentials: "include"` so the httpOnly session cookie rides along, and
@@ -41,13 +40,13 @@ backend's CSRF mitigation for a cookie-delivered auth token).
   gated to "any authenticated role" (no `/settings/*` sub-routes gated by a
   specific one). `proxy.ts` enforces this **before** any of those routes
   render, by calling `GET /auth/me` server-side with the incoming request's
-  cookies forwarded — an unauthenticated or wrong-role visit is redirected
+  cookies forwarded. An unauthenticated or wrong-role visit is redirected
   (to `/login` or `/access-denied`), never rendered, and a down/unreachable
   backend fails closed (redirects rather than lets the visit through). See
   `lib/auth/route-guard.ts` for the pure redirect logic and `proxy.test.ts`
   / `lib/auth/route-guard.test.ts` for the tests.
 - `hooks/use-current-user.ts` exposes `useCurrentUser()` (`GET /auth/me` on
-  mount) for the nav's "who am I" display only — it never gates rendering,
+  mount) for the nav's "who am I" display only; it never gates rendering,
   that's `proxy.ts`'s job. A 401 there means the session died since
   navigation (every call site is inside a route `proxy.ts` already
   confirmed), so it's treated as session-expiry: redirect to
@@ -60,19 +59,20 @@ backend's CSRF mitigation for a cookie-delivered auth token).
   field-level error responses), a real password show/hide toggle, and a
   loading state on submit. On success it reads the role from `GET
   /auth/me` and redirects to `/patient`, `/provider`, or `/admin`.
-- `/settings` (`components/settings/ProfileForm.tsx`, `PasswordForm.tsx`) is
-  profile view/edit (name, email, phone, timezone via `GET`/`PATCH
-  /profile`) and password update (`POST /profile/password`) — deletion
-  ("Danger zone") is TICKET-14's scope, not built here.
+- `/settings` (`components/settings/ProfileForm.tsx`, `PasswordForm.tsx`,
+  `DeleteAccountSection.tsx`) covers profile view/edit (name, email, phone,
+  timezone via `GET`/`PATCH /profile`), password update
+  (`POST /profile/password`), and account deletion ("Danger zone", via
+  `POST /profile/delete-account`).
 
 To try it locally: `npm run dev`, then visit `/login` and register (or log
-in with a seeded demo account — see the backend's `seed_demo` command) to
+in with a seeded demo account; see the backend's `seed_demo` command) to
 land on the matching role's dashboard. Visiting another role's route
 afterwards redirects to `/access-denied`; a fresh/incognito visit to a
 gated route redirects to `/login`.
 
 ## Deployment
 
-This is a stock Next.js App Router project — Vercel's zero-config detection
+This is a stock Next.js App Router project. Vercel's zero-config detection
 picks it up with `frontend/` set as the project root. No `vercel.json` is
 needed yet.

@@ -26,8 +26,7 @@ describe("hasBookingStartPassed", () => {
 describe("hoursUntilBookingStart", () => {
   it("returns the positive fractional hours remaining before a future start time", () => {
     const now = new Date("2026-08-11T19:00:00.000Z");
-    // Wed, Aug 12 2026 9:00am UTC -- 14 hours after 7pm the day before,
-    // matching the wireframe's own "Starts in 14h" sample row.
+    // Wed, Aug 12 2026 9:00am UTC, 14 hours after 7pm the day before.
     expect(hoursUntilBookingStart("2026-08-12T09:00:00.000Z", now)).toBe(14);
   });
 

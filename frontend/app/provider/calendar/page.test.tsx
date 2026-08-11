@@ -12,7 +12,7 @@ describe("ProviderCalendarPage", () => {
   });
 
   it("renders the page heading and the calendar", () => {
-    // The request never resolves during this test -- the calendar stays in
+    // The request never resolves during this test; the calendar stays in
     // its loading state, which is all this smoke test cares about.
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
     render(<ProviderCalendarPage />);

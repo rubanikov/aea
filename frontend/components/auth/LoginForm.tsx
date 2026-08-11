@@ -11,7 +11,7 @@ import { validateLogin, type FieldErrors } from "@/lib/auth/validation";
 
 const NO_KNOWN_FIELDS = new Set<string>();
 
-/** Login has no per-field server errors -- every message the API sends back
+/** Login has no per-field server errors; every message the API sends back
  * (bad credentials, "non_field_errors", ...) is a single form-level message. */
 function loginErrorMessage(body: unknown): string | null {
   return isFieldErrorBody(body)
@@ -64,9 +64,9 @@ export function LoginForm({ initialEmail = "" }: LoginFormProps) {
       await loginWithCredentials(email, password);
       await redirectToRoleHome(router);
     } catch (error) {
-      // Bad credentials: the ticket's contract says 401, but a bare
-      // DRF `serializer.is_valid(raise_exception=True)` failure -- which is
-      // how "wrong email/password" naturally surfaces -- is a 400. Treat
+      // Bad credentials: the API's contract says 401, but a bare
+      // DRF `serializer.is_valid(raise_exception=True)` failure, which is
+      // how "wrong email/password" naturally surfaces, is a 400. Treat
       // both as the same user-facing case rather than betting on one.
       if (
         error instanceof ApiError &&

@@ -1,14 +1,14 @@
 import type { BookingStatus } from "@/lib/bookings/types";
 
 /**
- * TICKET-11: one existing appointment that falls outside a proposed
- * availability change (a working-hours edit or a new blocked-time range).
- * Returned by `POST /scheduling/availability/check-collisions` and by
+ * One existing appointment that falls outside a proposed availability
+ * change (a working-hours edit or a new blocked-time range). Returned by
+ * `POST /scheduling/availability/check-collisions` and by
  * `POST /scheduling/blocked-time` when the block would strand a booking.
- * Field names match the backend's confirmed contract -- the same shape as
- * `ProviderBooking` (`lib/bookings/types.ts`) minus `patient_id` -- so this
- * reuses `BookingStatus` and, at render time, `BookingStatusBadge`/
- * `formatBookingTimeRange` rather than inventing a parallel vocabulary.
+ * Same shape as `ProviderBooking` (`lib/bookings/types.ts`) minus
+ * `patient_id`, so this reuses `BookingStatus` and, at render time,
+ * `BookingStatusBadge`/`formatBookingTimeRange` rather than inventing a
+ * parallel vocabulary.
  */
 export interface AvailabilityCollision {
   id: number;
@@ -20,10 +20,10 @@ export interface AvailabilityCollision {
 }
 
 /**
- * One weekday's proposed hours -- the request body shape for the `windows`
+ * One weekday's proposed hours, the request body shape for the `windows`
  * array `POST /scheduling/availability/check-collisions` expects. A day
- * simply absent from the array means "no hours that day" (this also covers
- * deleting a day's hours entirely).
+ * simply absent from the array means "no hours that day" (this also
+ * covers deleting a day's hours entirely).
  */
 export interface AvailabilityWindowInput {
   day_of_week: number;
@@ -44,10 +44,9 @@ interface CollisionResponseBody {
 
 /**
  * Type guard for a 409 response's body from either collision-checking
- * endpoint -- both use this same `{collisions: [...]}` shape (confirmed
- * against the backend's documented contract). Narrows `ApiError.body`
- * (`unknown`) so callers can tell a real collision response apart from an
- * unrelated error body without a type assertion.
+ * endpoint; both use this same `{collisions: [...]}` shape. Narrows
+ * `ApiError.body` (`unknown`) so callers can tell a real collision
+ * response apart from an unrelated error body without a type assertion.
  */
 export function isCollisionResponseBody(body: unknown): body is CollisionResponseBody {
   return (

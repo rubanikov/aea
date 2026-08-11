@@ -10,19 +10,18 @@ interface TimeSlotGridProps {
   /** e.g. "Tuesday, August 18, 2026", for the heading and empty-state copy. */
   selectedDateLabel: string;
   isToday: boolean;
-  /** Wired (TICKET-07) to open `SlotBrowser`'s `BookingConfirmPanel` for the
-   * clicked slot -- this component itself stays booking-agnostic, just a
-   * real, clickable `<button>` per slot. */
+  /** Wired to open `SlotBrowser`'s `BookingConfirmPanel` for the clicked
+   * slot; this component itself stays booking-agnostic, just a real,
+   * clickable `<button>` per slot. */
   onSelectSlot: (slot: Slot) => void;
 }
 
 /**
- * The "Times for {date}" slot-button grid (Screen 2 of the wireframe, right
- * half), plus its two empty states: no slots left today vs. no open slots
- * on a date that hasn't happened yet. Each button shows the slot's start
- * time converted into the patient's own zone via
- * `lib/availability/timezone.ts`'s `zonedTimeLabel` -- never the raw UTC
- * value the API returns.
+ * The "Times for {date}" slot-button grid, plus its two empty states: no
+ * slots left today vs. no open slots on a date that hasn't happened yet.
+ * Each button shows the slot's start time converted into the patient's
+ * own zone via `lib/availability/timezone.ts`'s `zonedTimeLabel`, never
+ * the raw UTC value the API returns.
  */
 export function TimeSlotGrid({
   slots,

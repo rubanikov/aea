@@ -39,28 +39,23 @@ function groupByDay(
 }
 
 /**
- * Provider's own calendar (TICKET-08, frontend half; see `wireframes.html`
- * Screen 8): a Monday-first week-strip with per-day appointment counts,
- * plus a day-grouped agenda list underneath for whichever day is selected.
- * Role-appropriate status actions only -- mark completed, mark no-show,
- * cancel -- and deliberately no confirm/decline action anywhere: every
- * booking this screen shows already arrived pre-confirmed (TICKET-07's
- * auto-accept).
+ * Provider's own calendar: a Monday-first week-strip with per-day
+ * appointment counts, plus a day-grouped agenda list underneath for
+ * whichever day is selected. Role-appropriate status actions only (mark
+ * completed, mark no-show, cancel), and deliberately no confirm/decline
+ * action anywhere: every booking this screen shows already arrived
+ * pre-confirmed via auto-accept.
  *
- * Neither `GET /bookings?date_from=&date_to=` nor `PATCH
- * /bookings/:id/status` exist in `backend/bookings/` yet as of this
- * ticket -- only `POST /bookings` does -- so both are called exactly per
- * the brief's assumed contract: `date_from`/`date_to` as "YYYY-MM-DD"
- * dates (matching `GET /scheduling/slots`'s own query param format), and
- * scoped to the authenticated provider with no `provider_id` needed
- * (matching every other "my own" resource in this codebase, e.g.
- * `GET /scheduling/appointment-types`). Adapt once the real endpoints
- * exist; note any drift.
+ * `date_from`/`date_to` are "YYYY-MM-DD" dates, matching
+ * `GET /scheduling/slots`'s own query param format, and the request is
+ * scoped to the authenticated provider with no `provider_id` needed,
+ * matching every other "my own" resource in this codebase (e.g.
+ * `GET /scheduling/appointment-types`).
  *
  * The provider's own timezone (`GET /profile`, the same pattern
  * `AppointmentTypesSection` established) drives both the `date_from`/
  * `date_to` query bounds and which local day each returned booking is
- * grouped under -- this is the provider viewing their own calendar, so
+ * grouped under. This is the provider viewing their own calendar, so
  * their own timezone is what's correct here, never the patient's or a bare
  * UTC display. Loading it is treated as a genuine blocking prerequisite
  * (unlike `AppointmentTypesSection`'s read-only timezone line, which is
@@ -68,7 +63,7 @@ function groupByDay(
  * /bookings` query or bucket results by day at all.
  *
  * `nav` (week + selected day) is `null` until the provider explicitly
- * navigates -- the "week containing today" default is a pure computation
+ * navigates. The "week containing today" default is a pure computation
  * off `timezone` on every render, not a value copied into state via an
  * effect (which would need to call `setState` synchronously inside that
  * effect purely to seed initial state, an anti-pattern this codebase's
@@ -91,7 +86,7 @@ export function ProviderCalendar() {
   const effectiveNav: Nav | null =
     nav ?? (todayKey ? { weekStart: startOfWeek(todayKey), selectedDay: todayKey } : null);
   // Pulled out as its own primitive so the bookings-fetch effect below can
-  // depend on it directly -- depending on `effectiveNav` itself would
+  // depend on it directly. Depending on `effectiveNav` itself would
   // refetch on every same-week day selection too (it also changes then),
   // not just on an actual week change.
   const weekStart = effectiveNav?.weekStart ?? null;
@@ -162,7 +157,7 @@ export function ProviderCalendar() {
 
   /** Shared by prev/next/Today: clears the currently-loaded week (the fetch
    * effect above re-fires for the new `weekStart`) and moves the selected
-   * day along with it -- mirrors `SlotBrowser`'s `goToMonth`, which resets
+   * day along with it. Mirrors `SlotBrowser`'s `goToMonth`, which resets
    * its own selected date the same way on month navigation. */
   function goToWeek(weekStart: string, selectedDay: string) {
     setBookings(null);
@@ -191,7 +186,7 @@ export function ProviderCalendar() {
   }
 
   /** Selecting a different day within the *same* week: only the filter
-   * changes, so this deliberately doesn't clear/re-fetch `bookings`. */
+   * changes, so this deliberately doesn't clear or re-fetch `bookings`. */
   function handleSelectDay(selectedDay: string) {
     if (effectiveNav) {
       setNav({ weekStart: effectiveNav.weekStart, selectedDay });

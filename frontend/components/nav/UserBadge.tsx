@@ -7,7 +7,7 @@ import { useCurrentUser } from "@/hooks/use-current-user";
 import { apiFetch } from "@/lib/api/client";
 
 /**
- * Nav-corner "who am I" display. Uses `useCurrentUser()` for display only --
+ * Nav-corner "who am I" display. Uses `useCurrentUser()` for display only;
  * it never gates anything, since route access is enforced in `proxy.ts`.
  */
 export function UserBadge() {
@@ -18,7 +18,7 @@ export function UserBadge() {
   async function handleLogout() {
     setLoggingOut(true);
     // A failed logout request (network blip) shouldn't strand the visitor
-    // on a page that thinks they're logged in -- navigate away regardless,
+    // on a page that thinks they're logged in. Navigate away regardless;
     // the httpOnly cookie will simply outlive this particular request.
     await apiFetch("/auth/logout", { method: "POST" }).catch(() => null);
     router.push("/login");
@@ -26,7 +26,7 @@ export function UserBadge() {
   }
 
   if (user === undefined) {
-    // Loading -- avoid flashing a "Log in" link while GET /auth/me is in
+    // Loading: avoid flashing a "Log in" link while GET /auth/me is in
     // flight on a page proxy.ts has already confirmed is authenticated.
     return null;
   }

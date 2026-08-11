@@ -14,8 +14,8 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  * A same-origin-only marker header the backend requires on every
  * unsafe-method request as CSRF mitigation for its cookie-delivered auth
  * token (a cross-site form submission can't attach a custom header, but it
- * *can* ride along with an ambient cookie). Not something any caller should
- * need to think about, hence set here rather than per call site.
+ * *can* ride along with an ambient cookie). Set once here rather than
+ * per call site.
  */
 const CSRF_MITIGATION_HEADER = { "X-Requested-With": "XMLHttpRequest" };
 
@@ -101,7 +101,7 @@ export async function apiJson<T>(
  * Calls `POST /auth/refresh` (reads the httpOnly refresh cookie, rotates
  * both cookies on success). The access-token cookie is short-lived (15 min)
  * by design, so any authenticated session longer than that depends on this
- * succeeding -- callers should attempt it once before treating a 401 as
+ * succeeding. Callers should attempt it once before treating a 401 as
  * "the user needs to log in again".
  */
 export async function refreshSession(): Promise<boolean> {

@@ -7,7 +7,7 @@ describe("usePatientTimeZone", () => {
     vi.restoreAllMocks();
   });
 
-  // No separate "is null on the first render" case here -- that `null` is
+  // No separate "is null on the first render" case here: that `null` is
   // `getServerSnapshot`'s value, which `useSyncExternalStore` only ever
   // consults during real server rendering/hydration. `renderHook` uses a
   // plain client root (`createRoot`, not `hydrateRoot`), so it goes

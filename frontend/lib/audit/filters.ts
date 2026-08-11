@@ -32,7 +32,7 @@ export function buildAuditLogQuery(
 
 /**
  * Human-readable summary of the currently applied filters, e.g. for a
- * visible "Filtered by ..." line -- so a sighted or screen-reader user can
+ * visible "Filtered by ..." line, so a sighted or screen-reader user can
  * tell what's filtering the table without re-reading every field in the
  * form above it.
  */

@@ -6,7 +6,7 @@ import { AppointmentTabs } from "./AppointmentTabs";
 import type { AppointmentTab } from "@/lib/bookings/types";
 
 /** A tiny controlled wrapper so tests exercise the tablist's own roving-
- * tabindex/focus behavior against real, re-rendering state -- a fully
+ * tabindex/focus behavior against real, re-rendering state. A fully
  * static `active` prop wouldn't let a click/keypress actually move
  * selection. */
 function ControlledTabs({ initial }: { initial: AppointmentTab }) {

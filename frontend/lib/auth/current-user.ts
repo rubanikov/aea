@@ -9,7 +9,7 @@ export interface CurrentUser {
 }
 
 /**
- * Calls `GET /auth/me` -- the source of truth for "who is logged in and
+ * Calls `GET /auth/me`, the source of truth for "who is logged in and
  * what's their role". Both client components (`useCurrentUser`) and
  * `proxy.ts` (server-side) call this rather than trying to decode any
  * cookie themselves, per the API contract.

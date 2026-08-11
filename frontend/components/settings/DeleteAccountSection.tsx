@@ -14,27 +14,21 @@ const KNOWN_SERVER_FIELDS = new Set(["password"]);
 type Mode = "idle" | "confirming";
 
 /**
- * "Danger zone" card: request account & data deletion (TICKET-14).
+ * "Danger zone" card: request account & data deletion.
  *
- * Reconciled against the real backend (`backend/accounts/views.py`
- * `DeleteAccountView`, `backend/accounts/serializers.py`
- * `DeleteAccountSerializer`):
- *
- *   `POST /profile/delete-account` with `{password}` (not `current_password`
- *   -- the field name and endpoint originally assumed during the parallel
- *   build both differed from what the backend actually shipped). Success is
- *   `200` with `{cancelled_appointments_count: number}` (not `204` -- the
- *   count is always `0` today, a documented no-op until TICKET-07/09 wire in
- *   real `Booking` cancellation), and ends the session server-side the same
- *   way `LogoutView` does (blacklist the refresh token, clear both auth
- *   cookies on the response). Wrong-password is `400` with
- *   `{"password": ["Incorrect password."]}`.
+ * Calls `POST /profile/delete-account` with `{password}`, matching
+ * `backend/accounts/views.py`'s `DeleteAccountView` and
+ * `backend/accounts/serializers.py`'s `DeleteAccountSerializer`. Success
+ * is `200` with `{cancelled_appointments_count: number}`, and ends the
+ * session server-side the same way `LogoutView` does (blacklist the
+ * refresh token, clear both auth cookies on the response). Wrong-password
+ * is `400` with `{"password": ["Incorrect password."]}`.
  *
  * Regardless of what the server does with cookies, this component doesn't
  * rely on being able to read or clear an httpOnly cookie itself (it can't).
  * On success it drives the same client-side "end the session" sequence
- * `UserBadge`'s logout uses -- `router.push` then `router.refresh()` -- so
- * the visit actually ends here even if the cookie-clearing assumption above
+ * `UserBadge`'s logout uses, `router.push` then `router.refresh()`, so the
+ * visit actually ends here even if the cookie-clearing assumption above
  * turns out to be wrong. The confirmation message survives the redirect via
  * a `/login?account_deleted=1` query param, the same handoff mechanism
  * `lib/auth/session-expired.ts` already uses for "your session expired".

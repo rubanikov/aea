@@ -18,10 +18,10 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
 }
 
 /** e.g. `("2026-08-21T18:00:00.000Z", "2026-08-21T18:30:00.000Z",
- * "America/New_York")` -> `"Fri, Aug 21, 2:00–2:30pm"` -- the wireframe's
- * row format, built on `formatBookingTimeRange` (the established booking
- * time-range formatter) plus a short weekday+month+day label, rather than a
- * new date-formatting helper. */
+ * "America/New_York")` -> `"Fri, Aug 21, 2:00–2:30pm"`. Built on
+ * `formatBookingTimeRange` (the established booking time-range formatter)
+ * plus a short weekday+month+day label, rather than a new
+ * date-formatting helper. */
 function formatCollisionRow(startIso: string, endIso: string, timeZone: string): string {
   const dateLabel = new Intl.DateTimeFormat("en-US", {
     timeZone,
@@ -33,59 +33,58 @@ function formatCollisionRow(startIso: string, endIso: string, timeZone: string):
 }
 
 interface CollisionWarningModalProps {
-  /** One-sentence description of the proposed change -- wording differs by
+  /** One-sentence description of the proposed change. Wording differs by
    * caller (a working-hours edit vs. a new blocked-time range), so it's
    * supplied by the caller rather than built in here. */
   description: string;
   collisions: readonly AvailabilityCollision[];
-  /** The provider's own timezone -- every collision's `start_time`/
+  /** The provider's own timezone. Every collision's `start_time`/
    * `end_time` is a UTC instant, rendered here the same way
    * `BlockedTimeRow`/`AgendaRow` render a booking's time. */
   timezone: string;
   /** True while "Keep new hours" is being confirmed (the resolution call
-   * plus the real save both run before this clears) -- disables the radios
+   * plus the real save both run before this clears). Disables the radios
    * and both buttons so a second click can't fire a second save. */
   confirming: boolean;
   /** A specific, actionable message for a failed "Keep new hours" attempt.
-   * Shown inside the dialog (never behind it -- the background form is
-   * covered by the modal's own overlay) so it stays visible until retried. */
+   * Shown inside the dialog (never behind it, since the background form
+   * is covered by the modal's own overlay) so it stays visible until
+   * retried. */
   error?: string | null;
   onKeepNewHours: () => void;
   /** "Go back", Esc, the [x], or "Confirm my choice" with "Cancel this
-   * change" selected -- all four are the same outcome: the proposed change
+   * change" selected: all four are the same outcome, the proposed change
    * is discarded and nothing is saved. Collapsed into one callback since
    * every caller treats them identically. */
   onCancelChange: () => void;
-  /** The Save/Add-block button that opened this modal -- focus returns here
+  /** The Save/Add-block button that opened this modal; focus returns here
    * on close, mirroring `BookingConfirmPanel`'s dialog pattern. */
   triggerElement: HTMLElement | null;
 }
 
 /**
- * TICKET-11: shown instead of saving when either collision-checking
- * endpoint (`POST /scheduling/availability/check-collisions` for working
- * hours, `POST /scheduling/blocked-time` for a new blocked range) reports
- * the proposed change would strand existing bookings outside the provider's
+ * Shown instead of saving when either collision-checking endpoint
+ * (`POST /scheduling/availability/check-collisions` for working hours,
+ * `POST /scheduling/blocked-time` for a new blocked range) reports the
+ * proposed change would strand existing bookings outside the provider's
  * new availability. Reused verbatim by `WorkingHoursSection` and
- * `BlockedTimeSection` (Screen 7 of the wireframe) -- only `description` and
- * the affected-appointments list differ between the two callers.
+ * `BlockedTimeSection`; only `description` and the affected-appointments
+ * list differ between the two callers.
  *
  * A real focus-trapped dialog, built on the exact pattern
- * `BookingConfirmPanel` established (the first modal in this codebase --
- * nothing existed before it to reuse instead): focus moves in on open,
- * Tab/Shift+Tab wrap within the dialog's own focusable elements, and focus
- * returns to `triggerElement` on unmount. `role="alertdialog"` rather than
- * `BookingConfirmPanel`'s `role="dialog"` -- this modal always demands an
- * explicit decision before anything can proceed (an alert dialog is exactly
- * that per the WAI-ARIA APG), where `BookingConfirmPanel` is a plain
- * confirm/cancel form a user can freely dismiss.
+ * `BookingConfirmPanel` established: focus moves in on open, Tab/Shift+Tab
+ * wrap within the dialog's own focusable elements, and focus returns to
+ * `triggerElement` on unmount. `role="alertdialog"` rather than
+ * `BookingConfirmPanel`'s `role="dialog"`, since this modal always demands
+ * an explicit decision before anything can proceed (an alert dialog is
+ * exactly that per the WAI-ARIA APG), where `BookingConfirmPanel` is a
+ * plain confirm/cancel form a user can freely dismiss.
  *
  * The two resolution choices are real `<input type="radio">`s inside a
  * `fieldset`/`legend` (not two similarly-styled buttons), so they're
- * arrow-key switchable and keep their native grouped semantics. Esc and the
- * "Go back"/[x] controls are wired to `onCancelChange` directly -- no radio
- * needs to be selected first, matching the wireframe's own "Go back" button
- * sitting outside the radio group.
+ * arrow-key switchable and keep their native grouped semantics. Esc and
+ * the "Go back"/[x] controls are wired to `onCancelChange` directly, no
+ * radio needs to be selected first.
  */
 export function CollisionWarningModal({
   description,

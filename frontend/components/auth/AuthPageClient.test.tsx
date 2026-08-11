@@ -54,7 +54,7 @@ describe("AuthPageClient", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
-  it("shows the account-deleted confirmation when the query param is set (post-deletion redirect, TICKET-14)", () => {
+  it("shows the account-deleted confirmation when the query param is set (post-deletion redirect)", () => {
     currentSearchParams = new URLSearchParams("account_deleted=1");
     render(<AuthPageClient />);
 

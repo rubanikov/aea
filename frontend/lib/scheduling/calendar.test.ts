@@ -47,9 +47,9 @@ describe("formatMonthYear", () => {
 
 describe("weekdayName / formatFullDate", () => {
   // Independently verified real-calendar fact (not derived from this
-  // module's own arithmetic): January 1, 2026 is a Thursday, so -- summing
-  // 2026's Jan-Jul day counts (212 days) forward from there -- August 1,
-  // 2026 is a Saturday.
+  // module's own arithmetic): January 1, 2026 is a Thursday, so summing
+  // 2026's Jan-Jul day counts (212 days) forward from there puts August 1,
+  // 2026 on a Saturday.
   it("matches the real calendar for a known date", () => {
     expect(weekdayName(2026, 8, 1)).toBe("Saturday");
   });

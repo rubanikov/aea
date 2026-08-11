@@ -44,80 +44,77 @@ type ConfirmStatus = "form" | "submitting" | "success" | "conflict";
 interface RescheduleDialogProps {
   booking: PatientBooking;
   patientTimeZone: string;
-  /** The card's Reschedule button that opened this dialog -- focus returns
+  /** The card's Reschedule button that opened this dialog; focus returns
    * here on close, matching `BookingConfirmPanel`'s dialog pattern. */
   triggerElement: HTMLElement | null;
-  /** Esc, the [x], or "Choose a different time"/"Close" from any non-success
-   * view -- no reschedule happened. Also called, right after
+  /** Esc, the [x], or "Choose a different time"/"Close" from any
+   * non-success view: no reschedule happened. Also called, right after
    * `onRescheduled`, when "Done" is clicked on the success view. */
   onClose: () => void;
   /** The reschedule PATCH succeeded. Called once, when "Done" is clicked on
-   * the success view -- deliberately *not* the instant the request
-   * resolves, unlike `BookingConfirmPanel`'s `onBooked`. That panel's own
-   * success reaction just filters one slot out of a list rendered
-   * *alongside* it; this dialog is rendered *inside* the very
-   * `AppointmentCard` for the booking being rescheduled, and
-   * `PatientAppointments`' own reaction to this callback is a full refetch
-   * of the list (see its docstring) -- which would unmount this dialog's
-   * still-open success confirmation right out from under the patient if it
-   * fired immediately. Firing on "Done" instead means the confirmation is
-   * always seen before the list underneath changes.
+   * the success view, deliberately *not* the instant the request resolves,
+   * unlike `BookingConfirmPanel`'s `onBooked`. That panel's own success
+   * reaction just filters one slot out of a list rendered *alongside* it;
+   * this dialog is rendered *inside* the very `AppointmentCard` for the
+   * booking being rescheduled, and `PatientAppointments`' own reaction to
+   * this callback is a full refetch of the list (see its docstring),
+   * which would unmount this dialog's still-open success confirmation
+   * right out from under the patient if it fired immediately. Firing on
+   * "Done" instead means the confirmation is always seen before the list
+   * underneath changes.
    */
   onRescheduled: () => void;
 }
 
 /**
- * TICKET-10: lets a patient move a `confirmed` appointment to another open
- * slot for the *same* provider and appointment type -- launched from
+ * Lets a patient move a `confirmed` appointment to another open slot for
+ * the *same* provider and appointment type, launched from
  * `AppointmentCard`'s Reschedule button.
  *
- * A modal, not a new route or an in-card expansion (the two other options
- * the ticket raised): there is no `GET /bookings/:id` to hydrate a fresh
- * route with (only the list-returning `GET /bookings/mine` this booking's
- * own data already came from, and `PATCH`-only mutation endpoints), so a
- * route would have to either refetch the whole list anyway or thread the
- * one booking across a navigation some other way; and an in-card expansion
- * would put a full month calendar + time grid inside one row of an
- * already-scrollable list, which reads worse than the same picker lifted
- * into an overlay. A modal also gets this dialog `BookingConfirmPanel`'s
- * already-established focus-trap pattern (`role="dialog"`, `aria-modal`,
- * Tab-wrap, Esc/return-focus) for free -- the same pattern
- * `CollisionWarningModal` (TICKET-11) already reused rather than inventing
- * a third one, so this makes a third data point for it, not a new shape.
- * The trap itself is duplicated here (not extracted into a shared hook),
- * matching both of those components' own precedent of duplicating it
- * rather than factoring out a generic one.
+ * A modal, not a new route or an in-card expansion: there is no
+ * `GET /bookings/:id` to hydrate a fresh route with (only the
+ * list-returning `GET /bookings/mine` this booking's own data already came
+ * from, and `PATCH`-only mutation endpoints), so a route would have to
+ * either refetch the whole list anyway or thread the one booking across a
+ * navigation some other way; and an in-card expansion would put a full
+ * month calendar + time grid inside one row of an already-scrollable list,
+ * which reads worse than the same picker lifted into an overlay. A modal
+ * also gets this dialog `BookingConfirmPanel`'s already-established
+ * focus-trap pattern (`role="dialog"`, `aria-modal`, Tab-wrap,
+ * Esc/return-focus) for free, the same pattern `CollisionWarningModal`
+ * already reuses rather than inventing a third one. The trap itself is
+ * duplicated here (not extracted into a shared hook), matching both of
+ * those components' own precedent of duplicating it rather than factoring
+ * out a generic one.
  *
  * One dialog, not two: rather than nesting a second modal for the confirm
  * step (the way the fresh-booking flow splits `SlotBrowser`'s picker from
  * a separate `BookingConfirmPanel`), this dialog's own content just
  * switches between "resolving" / "browsing" / "confirming" / "conflict" /
  * "success", the same way `BookingConfirmPanel` itself already switches
- * content by internal `status` rather than mounting a second dialog for its
- * own success/conflict views.
+ * content by internal `status` rather than mounting a second dialog for
+ * its own success/conflict views.
  *
  * `GET /bookings/mine` (`PatientBookingListSerializer`,
- * `backend/bookings/serializers.py`) -- this booking's own data source --
- * does not include `appointment_type_id`, only `appointment_type_name`
- * (confirmed by reading the real serializer). `GET /scheduling/slots`
- * needs the id, not the name, so it's resolved once on open via
- * `GET /scheduling/providers/:id/appointment-types` (the same endpoint
- * `ServicePicker` already uses for the fresh-booking flow), matched by
- * name -- safe because an appointment type's name is unique per provider
- * (`unique_appointment_type_name_per_provider`,
+ * `backend/bookings/serializers.py`), this booking's own data source,
+ * does not include `appointment_type_id`, only `appointment_type_name`.
+ * `GET /scheduling/slots` needs the id, not the name, so it's resolved
+ * once on open via `GET /scheduling/providers/:id/appointment-types` (the
+ * same endpoint `ServicePicker` already uses for the fresh-booking flow),
+ * matched by name, which is safe because an appointment type's name is
+ * unique per provider (`unique_appointment_type_name_per_provider`,
  * `backend/scheduling/models.py`). The booking's own `provider_id` is used
  * directly for every request below; there's no need to also resolve a full
  * `Provider` object here (unlike `SlotBrowser`), since this dialog never
- * needs to display the provider's own timezone -- only the patient's, the
+ * needs to display the provider's own timezone, only the patient's, the
  * same "your time only" scope `AppointmentCard`'s own row already keeps.
  *
  * The reschedule PATCH carries no idempotency key, unlike `POST /bookings`:
- * `BookingRescheduleSerializer`'s body is `{start_time}` only (confirmed
- * against the real backend), with no header the view reads either -- so the
- * only double-submit guard here is the client-side "already submitting"
- * check before the request fires, same as every other disable-on-click
- * button in this codebase, without a fabricated backstop the contract
- * doesn't define.
+ * `BookingRescheduleSerializer`'s body is `{start_time}` only, with no
+ * header the view reads either, so the only double-submit guard here is
+ * the client-side "already submitting" check before the request fires,
+ * same as every other disable-on-click button in this codebase, without a
+ * fabricated backstop the contract doesn't define.
  */
 export function RescheduleDialog({
   booking,
@@ -228,7 +225,7 @@ export function RescheduleDialog({
   }
 
   /** Clears the currently-loaded slots and bumps `slotsReloadKey`, forcing a
-   * fresh `GET` of the same date range -- mirrors `SlotBrowser`'s own
+   * fresh `GET` of the same date range. Mirrors `SlotBrowser`'s own
    * `refreshSlots`. */
   function refreshSlots() {
     setSlotsResponse(null);
@@ -261,7 +258,7 @@ export function RescheduleDialog({
     setSelectedSlot(slot);
   }
 
-  /** "Choose a different time" from the confirm step -- back to browsing
+  /** "Choose a different time" from the confirm step: back to browsing
    * without treating the already-loaded slot list as stale (unlike a lost
    * race, nothing here indicates it actually is). */
   function handleBackToBrowse() {
@@ -270,7 +267,7 @@ export function RescheduleDialog({
     setSubmitErrorMessage(null);
   }
 
-  /** Lost the race (409) and the patient chose "Choose another time" -- the
+  /** Lost the race (409) and the patient chose "Choose another time": the
    * currently-loaded slot list is now known to be stale (some *other*
    * booking took this slot first), so refetch it rather than just dropping
    * the one slot, mirroring `SlotBrowser`'s own `handleSlotUnavailable`. */
@@ -308,7 +305,7 @@ export function RescheduleDialog({
         );
       } else if (error instanceof ApiError && error.status === 401) {
         // The shared auth hook is already handling this (refresh-and-retry,
-        // then redirect on failure) -- just stop showing "Rescheduling…" so
+        // then redirect on failure). Just stop showing "Rescheduling…" so
         // the button isn't left disabled if the redirect is delayed.
         setConfirmStatus("form");
       } else {
@@ -320,7 +317,7 @@ export function RescheduleDialog({
 
   function closeOrGoBack() {
     if (selectedSlot && confirmStatus === "submitting") {
-      // Nothing to cancel client-side -- ignore rather than let Esc abandon
+      // Nothing to cancel client-side; ignore rather than let Esc abandon
       // the dialog mid-request.
       return;
     }

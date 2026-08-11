@@ -21,11 +21,11 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 /**
- * Routes `fetch` by pathname rather than call order -- this section fires
- * two independent requests on mount (appointment types + the timezone
- * line's `GET /profile`), so tests shouldn't be coupled to which fires
- * first. `/profile` defaults to a successful, minimal response unless a
- * test overrides it.
+ * Routes `fetch` by pathname rather than call order, since this section
+ * fires two independent requests on mount (appointment types + the
+ * timezone line's `GET /profile`), so tests shouldn't be coupled to which
+ * fires first. `/profile` defaults to a successful, minimal response
+ * unless a test overrides it.
  */
 function mockFetchRouter(
   overrides: Partial<

@@ -12,7 +12,7 @@ import {
 interface CalendarProps {
   visibleMonth: YearMonth;
   selectedDateKey: string;
-  /** Patient-local "today", as a `dateKey` -- any grid day before this is
+  /** Patient-local "today", as a `dateKey`; any grid day before this is
    * in the past. */
   todayKey: string;
   /** Every `dateKey` (in the patient's own zone) that has at least one open
@@ -47,12 +47,11 @@ function dayClassName(options: {
 }
 
 /**
- * The "Pick a date" month calendar (Screen 2 of the wireframe, left half): a
- * fixed 6-week Sunday-first grid with month navigation. Bookable days
- * (bold, real `aria-pressed` buttons) vs. past/fully-booked days (dimmed)
- * are both real, focusable `<button>`s -- a dimmed day is `aria-disabled`,
- * not the native `disabled` attribute, so it stays in the tab order rather
- * than being skipped entirely (matching this ticket's brief).
+ * The "Pick a date" month calendar: a fixed 6-week Sunday-first grid with
+ * month navigation. Bookable days (bold, real `aria-pressed` buttons) vs.
+ * past/fully-booked days (dimmed) are both real, focusable `<button>`s. A
+ * dimmed day is `aria-disabled`, not the native `disabled` attribute, so
+ * it stays in the tab order rather than being skipped entirely.
  */
 export function Calendar({
   visibleMonth,

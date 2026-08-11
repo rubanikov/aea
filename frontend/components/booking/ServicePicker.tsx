@@ -14,19 +14,13 @@ interface ServicePickerProps {
 const PROVIDERS_PATH = "/scheduling/providers";
 
 /**
- * Step 1 of the patient booking flow (TICKET-06): pick a provider, then --
- * scoped to that provider -- pick an appointment type. A single in-page
- * selector (state, not a route) so choosing both leads straight into
- * `SlotBrowser` with zero page navigations, per the wireframe's own "book in
- * seconds" reasoning.
+ * Step 1 of the patient booking flow: pick a provider, then, scoped to
+ * that provider, pick an appointment type. A single in-page selector
+ * (state, not a route) so choosing both leads straight into `SlotBrowser`
+ * with zero page navigations, keeping the flow "book in seconds".
  *
- * `GET /scheduling/providers` and `GET /scheduling/providers/:id/appointment-types`
- * are this ticket's two new, assumed endpoints (built in parallel by the
- * backend half) -- there is no existing `backend/scheduling/` route for
- * either yet to confirm shapes against; adapt if the real response differs.
- * `AppointmentType`'s shape itself is already real and shared with the
- * provider's own `GET /scheduling/appointment-types`
- * (`lib/availability/types.ts`).
+ * `AppointmentType`'s shape is shared with the provider's own
+ * `GET /scheduling/appointment-types` (`lib/availability/types.ts`).
  */
 export function ServicePicker({ onSelect }: ServicePickerProps) {
   const authFetch = useAuthenticatedRequest();
@@ -104,7 +98,7 @@ export function ServicePicker({ onSelect }: ServicePickerProps) {
   function selectProvider(providerId: number) {
     setSelectedProviderId(providerId);
     // Reset here, in the click handler, rather than in the fetch effect's
-    // body -- the effect's job is to synchronize with the fetch, not to
+    // body. The effect's job is to synchronize with the fetch, not to
     // reset state as a side effect of its own; this keeps every setState
     // call there inside a `.then`/`.catch` callback, mirroring every other
     // fetch effect in this codebase (`AppointmentTypesSection`,

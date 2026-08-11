@@ -91,9 +91,9 @@ export interface DeleteAccountValues {
 }
 
 /**
- * Requires the current password before an account-deletion request is even
- * sent -- the typed-confirmation step TICKET-14 calls for, so the confirm
- * action can't fire on an accidental click (see `DeleteAccountSection`).
+ * Requires the current password before an account-deletion request is
+ * even sent, the typed-confirmation step that keeps the confirm action
+ * from firing on an accidental click (see `DeleteAccountSection`).
  */
 export function validateDeleteAccount(
   values: DeleteAccountValues

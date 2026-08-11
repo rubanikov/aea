@@ -1,9 +1,9 @@
 import { AuditLogViewer } from "@/components/audit/AuditLogViewer";
 
 /**
- * Admin dashboard: the audit-log viewer (TICKET-03's widened scope). This
- * only ever renders for an admin -- `proxy.ts` has already rejected any
- * other visitor to `/admin/*` before this page loads.
+ * Admin dashboard: the audit-log viewer. This only ever renders for an
+ * admin; `proxy.ts` has already rejected any other visitor to `/admin/*`
+ * before this page loads.
  */
 export default function AdminDashboardPage() {
   return (

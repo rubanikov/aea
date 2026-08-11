@@ -19,16 +19,14 @@ interface AgendaRowProps {
 
 /**
  * One appointment row: time range, status badge, appointment type +
- * patient name, and -- on a still-`confirmed` row only -- the three
- * role-appropriate status actions (TICKET-08's accept criteria: mark
- * completed, mark no-show, cancel, and *never* a confirm/decline action
- * anywhere, since every booking here already arrived pre-confirmed).
+ * patient name, and, on a still-`confirmed` row only, the three
+ * role-appropriate status actions (mark completed, mark no-show, cancel),
+ * and *never* a confirm/decline action anywhere, since every booking here
+ * already arrived pre-confirmed.
  *
  * "Mark no-show" is disabled until the appointment's start time has
  * passed, with a visible (not just `title`-attribute) reason underneath,
- * linked via `aria-describedby` -- there's no established
- * disabled-button-with-reason component elsewhere in this codebase yet to
- * reuse, so that pairing is established here.
+ * linked via `aria-describedby`.
  *
  * Each button carries its own `id`+action+`Marking…` busy label rather
  * than a single shared "saving" flag, since a row can only ever have one

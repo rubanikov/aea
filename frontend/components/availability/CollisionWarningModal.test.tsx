@@ -169,7 +169,7 @@ describe("CollisionWarningModal", () => {
 
     const closeButton = screen.getByRole("button", { name: "Close" });
     // Confirm my choice is disabled until a resolution is picked (and so
-    // excluded from the tab order) -- select one so it's the real last
+    // excluded from the tab order); select one so it's the real last
     // focusable element the wrap needs to land past.
     await user.click(screen.getByRole("radio", { name: /keep new hours/i }));
     const confirmButton = screen.getByRole("button", { name: "Confirm my choice" });

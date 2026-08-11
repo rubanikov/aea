@@ -26,7 +26,7 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 /** Routes `fetch` by pathname, matching `AppointmentTypesSection.test.tsx`'s
- * established convention -- this component fires independent requests
+ * established convention, since this component fires independent requests
  * (providers, then a given provider's appointment types) that tests
  * shouldn't be coupled to the order of. */
 function mockFetchRouter(

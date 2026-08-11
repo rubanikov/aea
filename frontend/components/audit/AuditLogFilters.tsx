@@ -15,15 +15,15 @@ const FIELD_CLASS =
 
 /**
  * The audit log's filter row: Actor, Action, Target type, and a date range,
- * plus an explicit Apply submit -- deliberately not a live/debounced
+ * plus an explicit Apply submit. Deliberately not a live/debounced
  * filter-as-you-type, so keyboard and screen-reader users get predictable
  * "type, then submit" behavior instead of the table re-fetching mid-input.
  *
  * Action and Target type are both free-text rather than closed `<select>`s:
  * actions are backend free-text strings (e.g.
  * `"status:confirmed->completed"`), not a fixed enum, and there's no
- * authoritative list of target types to hardcode into a picker either --
- * both would risk offering options that don't match what the backend
+ * authoritative list of target types to hardcode into a picker either.
+ * Both would risk offering options that don't match what the backend
  * actually stores.
  */
 export function AuditLogFilters({

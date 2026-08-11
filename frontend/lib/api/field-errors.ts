@@ -1,9 +1,9 @@
 /**
  * A single field's error message(s) as the API may send it: a bare string
- * (the ticket's documented example, e.g. `{"email": "already registered"}`)
- * or a list of strings (Django REST Framework's own default validation
- * error shape, e.g. `{"email": ["An account with this email already
- * exists."]}`). Both are accepted and normalized to one display string.
+ * (e.g. `{"email": "already registered"}`) or a list of strings (Django
+ * REST Framework's own default validation error shape, e.g.
+ * `{"email": ["An account with this email already exists."]}`). Both are
+ * accepted and normalized to one display string.
  */
 export type FieldErrorValue = string | string[];
 export type FieldErrorBody = Record<string, FieldErrorValue>;

@@ -19,7 +19,7 @@ const PROVIDER = { id: 1, name: "Dr. Amara Osei", timezone: PATIENT_TIME_ZONE };
 const APPOINTMENT_TYPE = { id: 10, name: "Annual Physical", duration_minutes: 30 };
 
 // Real "today"/"tomorrow" local-date keys, computed with the exact same
-// zoned-conversion the component itself uses -- never a hand-rolled
+// zoned-conversion the component itself uses, never a hand-rolled
 // UTC-slice, which would disagree with the component near local midnight.
 const TODAY_KEY = zonedDateKey(new Date().toISOString(), PATIENT_TIME_ZONE);
 const TOMORROW_KEY = zonedDateKey(

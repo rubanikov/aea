@@ -36,7 +36,7 @@ describe("DeleteAccountSection", () => {
     expect(
       screen.getByRole("heading", { name: /request account & data deletion/i })
     ).toBeInTheDocument();
-    // The warning icon is decorative -- the framing has to survive on text alone.
+    // The warning icon is decorative; the framing has to survive on text alone.
     expect(screen.getByText(/not undoable once processed/i)).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /request deletion/i })
@@ -61,7 +61,7 @@ describe("DeleteAccountSection", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("requires a password before the confirm action fires -- a single click can't delete the account", async () => {
+  it("requires a password before the confirm action fires (a single click can't delete the account)", async () => {
     const fetchMock = mockFetchSequence([]);
     const user = userEvent.setup();
     render(<DeleteAccountSection />);
@@ -164,7 +164,7 @@ describe("DeleteAccountSection", () => {
     );
     expect(pushMock).toHaveBeenCalledWith("/login?account_deleted=1");
     expect(refreshMock).toHaveBeenCalled();
-    // The danger-zone card is gone -- replaced by the confirmation.
+    // The danger-zone card is gone, replaced by the confirmation.
     expect(
       screen.queryByRole("button", { name: /request deletion/i })
     ).not.toBeInTheDocument();
