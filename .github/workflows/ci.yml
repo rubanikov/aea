@@ -46,9 +46,11 @@ jobs:
         working-directory: backend
         run: ruff check .
 
-      - name: Test
+      - name: Test with coverage
         working-directory: backend
-        run: python manage.py test
+        run: |
+          coverage run manage.py test
+          coverage report
 
   frontend:
     name: Frontend (Next.js)

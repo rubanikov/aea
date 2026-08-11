@@ -184,6 +184,17 @@ if _test_db_suffix:
     }
 
 
+# Password hashing — project.md's Security section names bcrypt/argon2
+# explicitly, so bcrypt goes first. PBKDF2 (Django's own default) stays
+# second: it's not used for new hashes, but keeping it in the list means
+# Django can still verify anything hashed before this setting existed
+# (e.g. rows created by an older seed run) without a data migration.
+PASSWORD_HASHERS = [
+    "django.contrib.auth.hashers.BCryptSHA256PasswordHasher",
+    "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+]
+
+
 # Password validation
 # https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators
 

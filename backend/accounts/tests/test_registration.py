@@ -37,7 +37,7 @@ class RegistrationTests(AuthAPITestCase):
 
         user = User.objects.get(email=VALID_PAYLOAD["email"])
         self.assertNotEqual(user.password, VALID_PAYLOAD["password"])
-        self.assertTrue(user.password.startswith("pbkdf2_"))
+        self.assertTrue(user.password.startswith("bcrypt_sha256$"))
         self.assertTrue(user.check_password(VALID_PAYLOAD["password"]))
 
     def test_role_field_in_payload_is_ignored_new_signups_are_always_patient(self):

@@ -61,11 +61,13 @@ Each provider already has working hours, a few appointment types (10–60 min, p
 ```bash
 cd backend
 python manage.py test                 # full suite — needs DJANGO_SECRET_KEY set if DJANGO_DEBUG=False
+coverage run manage.py test && coverage report   # same suite, with the coverage gate CI enforces
 ```
 ```bash
 cd frontend
 npm test && npm run typecheck && npm run lint
 ```
+The coverage gate is scoped to `backend/` (`pyproject.toml`'s `[tool.coverage]`, `fail_under = 80`) — the brief's ≥80% target is stated as core-logic coverage (slot generation, booking engine, lifecycle, reminders), not a frontend UI metric. Current run: **98%** backend-wide, 100% on every core-logic module (`bookings/services.py`, `bookings/transitions.py`, `scheduling/slots.py`, `scheduling/collisions.py`, `reminders/services.py`).
 Both are what CI runs on every push (`.github/workflows/ci.yml`).
 
 ### 7. The concurrency test (the brief's critical correctness gate)
@@ -122,11 +124,12 @@ All documented with placeholders/comments in [`.env.example`](.env.example). The
 
 This is a healthcare scheduling app handling PHI (patient identity, appointment details) — treated as first-class throughout, not bolted on:
 
-- Passwords hashed (Django's default hasher), JWT auth delivered as httpOnly/Secure/SameSite=Strict cookies, never `localStorage`.
+- Passwords hashed with bcrypt (`config/settings.py`'s `PASSWORD_HASHERS`), JWT auth delivered as httpOnly/Secure/SameSite=Strict cookies, never `localStorage`.
 - Every PHI-touching endpoint checks row-level ownership server-side (`patient sees only their own`, `provider sees only their own`) independent of any DB-layer policy — see `architecture.md` §6 for why Supabase RLS specifically wasn't used (a documented decision, not an oversight).
 - Every booking/status change and every admin action is written to an append-only audit log (`actor`, `action`, `target`, `timestamp`) — verified by dedicated tests that no update/delete path exists for it.
 - No PHI (names, emails, phone numbers, appointment content) appears in server logs or the reminder email body — only IDs.
 - Account deletion scrubs PHI fields in place (never hard-deletes, so audit history stays intact) and cancels upcoming appointments as part of the same request.
+- TLS/HTTPS in transit: enforced app-side (`SECURE_SSL_REDIRECT`, `*_COOKIE_SECURE` outside `DEBUG`) whenever it's deployed behind a proxy that terminates TLS, which is how Railway/Vercel both work by default. Encryption at rest for the database is delegated to the Postgres host (Supabase and Railway's managed Postgres both encrypt at rest by default) — not something the application layer configures itself, since no live database was provisioned as part of this build (see Deployment below).
 - No BAA is in place with any third-party vendor (Resend, Railway, etc.) in this deployment — a real production rollout handling real PHI would need one from each vendor that touches it; see `tech-stack-research.md` for which vendors offer one and at what tier.
 
 ## Deployment

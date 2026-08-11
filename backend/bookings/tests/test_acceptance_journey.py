@@ -104,7 +104,7 @@ class FullBookingJourneyTests(BookingsAPITestCase):
 
         # -- Core #1: "passwords are hashed (never stored in plaintext)" --
         self.assertNotEqual(patient.password, TEST_PASSWORD)
-        self.assertTrue(patient.password.startswith("pbkdf2_"))
+        self.assertTrue(patient.password.startswith("bcrypt_sha256$"))
 
         # -- Core #1: "an unauthenticated request to any patient resource
         # is rejected" -- checked against a fresh, cookie-less client so it

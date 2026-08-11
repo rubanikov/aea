@@ -42,9 +42,10 @@ class User(AbstractUser):
     real column from day one instead of bolted on later.
 
     Extends `AbstractUser` — Django's documented safe path for a custom user
-    model — rather than `AbstractBaseUser`, so password hashing (PBKDF2 by
-    default), permissions, and `is_staff`/`is_superuser`/`is_active` all come
-    for free. The one deviation from stock `AbstractUser` is authentication
+    model — rather than `AbstractBaseUser`, so password hashing (bcrypt, per
+    `settings.PASSWORD_HASHERS`), permissions, and
+    `is_staff`/`is_superuser`/`is_active` all come for free. The one
+    deviation from stock `AbstractUser` is authentication
     by email instead of a separate username (see `USERNAME_FIELD` below) —
     the product has no concept of a username, only an email.
     """

@@ -20,6 +20,8 @@ The entire codebase — backend, frontend, tests, infrastructure config, and thi
 
 6. **Fix pass.** All findings from steps 5 were triaged and fixed, then re-verified with the full test suite before this commit.
 
+7. **Final polish.** A last pass applied `code-humanizer`/`humanizer` cleanup, then a two-axis code review (Standards: Fowler smell baseline; Spec: project.md/architecture.md/tickets) against the whole build. This is also where the two items below were caught and fixed.
+
 ## Where AI judgment materially shaped the solution
 
 A few decisions were made by the AI during implementation, based on engineering judgment rather than an explicit instruction, and are documented inline in code comments/docstrings at the point of decision (this codebase is deliberately comment-heavy on *why*, not *what*, for exactly this kind of traceability):
@@ -28,6 +30,7 @@ A few decisions were made by the AI during implementation, based on engineering 
 - During final verification, two genuine race conditions in the reschedule/booking guard were found (not by asserting the design was correct, but by actually running the concurrency tests dozens of times) and fixed — see the "TICKET-10" and "Fix security audit findings" commits for the specific bugs and reasoning.
 - Appointment duration was made per-appointment-type (10–60 min, provider-configurable) rather than a single global slot length, after checking real-world scheduling-duration norms against primary sources rather than assuming a fixed value.
 - Supabase Row-Level Security, listed as a candidate DB-layer backstop in the original brief, was deliberately not implemented — it assumes Supabase Auth as the identity provider, and this build uses a custom JWT-cookie auth system instead. This is documented as a considered decision in `architecture.md` §6, not an oversight (an implementation-validator pass flagged its absence, prompting the documentation to be added).
+- The final-polish code review found two real gaps against project.md's own Security and Code Quality sections: passwords were hashed with Django's implicit PBKDF2 default rather than the bcrypt/argon2 the brief names explicitly, and the ≥80% test-coverage requirement had no CI enforcement behind it (the `coverage` tool was installed but never actually invoked). Both were fixed directly rather than just noted: `PASSWORD_HASHERS` now puts bcrypt first (PBKDF2 stays second so already-hashed rows keep verifying — no forced password reset), and CI now runs `coverage run`/`coverage report` against a committed `fail_under = 80` gate. The real number came back at 98% backend-wide, 100% on every core-logic module (booking engine, slot generation, transitions, reminders) — the code was already there, it just wasn't being checked.
 
 ## Model/engine versions
 
