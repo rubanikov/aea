@@ -9,6 +9,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 import os
+from datetime import timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -83,11 +84,16 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "corsheaders",
+    "rest_framework",
+    "rest_framework_simplejwt.token_blacklist",
     "core",
+    "accounts",
 ]
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -95,6 +101,11 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+
+# Custom user model — swapped in before the first `migrate` (see TICKET-01's
+# handoff notes / accounts/models.py) rather than bolted onto the stock
+# django.contrib.auth.User after the fact.
+AUTH_USER_MODEL = "accounts.User"
 
 ROOT_URLCONF = "config.urls"
 
@@ -147,6 +158,67 @@ AUTH_PASSWORD_VALIDATORS = [
         "NAME": "django.contrib.auth.password_validation.NumericPasswordValidator",
     },
 ]
+
+
+# CORS
+# The frontend (Next.js, a different origin in every environment — different
+# port locally, different domain once deployed) is the only browser client
+# this API expects. CORS_ALLOW_CREDENTIALS is required so the browser will
+# send/receive the httpOnly auth cookies (see accounts/tokens.py) on
+# cross-origin requests at all.
+
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.environ.get("CORS_ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+]
+CORS_ALLOW_CREDENTIALS = True
+
+
+# Django REST Framework
+# Deny-by-default (IsAuthenticated) — individual views opt into AllowAny
+# (register/login) rather than the reverse, so a new protected resource is
+# rejected for unauthenticated requests unless someone deliberately opens it
+# up.
+
+REST_FRAMEWORK = {
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "accounts.authentication.CookieJWTAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        # Scoped to the login view only (accounts/views.py's
+        # LoginRateThrottle) — a blanket AnonRateThrottle would also throttle
+        # registration off the back of a login attack.
+        "login": "5/min",
+    },
+}
+
+
+# djangorestframework-simplejwt
+# Tokens are delivered as httpOnly cookies, never in a JSON body or header a
+# script could read (see accounts/tokens.py) — this app handles PHI, and
+# token theft via XSS is exactly the risk that rules out localStorage.
+# Access tokens are short-lived by design ("sessions expire" is a stated
+# requirement, not a bug); POST /auth/refresh (accounts/views.py) renews one
+# silently using the longer-lived refresh cookie.
+
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=15),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
+    "ROTATE_REFRESH_TOKENS": True,
+    "BLACKLIST_AFTER_ROTATION": True,
+    # Changing your password immediately invalidates every access token
+    # issued before the change (each one embeds a hash of the password that
+    # was current when it was minted) — not just the one used to change it.
+    "CHECK_REVOKE_TOKEN": True,
+    "SIGNING_KEY": os.environ.get("JWT_SECRET_KEY", SECRET_KEY),
+}
+
+AUTH_COOKIE_SECURE = not DEBUG
+AUTH_COOKIE_SAMESITE = "Strict"
 
 
 # Internationalization

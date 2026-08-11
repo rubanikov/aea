@@ -28,32 +28,48 @@ backend vars, for the backend) if you need to point at a non-default API URL.
 | `npm test` | Run the Vitest suite once (CI-friendly) |
 | `npm run test:watch` | Vitest in watch mode, for local dev |
 
-## Role-gated nav shell (TICKET-01)
+## Auth, roles & account settings (TICKET-02)
 
-There is no real authentication yet (that's TICKET-02). This ticket lays
-down the *shape* of role-gated routing so later tickets have somewhere to
-mount their screens:
+Registration, login, and session handling are real as of this ticket —
+`lib/api/client.ts` is the one place that talks to the backend
+(`NEXT_PUBLIC_API_URL`, default `http://localhost:8000`), always with
+`credentials: "include"` so the httpOnly session cookie rides along, and
+with `X-Requested-With: XMLHttpRequest` on every unsafe-method request (the
+backend's CSRF mitigation for a cookie-delivered auth token).
 
-- `/patient/*`, `/provider/*`, `/admin/*` are gated by role.
-- `proxy.ts` (Next.js's server-side request hook — the renamed `middleware.ts`
-  as of Next 16) enforces this **before** any of those routes render: an
-  unauthenticated or wrong-role visit is redirected (to `/login` or
-  `/access-denied`), never rendered. See `lib/auth/route-guard.ts` for the
-  pure redirect logic and `proxy.test.ts` / `lib/auth/route-guard.test.ts`
-  for the tests.
-- Since there's no real session, role is faked with a `demo_role` cookie
-  (`lib/auth/mock-session.ts`). The `/login` page's role switcher
-  (`components/auth/DemoRoleSwitcher.tsx`) sets it; the nav's "Log out"
-  clears it.
-- `hooks/use-current-user.ts` exposes `useCurrentUser()`, a placeholder for
-  the nav's "who am I" display. It is **not** used for access control —
-  that's `proxy.ts`'s job — and every file in this mock-auth path is marked
-  `TODO(TICKET-02)` for what replaces it once real login exists.
+- `/patient/*`, `/provider/*`, `/admin/*` are gated by role; `/settings` is
+  gated to "any authenticated role" (no `/settings/*` sub-routes gated by a
+  specific one). `proxy.ts` enforces this **before** any of those routes
+  render, by calling `GET /auth/me` server-side with the incoming request's
+  cookies forwarded — an unauthenticated or wrong-role visit is redirected
+  (to `/login` or `/access-denied`), never rendered, and a down/unreachable
+  backend fails closed (redirects rather than lets the visit through). See
+  `lib/auth/route-guard.ts` for the pure redirect logic and `proxy.test.ts`
+  / `lib/auth/route-guard.test.ts` for the tests.
+- `hooks/use-current-user.ts` exposes `useCurrentUser()` (`GET /auth/me` on
+  mount) for the nav's "who am I" display only — it never gates rendering,
+  that's `proxy.ts`'s job. A 401 there means the session died since
+  navigation (every call site is inside a route `proxy.ts` already
+  confirmed), so it's treated as session-expiry: redirect to
+  `/login?session_expired=1`, which `/login` reads and surfaces as a clear
+  message. `hooks/use-authenticated-request.ts` does the same for the
+  account settings page's `/profile` and `/profile/password` calls.
+- `/login` is a tabbed register/login screen
+  (`components/auth/AuthPageClient.tsx`, `LoginForm.tsx`, `RegisterForm.tsx`)
+  with inline, per-field validation (client-side and from the API's
+  field-level error responses), a real password show/hide toggle, and a
+  loading state on submit. On success it reads the role from `GET
+  /auth/me` and redirects to `/patient`, `/provider`, or `/admin`.
+- `/settings` (`components/settings/ProfileForm.tsx`, `PasswordForm.tsx`) is
+  profile view/edit (name, email, phone, timezone via `GET`/`PATCH
+  /profile`) and password update (`POST /profile/password`) — deletion
+  ("Danger zone") is TICKET-14's scope, not built here.
 
-To try the three roles locally: visit `/login`, pick a role, and you'll land
-on that role's dashboard with a matching nav. Visiting another role's route
-afterwards redirects to `/access-denied`; clearing cookies (or opening a
-private window) and visiting a gated route redirects to `/login`.
+To try it locally: `npm run dev`, then visit `/login` and register (or log
+in with a seeded demo account — see the backend's `seed_demo` command) to
+land on the matching role's dashboard. Visiting another role's route
+afterwards redirects to `/access-denied`; a fresh/incognito visit to a
+gated route redirects to `/login`.
 
 ## Deployment
 

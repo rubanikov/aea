@@ -1,56 +1,63 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
-import { readMockRole } from "@/lib/auth/mock-session";
-import type { Role } from "@/lib/auth/roles";
+import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { fetchCurrentUser, type CurrentUser } from "@/lib/auth/current-user";
+import { loginPathWithSessionExpired } from "@/lib/auth/session-expired";
 
-export interface CurrentUser {
-  id: string;
-  name: string;
-  role: Role;
-}
-
-const MOCK_USERS: Record<Role, CurrentUser> = {
-  patient: { id: "demo-patient", name: "Pat Patient", role: "patient" },
-  provider: {
-    id: "demo-provider",
-    name: "Dr. Riley Provider",
-    role: "provider",
-  },
-  admin: { id: "demo-admin", name: "Alex Admin", role: "admin" },
-};
-
-function subscribe() {
-  // The mock role cookie only ever changes through this app's own
-  // navigations (login/logout), each of which remounts the relevant tree,
-  // so there's no external event to subscribe to here.
-  return () => {};
-}
-
-function getSnapshot(): Role | null {
-  return readMockRole();
-}
-
-function getServerSnapshot(): Role | null {
-  // The cookie can't be read during server rendering; treat as logged out
-  // until the client snapshot takes over post-hydration.
-  return null;
-}
+export type { CurrentUser };
 
 /**
- * Placeholder "current user" for the nav shell. Returns `null` when logged
- * out, otherwise a mock user matching the visitor's role.
+ * Real "current user" lookup -- calls `GET /auth/me` on mount. `undefined`
+ * while the request is in flight, `null` once resolved with no session,
+ * otherwise the authenticated user.
  *
- * TODO(TICKET-02): replace this with a real session lookup once
- * registration/login exists. This reads a demo role cookie (set by the
- * `/login` placeholder page's role switcher), not a real session -- it must
- * never be relied on for access control. Route access is enforced
- * independently and server-side in `proxy.ts`.
- *
- * Uses `useSyncExternalStore` (rather than an effect + setState) since the
- * mock role cookie is external browser state, not React state.
+ * This is used for display only (see `UserBadge`) -- it never gates
+ * rendering, since route access is enforced independently and server-side
+ * in `proxy.ts`. Every current call site only ever mounts inside a route
+ * `proxy.ts` has already confirmed the visitor's session for, so a 401 here
+ * means the session died since navigation, not "never logged in" -- this
+ * hook treats that as session-expiry and redirects to `/login` with a clear
+ * message, the same as any other authenticated fetch failing outside the
+ * login page (see `hooks/use-authenticated-request.ts`). That redirect is a
+ * UX nicety on top of `proxy.ts`'s enforcement, not a substitute for it.
  */
-export function useCurrentUser(): CurrentUser | null {
-  const role = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  return role ? MOCK_USERS[role] : null;
+export function useCurrentUser(): CurrentUser | null | undefined {
+  const router = useRouter();
+  // Next's real useRouter() is a stable reference, but keep the latest one
+  // in a ref (updated post-render, not read during it) rather than an
+  // effect dependency -- some test doubles return a fresh object every
+  // render, which would otherwise re-fire this effect (and re-fetch) on
+  // every state update it causes.
+  const routerRef = useRef(router);
+  useEffect(() => {
+    routerRef.current = router;
+  });
+  const [user, setUser] = useState<CurrentUser | null | undefined>(undefined);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchCurrentUser()
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        setUser(result);
+        if (result === null) {
+          routerRef.current.push(loginPathWithSessionExpired());
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUser(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return user;
 }

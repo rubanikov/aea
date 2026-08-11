@@ -1,28 +1,32 @@
+from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 
-# Demo accounts this command will create once TICKET-02's User/role model
-# exists. Kept here (not invented as a real model) so the eventual seeding
-# logic has a single obvious list to iterate over.
+User = get_user_model()
+
+# Demo accounts, one per role. Password is fixed and dev-only -- never used
+# outside a local/demo database seeded from this command.
+DEMO_PASSWORD = "demo-password-not-for-prod"  # noqa: S105 -- seed fixture, not a real credential
+
 DEMO_ACCOUNTS = [
-    {"role": "admin", "email": "admin@demo.aea.test", "name": "Demo Admin"},
-    {"role": "provider", "email": "provider@demo.aea.test", "name": "Demo Provider"},
-    {"role": "patient", "email": "patient@demo.aea.test", "name": "Demo Patient"},
+    {"role": User.Role.ADMIN, "email": "admin@demo.aea.test", "name": "Demo Admin"},
+    {"role": User.Role.PROVIDER, "email": "provider@demo.aea.test", "name": "Demo Provider"},
+    {"role": User.Role.PATIENT, "email": "patient@demo.aea.test", "name": "Demo Patient"},
 ]
 
 
 class Command(BaseCommand):
-    help = (
-        "Seed demo provider/patient/admin accounts. Placeholder until "
-        "TICKET-02 lands the User/role model: prints the accounts it will "
-        "create instead of creating them, and exits cleanly."
-    )
+    help = "Seed demo provider/patient/admin accounts (idempotent — safe to re-run)."
 
     def handle(self, *args, **options):
-        self.stdout.write(
-            self.style.WARNING(
-                "No User/role model yet (lands in TICKET-02) - nothing was "
-                "created. Once it exists, this command will seed:"
-            )
-        )
         for account in DEMO_ACCOUNTS:
-            self.stdout.write(f"  - {account['role']}: {account['email']} ({account['name']})")
+            user, created = User.objects.get_or_create(
+                email=account["email"],
+                defaults={"name": account["name"], "role": account["role"]},
+            )
+            if created:
+                user.set_password(DEMO_PASSWORD)
+                user.save(update_fields=["password"])
+                message = f"  created {account['role']}: {account['email']}"
+                self.stdout.write(self.style.SUCCESS(message))
+            else:
+                self.stdout.write(f"  already exists {account['role']}: {account['email']}")

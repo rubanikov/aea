@@ -1,22 +1,40 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { setMockRole, clearMockRole, readMockRole } from "@/lib/auth/mock-session";
 import { UserBadge } from "./UserBadge";
 
 const pushMock = vi.fn();
+const refreshMock = vi.fn();
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: pushMock, refresh: vi.fn() }),
+  useRouter: () => ({ push: pushMock, refresh: refreshMock }),
 }));
+
+function mockAuthMe(
+  user: { id: string; email: string; name: string; role: string } | null
+) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation(async (input: string) => {
+      if (typeof input === "string" && input.includes("/auth/logout")) {
+        return new Response("", { status: 200 });
+      }
+      return user
+        ? new Response(JSON.stringify(user), { status: 200 })
+        : new Response("", { status: 401 });
+    })
+  );
+}
 
 describe("UserBadge", () => {
   afterEach(() => {
-    clearMockRole();
+    vi.unstubAllGlobals();
     pushMock.mockClear();
+    refreshMock.mockClear();
   });
 
-  it("shows a log-in link when no one is logged in", async () => {
+  it("shows a log-in link once GET /auth/me resolves with no session", async () => {
+    mockAuthMe(null);
     render(<UserBadge />);
     expect(await screen.findByRole("link", { name: /log in/i })).toHaveAttribute(
       "href",
@@ -24,20 +42,32 @@ describe("UserBadge", () => {
     );
   });
 
-  it("shows the mock user's name and role, and a log-out control, when logged in", async () => {
-    setMockRole("provider");
+  it("shows the user's name and role, and a log-out control, when logged in", async () => {
+    mockAuthMe({
+      id: "u1",
+      email: "riley@example.com",
+      name: "Dr. Riley Provider",
+      role: "provider",
+    });
     render(<UserBadge />);
     expect(await screen.findByTestId("current-user-role")).toHaveTextContent(
       "provider"
     );
-    expect(screen.getByTestId("current-user-name")).not.toHaveTextContent("");
+    expect(screen.getByTestId("current-user-name")).toHaveTextContent(
+      "Dr. Riley Provider"
+    );
     expect(
       screen.getByRole("button", { name: /log out/i })
     ).toBeInTheDocument();
   });
 
-  it("clears the mock session and navigates to /login when logging out", async () => {
-    setMockRole("patient");
+  it("calls POST /auth/logout and navigates to /login when logging out", async () => {
+    mockAuthMe({
+      id: "u1",
+      email: "pat@example.com",
+      name: "Pat Patient",
+      role: "patient",
+    });
     const user = userEvent.setup();
     render(<UserBadge />);
 
@@ -46,7 +76,13 @@ describe("UserBadge", () => {
     });
     await user.click(logoutButton);
 
-    await waitFor(() => expect(readMockRole()).toBeNull());
-    expect(pushMock).toHaveBeenCalledWith("/login");
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/login"));
+    expect(refreshMock).toHaveBeenCalled();
+    const fetchMock = global.fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(
+      fetchMock.mock.calls.some(([url, init]) =>
+        String(url).includes("/auth/logout") && init?.method === "POST"
+      )
+    ).toBe(true);
   });
 });

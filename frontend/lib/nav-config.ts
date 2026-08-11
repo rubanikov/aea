@@ -20,14 +20,23 @@ export interface RoleNavConfig {
 export const ROLE_NAV: Record<Role, RoleNavConfig> = {
   patient: {
     label: "Patient",
-    links: [{ label: "Dashboard", href: "/patient" }],
+    links: [
+      { label: "Dashboard", href: "/patient" },
+      { label: "Settings", href: "/settings" },
+    ],
   },
   provider: {
     label: "Provider",
-    links: [{ label: "Dashboard", href: "/provider" }],
+    links: [
+      { label: "Dashboard", href: "/provider" },
+      { label: "Settings", href: "/settings" },
+    ],
   },
   admin: {
     label: "Admin",
-    links: [{ label: "Dashboard", href: "/admin" }],
+    links: [
+      { label: "Dashboard", href: "/admin" },
+      { label: "Settings", href: "/settings" },
+    ],
   },
 };

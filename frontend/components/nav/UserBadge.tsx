@@ -1,9 +1,10 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCurrentUser } from "@/hooks/use-current-user";
-import { clearMockRole } from "@/lib/auth/mock-session";
+import { apiFetch } from "@/lib/api/client";
 
 /**
  * Nav-corner "who am I" display. Uses `useCurrentUser()` for display only --
@@ -12,14 +13,25 @@ import { clearMockRole } from "@/lib/auth/mock-session";
 export function UserBadge() {
   const user = useCurrentUser();
   const router = useRouter();
+  const [loggingOut, setLoggingOut] = useState(false);
 
-  function handleLogout() {
-    clearMockRole();
+  async function handleLogout() {
+    setLoggingOut(true);
+    // A failed logout request (network blip) shouldn't strand the visitor
+    // on a page that thinks they're logged in -- navigate away regardless,
+    // the httpOnly cookie will simply outlive this particular request.
+    await apiFetch("/auth/logout", { method: "POST" }).catch(() => null);
     router.push("/login");
     router.refresh();
   }
 
-  if (!user) {
+  if (user === undefined) {
+    // Loading -- avoid flashing a "Log in" link while GET /auth/me is in
+    // flight on a page proxy.ts has already confirmed is authenticated.
+    return null;
+  }
+
+  if (user === null) {
     return (
       <Link href="/login" className="text-sm font-medium underline">
         Log in
@@ -39,9 +51,10 @@ export function UserBadge() {
       <button
         type="button"
         onClick={handleLogout}
-        className="font-medium underline"
+        disabled={loggingOut}
+        className="font-medium underline disabled:opacity-50"
       >
-        Log out
+        {loggingOut ? "Logging out…" : "Log out"}
       </button>
     </div>
   );

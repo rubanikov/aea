@@ -1,6 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { clearMockRole } from "@/lib/auth/mock-session";
 import { AppShell } from "./AppShell";
 
 vi.mock("next/navigation", () => ({
@@ -8,8 +7,16 @@ vi.mock("next/navigation", () => ({
 }));
 
 describe("AppShell", () => {
+  beforeEach(() => {
+    // UserBadge (rendered inside AppShell) calls GET /auth/me on mount.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("", { status: 401 }))
+    );
+  });
+
   afterEach(() => {
-    clearMockRole();
+    vi.unstubAllGlobals();
   });
 
   it("renders the patient nav links for role='patient'", () => {
@@ -21,6 +28,10 @@ describe("AppShell", () => {
     expect(screen.getByRole("link", { name: "Dashboard" })).toHaveAttribute(
       "href",
       "/patient"
+    );
+    expect(screen.getByRole("link", { name: "Settings" })).toHaveAttribute(
+      "href",
+      "/settings"
     );
   });
 

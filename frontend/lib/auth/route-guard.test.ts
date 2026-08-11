@@ -65,4 +65,30 @@ describe("resolveRouteAccess", () => {
       redirectTo: "/access-denied",
     });
   });
+
+  it("redirects an unauthenticated visitor away from /settings", () => {
+    expect(resolveRouteAccess("/settings", null)).toEqual({
+      allowed: false,
+      redirectTo: "/login",
+    });
+  });
+
+  it("allows any authenticated role to visit /settings", () => {
+    expect(resolveRouteAccess("/settings", "patient")).toEqual({
+      allowed: true,
+    });
+    expect(resolveRouteAccess("/settings", "provider")).toEqual({
+      allowed: true,
+    });
+    expect(resolveRouteAccess("/settings", "admin")).toEqual({
+      allowed: true,
+    });
+  });
+
+  it("rejects a garbage role value for /settings the same as unauthenticated", () => {
+    expect(resolveRouteAccess("/settings", "not-a-real-role")).toEqual({
+      allowed: false,
+      redirectTo: "/login",
+    });
+  });
 });
