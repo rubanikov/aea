@@ -50,7 +50,7 @@ Open `http://localhost:3000`.
 
 | Role | Email |
 |---|---|
-| Patient | `patient@demo.aea.test` (also `patient1@demo.aea.test`–`patient5@demo.aea.test`) |
+| Patient | `patient@demo.aea.test` (also `patient2@demo.aea.test`–`patient5@demo.aea.test` — there is no `patient1`; the first patient is the unnumbered one) |
 | Provider | `provider1@demo.aea.test`–`provider10@demo.aea.test` |
 | Admin | `admin@demo.aea.test` |
 
