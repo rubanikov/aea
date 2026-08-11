@@ -92,6 +92,7 @@ INSTALLED_APPS = [
     "audit",
     "scheduling",
     "bookings",
+    "reminders",
 ]
 
 MIDDLEWARE = [
@@ -287,3 +288,20 @@ LOGGING = {
         "level": "INFO",
     },
 }
+
+
+# Reminders / Resend (TICKET-12, architecture.md §7)
+# `RESEND_API_KEY` unset is a supported, deliberate state (local dev, CI,
+# and this environment never have a real key) -- reminders.emails
+# .send_reminder_email treats it as "skip this send, log a warning," not a
+# crash; see that module's docstring. `RESEND_FROM_EMAIL` is a verified
+# Resend sending address in a real deployment; the placeholder below only
+# matters once RESEND_API_KEY is actually set. `FRONTEND_BASE_URL` is the
+# deployed Next.js origin (Vercel) the reminder email's "view details"
+# link points at -- distinct from CORS_ALLOWED_ORIGINS above, which is
+# about what origins may *call this API*, not what link a third-party
+# email should embed.
+
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+RESEND_FROM_EMAIL = os.environ.get("RESEND_FROM_EMAIL", "reminders@example.com")
+FRONTEND_BASE_URL = os.environ.get("FRONTEND_BASE_URL", "http://localhost:3000")
