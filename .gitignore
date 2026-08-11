@@ -1,0 +1,19 @@
+# Env files (never commit secrets — see .env.example)
+.env
+.env.local
+*.env.local
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python (backend/) — see backend/.gitignore for the full set
+__pycache__/
+*.pyc
+.venv/
+
+# Node (frontend/) — see frontend/.gitignore, if present, for the full set
+node_modules/
+.next/

@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.ruff_cache/
+
+# Django
+db.sqlite3
+staticfiles/
+
+# Env files (never commit secrets — see ../.env.example)
+.env
+.env.local
+
+# Editors/OS
+.DS_Store
