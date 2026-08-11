@@ -8,9 +8,11 @@ from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from audit.permissions import IsOwnerOrAdmin
 from scheduling.models import AppointmentType
 
 from .exceptions import (
+    CancellationNoticeTooShort,
     InvalidTransition,
     NoShowBeforeStartTime,
     SlotNoLongerAvailable,
@@ -24,6 +26,7 @@ from .serializers import (
     BookingListSerializer,
     BookingSerializer,
     BookingStatusUpdateSerializer,
+    PatientBookingListSerializer,
 )
 from .services import create_booking
 from .transitions import transition
@@ -67,8 +70,9 @@ class BookingListCreateView(APIView):
     `GET /bookings?provider_id=&date_from=&date_to=` (TICKET-08) -- the
     provider calendar's list/agenda feed. Provider-and-admin only (see
     `get` below for why a patient's own appointment list is deliberately
-    *not* built here -- TICKET-09 owns that, as its own endpoint, with its
-    own display shape). A requesting provider always sees only their own
+    *not* built here -- `BookingMineListView` below, `GET /bookings/mine`,
+    is that endpoint, with its own display shape). A requesting provider
+    always sees only their own
     bookings, regardless of any `provider_id` given -- same "ignore it,
     scope to `request.user`" shape as `scheduling.views
     .AvailabilityListCreateView.get`. An admin sees every booking, or one
@@ -164,6 +168,49 @@ class BookingListCreateView(APIView):
         return Response(BookingSerializer(booking).data, status=status.HTTP_201_CREATED)
 
 
+class BookingMineListView(APIView):
+    """`GET /bookings/mine` (TICKET-09) -- a patient's own appointment
+    list, the endpoint `BookingListCreateView.get`'s docstring
+    forward-references. Deliberately its own view rather than a branch
+    inside that one: `BookingListCreateView.get` is provider/admin-scoped
+    by design (see its docstring), and this list's display shape is
+    different (`provider_name`, not `patient_name` -- see
+    `PatientBookingListSerializer`).
+
+    No `date_from`/`date_to` query params here, unlike `GET /bookings`:
+    the frontend "My Appointments" page (already built against this exact
+    contract -- `frontend/lib/bookings/types.ts`'s `PatientBooking`, per
+    that file's own docstring) derives its Upcoming/Past/Cancelled tabs
+    client-side from one unfiltered list, so this always returns every
+    one of the caller's own bookings.
+
+    Patient-only, strictly: this page is patient-only in the frontend, so
+    a provider/admin caller gets `403` -- the same shape as
+    `BookingListCreateView.get`'s reverse case for a patient caller,
+    rather than inventing a "sensible" provider/admin response nothing
+    actually needs.
+
+    Responses: `200` with the caller's own bookings, ordered by
+    `start_time`, in `PatientBookingListSerializer`'s shape (including an
+    empty list when the patient has none); `403` for a non-patient
+    caller; `401` unauthenticated.
+    """
+
+    def get(self, request):
+        if request.user.role != User.Role.PATIENT:
+            return Response(
+                {"detail": "Only patients can list their own bookings from this endpoint."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        queryset = (
+            Booking.objects.select_related("provider", "appointment_type")
+            .filter(patient=request.user)
+            .order_by("start_time")
+        )
+        return Response(PatientBookingListSerializer(queryset, many=True).data)
+
+
 class BookingStatusView(APIView):
     """`PATCH /bookings/<id>/status` (TICKET-08) -- a provider (or admin)
     moves a booking to `completed`/`cancelled`/`no_show`. No confirm/
@@ -171,14 +218,20 @@ class BookingStatusView(APIView):
     ticket's brief) -- `requested`/`confirmed` are not accepted values
     (see `BookingStatusUpdateSerializer`), and there is nothing left to
     confirm since every booking a provider sees already arrived
-    `confirmed`. Patient-initiated cancellation is TICKET-09's endpoint,
-    not this one: `IsBookingProviderOrAdmin` only ever admits the
-    booking's own `provider`, or an admin.
+    `confirmed`. Patient-initiated cancellation is TICKET-09's
+    `BookingCancelView` below, not this one: `IsBookingProviderOrAdmin`
+    only ever admits the booking's own `provider`, or an admin. A
+    provider cancelling their *own* booking still comes through here,
+    though (`cancelled` remains one of this endpoint's three allowed
+    target values) -- cancel is the one transition reachable from both
+    endpoints, one per ownership axis, rather than this view branching
+    its permission check on the requested target status.
 
     Responses: `200` with the updated booking; `400` for an invalid
-    transition (including the no-show-before-start-time case) or a bad
-    body; `403` if the requester isn't the booking's provider/admin;
-    `404` if the booking doesn't exist.
+    transition (including the no-show-before-start-time and, for
+    `cancelled`, the TICKET-09 minimum-notice case) or a bad body; `403`
+    if the requester isn't the booking's provider/admin; `404` if the
+    booking doesn't exist.
     """
 
     permission_classes = [IsBookingProviderOrAdmin]
@@ -193,7 +246,7 @@ class BookingStatusView(APIView):
 
         try:
             transition(booking, new_status, actor=request.user)
-        except (InvalidTransition, NoShowBeforeStartTime) as exc:
+        except (InvalidTransition, NoShowBeforeStartTime, CancellationNoticeTooShort) as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         logger.info(
@@ -201,5 +254,63 @@ class BookingStatusView(APIView):
             booking.id,
             request.user.id,
             new_status,
+        )
+        return Response(BookingSerializer(booking).data)
+
+
+class BookingCancelView(APIView):
+    """`PATCH /bookings/<id>/cancel` (TICKET-09) -- a patient (or admin)
+    cancels their own booking.
+
+    Deliberately a separate endpoint from `PATCH /bookings/<id>/status`
+    above rather than that endpoint accepting patient requests too:
+    `BookingStatusView` is gated by `IsBookingProviderOrAdmin`, the
+    *provider*-ownership axis (`booking.provider`); a patient cancelling
+    their own appointment needs the *patient*-ownership axis instead
+    (`audit.permissions.IsOwnerOrAdmin`, via `Booking.owner_field_name =
+    "patient"`). Branching one view's permission check on the request's
+    target status (provider-or-admin for `completed`/`no_show`,
+    patient-or-admin for `cancelled`) would mix two independent
+    authorization axes into a single `has_object_permission` call; two
+    small single-axis views, each reusing an existing permission class
+    as-is, is the same shape this codebase already uses everywhere else
+    (`IsOwnerOrAdmin` on `scheduling`'s `*DetailView`s,
+    `IsBookingProviderOrAdmin` above) rather than a new hybrid one. No
+    request body is required or read -- the only possible target status
+    here is `cancelled`.
+
+    The minimum-notice rule (TICKET-09's brief: no cancellation within
+    24h of `start_time`) lives inside `bookings.transitions.transition`
+    itself, not in this view -- so it is enforced identically no matter
+    which of the two endpoints, or which role, the cancellation comes
+    through, and freeing the slot (this booking dropping out of `GET
+    /scheduling/slots`'s `Booking.ACTIVE_STATUSES` filter) happens
+    atomically with the status write inside that same function.
+
+    Responses: `200` with the updated (now `cancelled`) booking; `400` if
+    the booking isn't in a cancellable status (`InvalidTransition` -- e.g.
+    already `completed`/`cancelled`/`no_show`) or the cancellation falls
+    inside the 24h notice window (`CancellationNoticeTooShort`); `403` if
+    the requester is neither the booking's own patient nor an admin
+    (`IsOwnerOrAdmin` doesn't hide row existence from a wrong-owner
+    request -- see that class's docstring); `404` if the booking doesn't
+    exist; `401` unauthenticated.
+    """
+
+    permission_classes = [IsOwnerOrAdmin]
+
+    def patch(self, request, pk):
+        booking = get_object_or_404(Booking, pk=pk)
+        self.check_object_permissions(request, booking)
+
+        try:
+            transition(booking, Booking.Status.CANCELLED, actor=request.user)
+        except (InvalidTransition, CancellationNoticeTooShort) as exc:
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        logger.info(
+            "booking cancelled id=%s actor_id=%s",
+            booking.id,
+            request.user.id,
         )
         return Response(BookingSerializer(booking).data)

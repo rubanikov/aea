@@ -26,6 +26,7 @@ export const ROLE_NAV: Record<Role, RoleNavConfig> = {
     label: "Patient",
     links: [
       { label: "Dashboard", href: "/patient" },
+      { label: "My Appointments", href: "/patient/appointments" },
       { label: "Settings", href: "/settings" },
     ],
   },

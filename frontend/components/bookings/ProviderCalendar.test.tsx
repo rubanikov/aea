@@ -341,6 +341,50 @@ describe("ProviderCalendar", () => {
     });
   });
 
+  it("keeps the patient name and appointment type visible after a status change, even when the server's response omits them (Booking's canonical shape, not the list shape)", async () => {
+    mockFetchRouter({
+      [BOOKINGS_PATH]: (init) => {
+        if (!init || (init.method ?? "GET") === "GET") {
+          return jsonResponse([NEW_PATIENT_VISIT]);
+        }
+        throw new Error("unexpected call to the collection endpoint");
+      },
+      "/bookings/1/status": (init) => {
+        if (init?.method === "PATCH") {
+          const body = JSON.parse(init.body as string);
+          // The real PATCH /bookings/:id/status response is Booking's
+          // canonical serializer -- {id, provider_id, patient_id,
+          // appointment_type_id, start_time, end_time, status} -- it never
+          // includes patient_name/appointment_type_name. Deliberately
+          // narrow here (unlike the other status-change tests above, which
+          // still echo the full fixture) to prove the component doesn't
+          // depend on the response carrying those display fields.
+          return jsonResponse({
+            id: NEW_PATIENT_VISIT.id,
+            provider_id: 5,
+            patient_id: NEW_PATIENT_VISIT.patient_id,
+            appointment_type_id: 12,
+            start_time: NEW_PATIENT_VISIT.start_time,
+            end_time: NEW_PATIENT_VISIT.end_time,
+            status: body.status,
+          });
+        }
+        throw new Error("unexpected call");
+      },
+    });
+    const user = userEvent.setup();
+    render(<ProviderCalendar />);
+
+    const context = "New Patient Visit with R. Nikov, 9:00–9:45am";
+    await user.click(
+      await screen.findByRole("button", { name: `Mark completed: ${context}` })
+    );
+
+    expect(await screen.findByText("COMPLETED")).toBeInTheDocument();
+    expect(screen.getByText(/R\. Nikov/)).toBeInTheDocument();
+    expect(screen.getByText(/New Patient Visit/)).toBeInTheDocument();
+  });
+
   it("cancels a booking: the row loses its status-action buttons once cancelled", async () => {
     mockFetchRouter({
       [BOOKINGS_PATH]: (init) => {

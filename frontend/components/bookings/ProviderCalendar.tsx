@@ -6,7 +6,7 @@ import { ApiError } from "@/lib/api/client";
 import { zonedDateKey } from "@/lib/availability/timezone";
 import { formatFullDate, parseDateKey } from "@/lib/scheduling/calendar";
 import { addWeeks, startOfWeek, weekDates } from "@/lib/bookings/week";
-import type { BookingStatusAction, ProviderBooking } from "@/lib/bookings/types";
+import type { BookingStatus, BookingStatusAction, ProviderBooking } from "@/lib/bookings/types";
 import { DayAgenda } from "./DayAgenda";
 import { WeekStrip } from "./WeekStrip";
 
@@ -202,14 +202,38 @@ export function ProviderCalendar() {
     id: number,
     status: BookingStatusAction
   ): Promise<ProviderBooking> {
-    const updated = await authFetch<ProviderBooking>(`${BOOKINGS_PATH}/${id}/status`, {
-      method: "PATCH",
-      body: { status },
-    });
-    setBookings((current) =>
-      (current ?? []).map((booking) => (booking.id === id ? updated : booking))
+    // `PATCH /bookings/:id/status` returns Booking's canonical serializer
+    // shape ({id, provider_id, patient_id, appointment_type_id, start_time,
+    // end_time, status}) -- it does NOT include the display-only
+    // `patient_name`/`appointment_type_name` fields `GET /bookings` adds.
+    // Replacing a row wholesale with this response would blank those two
+    // fields in the UI on every status change, so only `status` (the one
+    // thing that actually changed) is merged onto the row already held in
+    // state -- everything else about the row is unaffected by this call.
+    const updated = await authFetch<{ status: BookingStatus }>(
+      `${BOOKINGS_PATH}/${id}/status`,
+      { method: "PATCH", body: { status } }
     );
-    return updated;
+    let merged: ProviderBooking | undefined;
+    setBookings((current) =>
+      (current ?? []).map((booking) => {
+        if (booking.id !== id) {
+          return booking;
+        }
+        merged = { ...booking, status: updated.status };
+        return merged;
+      })
+    );
+    // `merged` is always set by the map above when `id` is a row already in
+    // state, which is the only way this function is ever called (from a
+    // button rendered for an existing row) -- falling back to a
+    // status-only-patched copy of nothing would be worse than a loud crash
+    // if that invariant is ever violated, so this intentionally throws
+    // rather than silently returning a bogus value.
+    if (!merged) {
+      throw new Error(`handleStatusChange: booking ${id} not found in current state`);
+    }
+    return merged;
   }
 
   let body: ReactNode;

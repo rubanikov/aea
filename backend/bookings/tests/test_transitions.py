@@ -5,15 +5,16 @@ rules again through the HTTP layer (permissions, status codes, response
 shape); this file is about the guard logic and audit-writing itself.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 
 from django.test import TestCase
+from django.utils import timezone
 
 from audit.models import AuditLog
-from bookings.exceptions import InvalidTransition, NoShowBeforeStartTime
+from bookings.exceptions import CancellationNoticeTooShort, InvalidTransition, NoShowBeforeStartTime
 from bookings.models import Booking
-from bookings.transitions import ALLOWED_TRANSITIONS, transition
+from bookings.transitions import ALLOWED_TRANSITIONS, CANCELLATION_MIN_NOTICE, transition
 
 from .helpers import BookingsAPITestCase
 
@@ -182,6 +183,95 @@ class NoShowTimingRuleTests(TransitionTestCase):
 
         booking.refresh_from_db()
         self.assertEqual(booking.status, Booking.Status.NO_SHOW)
+
+
+class CancellationNoticeRuleTests(TransitionTestCase):
+    """TICKET-09's brief: "no cancel < 24h before start" --
+    `bookings.transitions.CANCELLATION_MIN_NOTICE`. Checked only after the
+    `ALLOWED_TRANSITIONS` lookup confirms the transition is otherwise
+    legal (same ordering as `NoShowTimingRuleTests` above), and uniformly
+    regardless of who's cancelling -- see
+    `test_notice_rule_applies_regardless_of_actor_role` below.
+    """
+
+    def test_cancelling_well_outside_the_notice_window_succeeds(self):
+        booking = self._booking(
+            status=Booking.Status.CONFIRMED, start_time=timezone.now() + timedelta(hours=48)
+        )
+
+        transition(booking, Booking.Status.CANCELLED, actor=self.patient)
+
+        booking.refresh_from_db()
+        self.assertEqual(booking.status, Booking.Status.CANCELLED)
+
+    def test_cancelling_inside_the_24h_notice_window_is_rejected(self):
+        booking = self._booking(
+            status=Booking.Status.CONFIRMED, start_time=timezone.now() + timedelta(hours=1)
+        )
+
+        with self.assertRaises(CancellationNoticeTooShort):
+            transition(booking, Booking.Status.CANCELLED, actor=self.patient)
+
+        booking.refresh_from_db()
+        self.assertEqual(booking.status, Booking.Status.CONFIRMED)
+        self.assertEqual(AuditLog.objects.count(), 0)
+
+    def test_cancelling_a_booking_whose_start_time_has_already_passed_is_rejected(self):
+        # Inside the notice window is a strict subset of "hasn't started
+        # yet" -- a start_time already in the past is, a fortiori, inside
+        # the window too.
+        booking = self._booking(status=Booking.Status.CONFIRMED, start_time=PAST_START)
+
+        with self.assertRaises(CancellationNoticeTooShort):
+            transition(booking, Booking.Status.CANCELLED, actor=self.patient)
+
+    def test_notice_rule_also_applies_to_a_still_requested_booking(self):
+        booking = self._booking(
+            status=Booking.Status.REQUESTED, start_time=timezone.now() + timedelta(hours=1)
+        )
+
+        with self.assertRaises(CancellationNoticeTooShort):
+            transition(booking, Booking.Status.CANCELLED, actor=self.patient)
+
+    def test_notice_rule_applies_regardless_of_actor_role(self):
+        # architecture.md doesn't carve out a provider/admin exception --
+        # this ticket's judgment call is to treat the rule as universal.
+        booking = self._booking(
+            status=Booking.Status.CONFIRMED, start_time=timezone.now() + timedelta(hours=1)
+        )
+
+        with self.assertRaises(CancellationNoticeTooShort):
+            transition(booking, Booking.Status.CANCELLED, actor=self.provider)
+
+    def test_cancellation_notice_error_names_the_24_hour_window(self):
+        booking = self._booking(
+            status=Booking.Status.CONFIRMED, start_time=timezone.now() + timedelta(hours=1)
+        )
+
+        with self.assertRaises(CancellationNoticeTooShort) as ctx:
+            transition(booking, Booking.Status.CANCELLED, actor=self.patient)
+
+        self.assertIn("24 hours", str(ctx.exception))
+
+    def test_a_cancellation_just_inside_the_boundary_is_rejected(self):
+        booking = self._booking(
+            status=Booking.Status.CONFIRMED,
+            start_time=timezone.now() + CANCELLATION_MIN_NOTICE - timedelta(minutes=1),
+        )
+
+        with self.assertRaises(CancellationNoticeTooShort):
+            transition(booking, Booking.Status.CANCELLED, actor=self.patient)
+
+    def test_a_cancellation_just_outside_the_boundary_succeeds(self):
+        booking = self._booking(
+            status=Booking.Status.CONFIRMED,
+            start_time=timezone.now() + CANCELLATION_MIN_NOTICE + timedelta(minutes=5),
+        )
+
+        transition(booking, Booking.Status.CANCELLED, actor=self.patient)
+
+        booking.refresh_from_db()
+        self.assertEqual(booking.status, Booking.Status.CANCELLED)
 
 
 class AllowedTransitionsTableTests(TestCase):

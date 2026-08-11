@@ -70,3 +70,25 @@ class NoShowBeforeStartTime(TransitionError):
         self, message="Cannot mark a booking as no-show before its start time has passed."
     ):
         super().__init__(message)
+
+
+class CancellationNoticeTooShort(TransitionError):
+    """`requested`/`confirmed` -> `cancelled` *is* in `ALLOWED_TRANSITIONS`
+    -- same narrower-than-`InvalidTransition` shape as `NoShowBeforeStartTime`
+    above, just the mirror-image deadline: the transition itself is legal,
+    it just isn't legal *any more*, because `booking.start_time` is inside
+    `bookings.transitions.CANCELLATION_MIN_NOTICE` of "now" (TICKET-09's
+    brief: "no cancel < 24h before start"). A distinct exception rather
+    than folding this into `InvalidTransition` -- the view needs to tell
+    the frontend "you're too close to your appointment to cancel" apart
+    from "this booking isn't cancellable at all," so it can show that
+    specific reason instead of a generic failure. Applies uniformly
+    regardless of who's cancelling (patient, provider, or an admin bypass)
+    -- architecture.md doesn't carve out an exception for either role.
+    """
+
+    def __init__(
+        self,
+        message="This booking cannot be cancelled within 24 hours of its start time.",
+    ):
+        super().__init__(message)

@@ -7,13 +7,20 @@ assigned outside a migration -- no ad-hoc status writes anywhere else.
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from django.db import transaction
 from django.utils import timezone
 
 from audit.services import record_audit_event
 
-from .exceptions import InvalidTransition, NoShowBeforeStartTime
+from .exceptions import CancellationNoticeTooShort, InvalidTransition, NoShowBeforeStartTime
 from .models import Booking
+
+# TICKET-09's brief: "no cancel < 24h before start." architecture.md
+# doesn't mandate a different value, so this is the one hardcoded minimum
+# -notice window the whole app enforces -- see `CancellationNoticeTooShort`.
+CANCELLATION_MIN_NOTICE = timedelta(hours=24)
 
 # Exactly architecture.md §4's table. Every status not present as a value
 # anywhere on the right maps to "terminal" -- COMPLETED/CANCELLED/NO_SHOW's
@@ -44,6 +51,13 @@ def transition(booking, new_status, *, actor):
       lookup above confirms `confirmed -> no_show` is otherwise legal, so
       a booking that isn't even `confirmed` gets the generic
       `InvalidTransition` instead.
+    - `CancellationNoticeTooShort` (TICKET-09) if `new_status` is
+      `CANCELLED` and `booking.start_time` is less than
+      `CANCELLATION_MIN_NOTICE` away from real "now" -- same "checked only
+      after the table lookup confirms the transition is otherwise legal"
+      ordering as the `NO_SHOW` rule above, and same "regardless of actor"
+      scope: this doesn't distinguish a patient's own cancellation from a
+      provider's or an admin's.
 
     `actor` is required and explicit at every call site (never defaulted)
     -- pass `None` for a system-initiated transition (e.g. TICKET-07's
@@ -59,6 +73,12 @@ def transition(booking, new_status, *, actor):
 
     if new_status == Booking.Status.NO_SHOW and booking.start_time > timezone.now():
         raise NoShowBeforeStartTime()
+
+    if (
+        new_status == Booking.Status.CANCELLED
+        and booking.start_time - timezone.now() < CANCELLATION_MIN_NOTICE
+    ):
+        raise CancellationNoticeTooShort()
 
     with transaction.atomic():
         booking.status = new_status

@@ -111,3 +111,33 @@ class BookingListSerializer(serializers.ModelSerializer):
             "status",
         ]
         read_only_fields = fields
+
+
+class PatientBookingListSerializer(serializers.ModelSerializer):
+    """Output shape for `GET /bookings/mine` (TICKET-09's patient "My
+    Appointments" list): `{id, provider_id, provider_name,
+    appointment_type_name, start_time, end_time, status}` -- the
+    patient-facing mirror of `BookingListSerializer` above, joined on
+    `provider` instead of `patient` since the patient viewing their own
+    list already knows who they are. Matches
+    `frontend/lib/bookings/types.ts`'s `PatientBooking` field-for-field --
+    that type was written against this assumed contract before this
+    endpoint existed, so the shape here is load-bearing, not incidental.
+    """
+
+    provider_id = serializers.IntegerField(read_only=True)
+    provider_name = serializers.CharField(source="provider.name", read_only=True)
+    appointment_type_name = serializers.CharField(source="appointment_type.name", read_only=True)
+
+    class Meta:
+        model = Booking
+        fields = [
+            "id",
+            "provider_id",
+            "provider_name",
+            "appointment_type_name",
+            "start_time",
+            "end_time",
+            "status",
+        ]
+        read_only_fields = fields

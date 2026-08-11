@@ -5,8 +5,10 @@ no_show timing rule) directly against `transition()`; this file only needs
 to prove the view wires that logic up correctly, not re-derive every case.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
+
+from django.utils import timezone
 
 from audit.models import AuditLog
 from bookings.models import Booking
@@ -47,6 +49,25 @@ class BookingStatusUpdateTests(BookingsAPITestCase):
         self.assertEqual(body["status"], "cancelled")
         self.booking.refresh_from_db()
         self.assertEqual(self.booking.status, Booking.Status.CANCELLED)
+
+    def test_provider_cancelling_inside_the_notice_window_is_rejected(self):
+        # TICKET-09: the 24h minimum-notice rule lives inside `transition()`
+        # itself, so it applies through this provider-facing endpoint too,
+        # not just TICKET-09's own patient-facing `/cancel` endpoint.
+        soon_booking = self.make_booking(
+            provider=self.provider,
+            patient=self.patient,
+            appointment_type=self.appointment_type,
+            start_time=timezone.now() + timedelta(hours=1),
+        )
+        self.login_as(self.provider)
+
+        response = self._patch_status(soon_booking.id, "cancelled")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("24 hours", response.json()["detail"])
+        soon_booking.refresh_from_db()
+        self.assertEqual(soon_booking.status, Booking.Status.CONFIRMED)
 
     def test_provider_can_mark_their_own_booking_completed(self):
         past_booking = self.make_booking(
