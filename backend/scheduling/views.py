@@ -11,6 +11,7 @@ from rest_framework.views import APIView
 
 from audit.permissions import IsOwnerOrAdmin
 from audit.services import record_audit_event
+from bookings.models import Booking
 
 from .models import AppointmentType, Availability, BlockedTime
 from .serializers import (
@@ -306,17 +307,20 @@ class SlotsView(APIView):
         # another busy interval (see scheduling/slots.py's module
         # docstring) -- folded into `busy_intervals` here at the call site
         # rather than changing `get_open_slots`'s own signature, exactly as
-        # that seam was designed for. `Booking` (TICKET-07) will add its own
-        # entries to this same list once it exists.
+        # that seam was designed for. TICKET-07: real `Booking` rows are
+        # folded in the same way, right below -- a confirmed/requested
+        # booking disappears from this list exactly like a blocked range
+        # does; a cancelled/completed/no-show one never blocked it to begin
+        # with (see `Booking.ACTIVE_STATUSES`).
         #
         # Padded a calendar day on each side of the query window before
         # filtering: `start`/`end` are UTC instants but the query range is
         # calendar dates in the *provider's own timezone*, and the widest
         # possible gap between a UTC date boundary and a local one is under
         # 24 hours for any real-world UTC offset. Over-including a blocked
-        # row here is harmless -- it just fails every slot's overlap check
-        # and is never returned as busy -- so the padding only needs to be
-        # generous, not exact.
+        # row or booking here is harmless -- it just fails every slot's
+        # overlap check and is never returned as busy -- so the padding
+        # only needs to be generous, not exact.
         padded_start = datetime.combine(
             params["date_from"] - timedelta(days=1), time.min, tzinfo=dt_timezone.utc
         )
@@ -327,6 +331,14 @@ class SlotsView(APIView):
             (blocked.start, blocked.end)
             for blocked in BlockedTime.objects.filter(
                 provider=provider, start__lt=padded_end, end__gt=padded_start
+            )
+        ] + [
+            (booking.start_time, booking.end_time)
+            for booking in Booking.objects.filter(
+                provider=provider,
+                status__in=Booking.ACTIVE_STATUSES,
+                start_time__lt=padded_end,
+                end_time__gt=padded_start,
             )
         ]
 

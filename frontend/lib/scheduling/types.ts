@@ -44,3 +44,20 @@ export interface SlotsResponse {
   reason: string | null;
   slots: Slot[];
 }
+
+/**
+ * A confirmed appointment, as `POST /bookings` returns it on success
+ * (TICKET-07). Matches `backend/bookings/serializers.py`'s
+ * `BookingSerializer` exactly. Auto-accept means a booking is created
+ * directly as `status: "confirmed"` -- there's no separate
+ * pending/awaiting-approval status for the frontend to ever render here.
+ */
+export interface Booking {
+  id: number;
+  provider_id: number;
+  patient_id: number;
+  appointment_type_id: number;
+  start_time: string;
+  end_time: string;
+  status: string;
+}

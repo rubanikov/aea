@@ -1,3 +1,4 @@
+from bookings.models import Booking
 from scheduling.models import AppointmentType, Availability, BlockedTime
 
 from .helpers import SchedulingAPITestCase
@@ -198,6 +199,91 @@ class BlockedTimeExclusionTests(SchedulingAPITestCase):
             provider=self.provider,
             start="2026-09-01T00:00:00Z",
             end="2026-09-02T00:00:00Z",
+        )
+        self.login_as(self.patient)
+
+        response = self._query()
+
+        self.assertEqual(len(response.json()["slots"]), 8)
+
+
+class BookingExclusionTests(SchedulingAPITestCase):
+    """TICKET-07 point 7: a real `Booking` row is folded into
+    `busy_intervals` exactly like a `BlockedTime` row already is (see
+    `BlockedTimeExclusionTests` above) -- a requested/confirmed booking
+    removes its slot from the open list; a cancelled one never should."""
+
+    def setUp(self):
+        self.provider = self.create_provider(timezone="UTC")
+        Availability.objects.create(
+            provider=self.provider, day_of_week=0, start_time="09:00", end_time="17:00"
+        )
+        self.appointment_type = AppointmentType.objects.create(
+            provider=self.provider, name="Follow-up", duration_minutes=60
+        )
+        self.patient = self.create_patient()
+
+    def _query(self, **overrides):
+        params = {
+            "provider_id": self.provider.id,
+            "appointment_type_id": self.appointment_type.id,
+            "date_from": "2026-08-17",
+            "date_to": "2026-08-17",
+            **overrides,
+        }
+        query_string = "&".join(f"{key}={value}" for key, value in params.items())
+        return self.client.get(f"/scheduling/slots?{query_string}")
+
+    def _booking(self, status):
+        return Booking.objects.create(
+            provider=self.provider,
+            patient=self.patient,
+            appointment_type=self.appointment_type,
+            start_time="2026-08-17T12:00:00Z",
+            end_time="2026-08-17T13:00:00Z",
+            status=status,
+        )
+
+    def test_a_confirmed_booking_removes_exactly_its_own_slot(self):
+        self._booking(Booking.Status.CONFIRMED)
+        self.login_as(self.patient)
+
+        response = self._query()
+
+        starts = [slot["start"] for slot in response.json()["slots"]]
+        self.assertEqual(len(starts), 7)
+        self.assertNotIn("2026-08-17T12:00:00Z", starts)
+
+    def test_a_requested_booking_also_removes_its_slot(self):
+        self._booking(Booking.Status.REQUESTED)
+        self.login_as(self.patient)
+
+        response = self._query()
+
+        starts = [slot["start"] for slot in response.json()["slots"]]
+        self.assertNotIn("2026-08-17T12:00:00Z", starts)
+
+    def test_a_cancelled_booking_does_not_remove_its_slot(self):
+        self._booking(Booking.Status.CANCELLED)
+        self.login_as(self.patient)
+
+        response = self._query()
+
+        starts = [slot["start"] for slot in response.json()["slots"]]
+        self.assertEqual(len(starts), 8)
+        self.assertIn("2026-08-17T12:00:00Z", starts)
+
+    def test_a_booking_on_another_providers_calendar_does_not_affect_this_query(self):
+        other_provider = self.create_provider(email="other@example.com", timezone="UTC")
+        Booking.objects.create(
+            provider=other_provider,
+            patient=self.patient,
+            appointment_type=AppointmentType.objects.create(
+                provider=other_provider, name="Follow-up", duration_minutes=60
+            ),
+            start_time="2026-08-17T12:00:00Z",
+            end_time="2026-08-17T13:00:00Z",
+            status=Booking.Status.CONFIRMED,
         )
         self.login_as(self.patient)
 

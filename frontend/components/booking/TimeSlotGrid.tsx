@@ -10,10 +10,9 @@ interface TimeSlotGridProps {
   /** e.g. "Tuesday, August 18, 2026", for the heading and empty-state copy. */
   selectedDateLabel: string;
   isToday: boolean;
-  /** Placeholder for TICKET-07's real "confirm and book" flow -- this
-   * ticket's own accept criteria are satisfied by a real, clickable
-   * `<button>` per slot; wiring the click through to an actual booking is
-   * explicitly out of scope here. */
+  /** Wired (TICKET-07) to open `SlotBrowser`'s `BookingConfirmPanel` for the
+   * clicked slot -- this component itself stays booking-agnostic, just a
+   * real, clickable `<button>` per slot. */
   onSelectSlot: (slot: Slot) => void;
 }
 

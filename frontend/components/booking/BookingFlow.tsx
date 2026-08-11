@@ -17,7 +17,8 @@ interface Selection {
  * picker that leads straight into the date/slot browser, with zero full
  * page navigations in between -- `selection` is component state, not a
  * route change, per the wireframe's own "book in seconds" reasoning.
- * Booking itself (the confirm panel + "Book" action) is TICKET-07.
+ * Booking itself (the confirm panel + "Confirm booking" action, TICKET-07)
+ * lives inside `SlotBrowser`.
  */
 export function BookingFlow() {
   const [selection, setSelection] = useState<Selection | null>(null);

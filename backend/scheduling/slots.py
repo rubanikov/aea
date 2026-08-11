@@ -7,26 +7,17 @@ provider, an appointment type, and a calendar-day range, it returns every
 bookable slot, computed fresh from `Availability` on every call. No slot is
 ever a persisted row.
 
-Integration seam for TICKET-07 (`Booking` doesn't exist yet)
---------------------------------------------------------------
-`busy_intervals` is where booked time gets subtracted once `Booking` exists.
-It's a plain iterable of `(start, end)` tz-aware UTC `datetime` pairs — any
-candidate slot that overlaps one is dropped. Until TICKET-07 lands, every
-call site omits it (or passes `()`), so every computed slot survives
-untouched. TICKET-07 wires this in with something like:
-
-    busy = [
-        (b.start_time, b.end_time)
-        for b in Booking.objects.filter(
-            provider=provider, status__in=["requested", "confirmed"],
-            start_time__date__lte=date_to, end_time__date__gte=date_from,
-        )
-    ]
-    get_open_slots(provider, appointment_type, date_from, date_to, busy_intervals=busy)
-
-No guess is baked in here about `Booking`'s exact shape beyond "something
-that can be reduced to (start, end) UTC instant pairs" — that's the whole
-point of the seam.
+Integration seam for `bookings.Booking` (TICKET-07)
+----------------------------------------------------
+`busy_intervals` is where booked time gets subtracted. It's a plain
+iterable of `(start, end)` tz-aware UTC `datetime` pairs — any candidate
+slot that overlaps one is dropped. `scheduling.views.SlotsView` and
+`bookings.services.create_booking` both fold real `Booking` rows in here
+at their own call sites (querying `status__in=Booking.ACTIVE_STATUSES` so
+a cancelled/completed/no-show booking never blocks a slot) — this module
+still has no import of, or knowledge about, `bookings` at all: the only
+contract is "something reducible to (start, end) UTC instant pairs," which
+is the whole point of the seam.
 """
 
 from __future__ import annotations

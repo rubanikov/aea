@@ -15,6 +15,7 @@ import {
   type YearMonth,
 } from "@/lib/scheduling/calendar";
 import type { Provider, Slot, SlotsResponse } from "@/lib/scheduling/types";
+import { BookingConfirmPanel } from "./BookingConfirmPanel";
 import { Calendar } from "./Calendar";
 import { TimeSlotGrid } from "./TimeSlotGrid";
 
@@ -53,7 +54,12 @@ function groupSlotsByLocalDate(
  * Screen 2 of the wireframe (date/slot browser half): a month calendar
  * (bold = has open slots) next to a time-slot grid for whichever date is
  * selected, both in the patient's own timezone, with the provider's zone
- * surfaced alongside for context.
+ * surfaced alongside for context. Clicking an open slot (TICKET-07) opens
+ * `BookingConfirmPanel`, which owns the actual `POST /bookings` call; this
+ * component's own role in booking is just tracking which slot/panel is
+ * open and reacting to the two outcomes that affect the list underneath --
+ * a success removes that slot immediately, a lost race (409) triggers a
+ * refetch of the whole list.
  *
  * Fetches `GET /scheduling/slots` once per visible month (not once per
  * selected date) -- the calendar's bold/dimmed markers need the whole
@@ -86,6 +92,12 @@ export function SlotBrowser({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
+  // The slot a patient has clicked to open `BookingConfirmPanel`, plus the
+  // `<button>` that opened it (so the panel can return focus there on
+  // close) -- both null when the panel is closed.
+  const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
+  const [triggerElement, setTriggerElement] = useState<HTMLElement | null>(null);
+
   useEffect(() => {
     let cancelled = false;
     const grid = monthGrid(visibleMonth);
@@ -114,10 +126,17 @@ export function SlotBrowser({
     };
   }, [authFetch, provider.id, appointmentType.id, visibleMonth, reloadKey]);
 
-  function retry() {
-    setLoadError(null);
+  /** Clears the currently-loaded slots and bumps `reloadKey`, which the
+   * fetch effect above is keyed on -- forces a fresh `GET` of the same
+   * date range. */
+  function refreshSlots() {
     setSlotsResponse(null);
     setReloadKey((key) => key + 1);
+  }
+
+  function retry() {
+    setLoadError(null);
+    refreshSlots();
   }
 
   function goToMonth(nextMonth: YearMonth) {
@@ -138,13 +157,42 @@ export function SlotBrowser({
     goToMonth(addMonths(visibleMonth, 1));
   }
 
-  function handleSelectSlot() {
-    // Placeholder: TICKET-07 builds the confirm-and-book panel and wires
-    // this through to a real `POST /bookings`. This ticket's own accept
-    // criteria stop at "a correct, live, timezone-correct slot list" --
-    // deliberately not booking anything yet. A function taking fewer
-    // parameters than `onSelectSlot`'s `(slot: Slot) => void` type is a
-    // valid implementation of it (the clicked slot is simply ignored).
+  function handleSelectSlot(slot: Slot) {
+    // Captures the clicked slot `<button>` via `document.activeElement`
+    // rather than threading the DOM event through `TimeSlotGrid`'s
+    // `onSelectSlot={(slot: Slot) => void}` prop -- a real click focuses
+    // its target before the click handler runs (the browser's own default,
+    // and `@testing-library/user-event`'s `click()` reproduces the same
+    // sequence), so this reliably is that button. Handed to
+    // `BookingConfirmPanel` purely so it can return focus there on close.
+    setTriggerElement(document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setSelectedSlot(slot);
+  }
+
+  function closeConfirmPanel() {
+    setSelectedSlot(null);
+  }
+
+  /** The booking succeeded -- remove it from the open list right away so it
+   * can't be selected again in this session, independent of the next
+   * background refetch (e.g. a month navigation). */
+  function handleBookingSuccess(bookedSlot: Slot) {
+    setSlotsResponse((previous) =>
+      previous
+        ? {
+            ...previous,
+            slots: previous.slots.filter((existing) => existing.start !== bookedSlot.start),
+          }
+        : previous
+    );
+  }
+
+  /** Lost the race (409) and the patient chose "Choose another time" --
+   * close the panel and refetch, since the slot list this session loaded is
+   * now known to be stale. */
+  function handleSlotUnavailable() {
+    setSelectedSlot(null);
+    refreshSlots();
   }
 
   const slotsByDate = slotsResponse
@@ -229,6 +277,19 @@ export function SlotBrowser({
           </div>
         </div>
       )}
+
+      {selectedSlot ? (
+        <BookingConfirmPanel
+          provider={provider}
+          appointmentType={appointmentType}
+          slot={selectedSlot}
+          patientTimeZone={patientTimeZone}
+          triggerElement={triggerElement}
+          onClose={closeConfirmPanel}
+          onBooked={handleBookingSuccess}
+          onSlotUnavailable={handleSlotUnavailable}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { zonedDateKey } from "@/lib/availability/timezone";
 import { formatFullDate, parseDateKey } from "@/lib/scheduling/calendar";
@@ -12,6 +12,7 @@ vi.mock("next/navigation", () => ({
 }));
 
 const SLOTS_PATH = "/scheduling/slots";
+const BOOKINGS_PATH = "/bookings";
 const PATIENT_TIME_ZONE = "America/New_York";
 
 const PROVIDER = { id: 1, name: "Dr. Amara Osei", timezone: PATIENT_TIME_ZONE };
@@ -60,17 +61,33 @@ function bookableResponse(slots: { start: string; end: string }[]) {
 }
 
 function mockFetchRouter(
-  handler: (init: RequestInit | undefined, url: string) => Response | Promise<Response>
+  onSlots: (init: RequestInit | undefined, url: string) => Response | Promise<Response>,
+  onBookings?: (init: RequestInit | undefined, url: string) => Response | Promise<Response>
 ) {
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
     const path = new URL(url).pathname;
     if (path === SLOTS_PATH) {
-      return Promise.resolve(handler(init, url));
+      return Promise.resolve(onSlots(init, url));
+    }
+    if (path === BOOKINGS_PATH && onBookings) {
+      return Promise.resolve(onBookings(init, url));
     }
     throw new Error(`Unhandled fetch in test: ${init?.method ?? "GET"} ${path}`);
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
+}
+
+function bookingResponseFor(slot: { start: string; end: string }) {
+  return {
+    id: 501,
+    provider_id: PROVIDER.id,
+    patient_id: 7,
+    appointment_type_id: APPOINTMENT_TYPE.id,
+    start_time: slot.start,
+    end_time: slot.end,
+    status: "confirmed",
+  };
 }
 
 function renderBrowser(onBack = vi.fn()) {
@@ -217,7 +234,7 @@ describe("SlotBrowser", () => {
     expect(onBack).toHaveBeenCalledTimes(2);
   });
 
-  it("clicking an open slot does not throw or navigate (booking itself is TICKET-07)", async () => {
+  it("clicking an open slot opens the confirm panel for that slot", async () => {
     mockFetchRouter(() => jsonResponse(bookableResponse([slotOn(TODAY_KEY)])));
     const user = userEvent.setup();
     renderBrowser();
@@ -225,7 +242,59 @@ describe("SlotBrowser", () => {
     const slotButton = await screen.findByRole("button", { name: "9:00am" });
     await user.click(slotButton);
 
-    expect(slotButton).toBeInTheDocument();
-    expect(pushMock).not.toHaveBeenCalled();
+    const dialog = screen.getByRole("dialog", { name: "Confirm your appointment" });
+    expect(
+      within(dialog).getByText(`${APPOINTMENT_TYPE.name} with ${PROVIDER.name}`)
+    ).toBeInTheDocument();
+  });
+
+  it("booking a slot removes it from the open list and shows a confirmation", async () => {
+    const slot = slotOn(TODAY_KEY);
+    mockFetchRouter(
+      () => jsonResponse(bookableResponse([slot])),
+      () => jsonResponse(bookingResponseFor(slot), 201)
+    );
+    const user = userEvent.setup();
+    renderBrowser();
+
+    const slotButton = await screen.findByRole("button", { name: "9:00am" });
+    await user.click(slotButton);
+    await user.click(screen.getByRole("button", { name: "Confirm booking" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/you're booked/i);
+
+    await user.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "9:00am" })).not.toBeInTheDocument();
+    expect(screen.getByText(/no slots left today/i)).toBeInTheDocument();
+  });
+
+  it("a 409 conflict shows the race-lost error and, on 'Choose another time', closes the panel and refetches the slot list", async () => {
+    let slotsRequests = 0;
+    const fetchMock = mockFetchRouter(
+      () => {
+        slotsRequests += 1;
+        return jsonResponse(bookableResponse([slotOn(TODAY_KEY)]));
+      },
+      () => new Response("", { status: 409 })
+    );
+    const user = userEvent.setup();
+    renderBrowser();
+
+    const slotButton = await screen.findByRole("button", { name: "9:00am" });
+    await user.click(slotButton);
+    await user.click(screen.getByRole("button", { name: "Confirm booking" }));
+
+    const conflict = await screen.findByRole("alert");
+    expect(conflict).toHaveTextContent("This time is no longer available");
+    expect(fetchMock.mock.calls.some((call) => call[0].toString().includes(BOOKINGS_PATH))).toBe(
+      true
+    );
+
+    await user.click(screen.getByRole("button", { name: "Choose another time" }));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(slotsRequests).toBe(2));
   });
 });
