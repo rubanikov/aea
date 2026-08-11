@@ -44,9 +44,9 @@ export type BookingStatusAction = "completed" | "cancelled" | "no_show";
 /**
  * Patient-facing booking shape. `GET /bookings/mine` ->
  * `{id, provider_id, provider_name, appointment_type_id,
- * appointment_type_name, start_time, end_time, status}[]`, UTC ISO
- * datetimes, ordered by `start_time`. Confirmed field-for-field against
- * `backend/bookings/serializers.py`'s `PatientBookingListSerializer`.
+ * appointment_type_name, start_time, end_time, status, reminder_sent}[]`,
+ * UTC ISO datetimes, ordered by `start_time`. Confirmed field-for-field
+ * against `backend/bookings/serializers.py`'s `PatientBookingListSerializer`.
  *
  * `appointment_type_id` was added post-TICKET-10 specifically so a
  * reschedule flow (or anything else needing to call
@@ -55,6 +55,11 @@ export type BookingStatusAction = "completed" | "cancelled" | "no_show";
  * built against the name-only shape (e.g. `RescheduleDialog`'s
  * name-matching workaround) still work unchanged, since this is a pure
  * addition, not a rename.
+ *
+ * `reminder_sent` was added post-TICKET-09 (TICKET-12's addendum, per
+ * `tickets/README.md`'s scope-adjustment #7): whether the 24h-before
+ * reminder email has already gone out for this booking, driving
+ * `AppointmentCard`'s "Reminder sent" indicator.
  */
 export interface PatientBooking {
   id: number;
@@ -65,6 +70,7 @@ export interface PatientBooking {
   start_time: string;
   end_time: string;
   status: BookingStatus;
+  reminder_sent: boolean;
 }
 
 /**

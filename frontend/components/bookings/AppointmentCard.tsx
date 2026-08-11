@@ -64,6 +64,15 @@ type Mode = "view" | "confirm-cancel";
  * `{"detail": "..."}` message is surfaced verbatim via
  * `extractBookingErrorDetail` -- here for cancel, inside `RescheduleDialog`
  * for reschedule.
+ *
+ * "Reminder sent" (TICKET-12's addendum, filling in the spot this ticket
+ * originally only reserved): a small `✉ Reminder sent` note, below the
+ * date/time line and above the actions, shown whenever
+ * `booking.reminder_sent` is true -- driven by
+ * `PatientBookingListSerializer`'s `reminder_sent` field, not derived
+ * client-side, since whether the 24h email actually went out is a backend
+ * fact (`reminders.models.ReminderLog`), not something this card can infer
+ * from `start_time` alone.
  */
 export function AppointmentCard({
   booking,
@@ -130,8 +139,12 @@ export function AppointmentCard({
       <p className="text-sm text-gray-600">
         {dateTimeLabel} (your time, {timezone})
       </p>
-      {/* TICKET-12's "reminder sent" indicator renders here, below the time
-       * line and above the actions -- this ticket only reserves the spot. */}
+      {booking.reminder_sent ? (
+        <p className="text-xs text-gray-500">
+          <span aria-hidden="true">✉ </span>
+          Reminder sent
+        </p>
+      ) : null}
 
       {actionsAvailable && mode === "view" ? (
         <div className="flex flex-col gap-1 pt-1">

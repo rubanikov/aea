@@ -1,4 +1,7 @@
+from django.db.models import Exists, OuterRef, QuerySet
 from rest_framework import serializers
+
+from reminders.models import ReminderLog
 
 from .models import Booking
 
@@ -127,16 +130,48 @@ class BookingListSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class PatientBookingReminderAnnotatedListSerializer(serializers.ListSerializer):
+    """`PatientBookingListSerializer`'s `list_serializer_class` -- adds the
+    `reminder_sent` field (TICKET-12's addendum to TICKET-09's UI, per
+    `tickets/README.md`'s scope-adjustment #7) without turning `GET
+    /bookings/mine` into an N+1: a `SerializerMethodField` querying
+    `ReminderLog` per row would issue one query per booking in the
+    response. Instead this re-annotates the queryset
+    `BookingMineListView.get` already built with a single correlated
+    `EXISTS` subquery -- `reminder_sent` comes back as part of the same
+    list query, not a second round trip per row (or at all).
+
+    Deliberately does this here rather than in the view: the view's
+    queryset stays exactly as it was (nothing there needs to know this
+    field exists), and the annotation lives next to the field it feeds,
+    the same locality `BookingListSerializer.appointment_type_name`'s
+    `source="appointment_type.name"` already keeps between a display field
+    and how it's populated.
+    """
+
+    def to_representation(self, data):
+        if isinstance(data, QuerySet):
+            data = data.annotate(
+                reminder_sent=Exists(
+                    ReminderLog.objects.filter(
+                        booking=OuterRef("pk"), interval=ReminderLog.INTERVAL_24H
+                    )
+                )
+            )
+        return super().to_representation(data)
+
+
 class PatientBookingListSerializer(serializers.ModelSerializer):
     """Output shape for `GET /bookings/mine` (TICKET-09's patient "My
     Appointments" list): `{id, provider_id, provider_name,
     appointment_type_id, appointment_type_name, start_time, end_time,
-    status}` -- the patient-facing mirror of `BookingListSerializer` above,
-    joined on `provider` instead of `patient` since the patient viewing
-    their own list already knows who they are. Matches
-    `frontend/lib/bookings/types.ts`'s `PatientBooking` field-for-field --
-    that type was written against this assumed contract before this
-    endpoint existed, so the shape here is load-bearing, not incidental.
+    status, reminder_sent}` -- the patient-facing mirror of
+    `BookingListSerializer` above, joined on `provider` instead of
+    `patient` since the patient viewing their own list already knows who
+    they are. Matches `frontend/lib/bookings/types.ts`'s `PatientBooking`
+    field-for-field -- that type was written against this assumed contract
+    before this endpoint existed, so the shape here is load-bearing, not
+    incidental.
 
     `appointment_type_id` (added post-TICKET-10, alongside the display-only
     `_name` field TICKET-09 already had): the reschedule flow needs the id
@@ -147,15 +182,24 @@ class PatientBookingListSerializer(serializers.ModelSerializer):
     unique per provider, not globally). Exposing the id directly removes
     that indirection and the "type renamed/deleted between calls" edge case
     it implies.
+
+    `reminder_sent` (added TICKET-12): whether a `ReminderLog` row exists
+    for this booking's 24h interval, i.e. whether the reminder email has
+    already gone out -- see `PatientBookingReminderAnnotatedListSerializer`
+    above for how it's populated without an N+1. `BookingListSerializer`
+    (the provider-facing list) doesn't carry this field yet -- deferred to
+    a fast follow-up rather than bundled into this change.
     """
 
     provider_id = serializers.IntegerField(read_only=True)
     provider_name = serializers.CharField(source="provider.name", read_only=True)
     appointment_type_id = serializers.IntegerField(read_only=True)
     appointment_type_name = serializers.CharField(source="appointment_type.name", read_only=True)
+    reminder_sent = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Booking
+        list_serializer_class = PatientBookingReminderAnnotatedListSerializer
         fields = [
             "id",
             "provider_id",
@@ -165,5 +209,6 @@ class PatientBookingListSerializer(serializers.ModelSerializer):
             "start_time",
             "end_time",
             "status",
+            "reminder_sent",
         ]
         read_only_fields = fields

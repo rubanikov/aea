@@ -23,6 +23,7 @@ const ANNUAL_PHYSICAL: PatientBooking = {
   start_time: "2026-08-18T15:00:00.000Z",
   end_time: "2026-08-18T15:30:00.000Z",
   status: "confirmed",
+  reminder_sent: false,
 };
 
 // Starts 14h from NOW -- inside the 24h notice window, matching the
@@ -36,6 +37,7 @@ const LAB_REVIEW: PatientBooking = {
   start_time: "2026-08-12T23:00:00.000Z",
   end_time: "2026-08-12T23:15:00.000Z",
   status: "confirmed",
+  reminder_sent: false,
 };
 
 const CANCELLED_VISIT: PatientBooking = {
@@ -82,6 +84,34 @@ describe("AppointmentCard", () => {
         "Tuesday, August 18, 2026, 10:00–10:30am (your time, America/Chicago)"
       )
     ).toBeInTheDocument();
+  });
+
+  it("shows the reminder-sent indicator when reminder_sent is true", () => {
+    render(
+      <AppointmentCard
+        booking={{ ...ANNUAL_PHYSICAL, reminder_sent: true }}
+        timezone="America/Chicago"
+        onCancel={vi.fn()}
+        onRescheduled={vi.fn()}
+        now={NOW}
+      />
+    );
+
+    expect(screen.getByText("Reminder sent")).toBeInTheDocument();
+  });
+
+  it("does not show the reminder-sent indicator when reminder_sent is false", () => {
+    render(
+      <AppointmentCard
+        booking={ANNUAL_PHYSICAL}
+        timezone="America/Chicago"
+        onCancel={vi.fn()}
+        onRescheduled={vi.fn()}
+        now={NOW}
+      />
+    );
+
+    expect(screen.queryByText("Reminder sent")).not.toBeInTheDocument();
   });
 
   it("shows no actions on a non-confirmed (e.g. cancelled) booking", () => {

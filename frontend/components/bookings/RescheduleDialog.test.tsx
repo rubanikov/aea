@@ -31,6 +31,7 @@ const BOOKING: PatientBooking = {
   start_time: "2026-08-18T15:00:00.000Z",
   end_time: "2026-08-18T15:30:00.000Z",
   status: "confirmed",
+  reminder_sent: false,
 };
 
 const APPOINTMENT_TYPES = [
