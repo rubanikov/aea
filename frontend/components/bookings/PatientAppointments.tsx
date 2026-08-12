@@ -122,33 +122,33 @@ export function PatientAppointments() {
   if (loadError) {
     body = (
       <div className="flex flex-col items-start gap-2">
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger-text">
           {loadError}
         </p>
         <button
           type="button"
           onClick={retry}
-          className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50"
+          className="rounded border border-border-strong px-3 py-1.5 text-sm font-medium hover:bg-accent"
         >
           Try again
         </button>
       </div>
     );
   } else if (!timezone || bookings === null) {
-    body = <p className="text-sm text-gray-600">Loading your appointments…</p>;
+    body = <p className="text-sm text-muted-foreground">Loading your appointments…</p>;
   } else if (bookings.length === 0) {
     body = (
-      <div className="flex flex-col items-center gap-3 rounded border border-dashed border-gray-300 p-10 text-center">
+      <div className="flex flex-col items-center gap-3 rounded border border-dashed border-border-strong p-10 text-center">
         <span aria-hidden="true" className="text-3xl">
           🗓
         </span>
-        <p className="max-w-sm text-sm text-gray-600">
+        <p className="max-w-sm text-sm text-muted-foreground">
           You don&apos;t have any appointments yet. Book your first visit with a
           provider in seconds.
         </p>
         <Link
           href="/patient"
-          className="rounded bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+          className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
         >
           Find a provider
         </Link>
@@ -176,7 +176,7 @@ export function PatientAppointments() {
           tabIndex={0}
         >
           {visible.length === 0 ? (
-            <p className="text-sm text-gray-600">{EMPTY_TAB_MESSAGE[activeTab]}</p>
+            <p className="text-sm text-muted-foreground">{EMPTY_TAB_MESSAGE[activeTab]}</p>
           ) : (
             <ul className="flex flex-col gap-3">
               {visible.map((booking) => (

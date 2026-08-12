@@ -6,13 +6,13 @@ export default function Home() {
       <h1 className="text-3xl font-semibold tracking-tight">
         Appointment Portal
       </h1>
-      <p className="max-w-md text-gray-600">
+      <p className="max-w-md text-muted-foreground">
         Book, manage, and run appointments across patient, provider, and
         admin workspaces.
       </p>
       <Link
         href="/login"
-        className="rounded bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-800"
+        className="rounded bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
       >
         Log in
       </Link>

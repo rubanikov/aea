@@ -13,9 +13,17 @@ vi.mock("next/navigation", () => ({
 }));
 
 const PATIENT_TIME_ZONE = "America/New_York";
+const PROVIDERS_PATH = "/scheduling/providers";
 const APPOINTMENT_TYPES_PATH = "/scheduling/providers/10/appointment-types";
 const SLOTS_PATH = "/scheduling/slots";
 const RESCHEDULE_PATH = "/bookings/1/reschedule";
+
+// The dialog resolves the provider's own timezone here (it isn't on
+// `GET /bookings/mine`) because the slot picker is rendered on the
+// provider's clock, exactly like `SlotBrowser`'s. Same zone as the patient
+// in most of these tests, so the labels below are unambiguous; the
+// differing-zones case has its own test at the bottom.
+const PROVIDER = { id: 10, name: "Dr. Amara Osei", timezone: PATIENT_TIME_ZONE };
 
 // Starts well outside the notice window. This dialog itself doesn't
 // re-check that client-side (its caller, `AppointmentCard`, already gates
@@ -32,6 +40,7 @@ const BOOKING: PatientBooking = {
   end_time: "2026-08-18T15:30:00.000Z",
   status: "confirmed",
   reminder_sent: false,
+  cancellation_reason: "",
 };
 
 const APPOINTMENT_TYPES = [
@@ -87,9 +96,18 @@ function mockFetchRouter(
     Record<string, (init: RequestInit | undefined) => Response | Promise<Response>>
   >
 ) {
+  // `GET /scheduling/providers` is answered by default: every test needs it
+  // (the dialog resolves the provider's timezone from it before it can
+  // render a picker), but almost none of them care what it returns.
+  const handlers: Partial<
+    Record<string, (init: RequestInit | undefined) => Response | Promise<Response>>
+  > = {
+    [PROVIDERS_PATH]: () => jsonResponse([PROVIDER]),
+    ...overrides,
+  };
   const fetchMock = vi.fn((url: string, init?: RequestInit) => {
     const path = new URL(url).pathname;
-    const handler = overrides[path];
+    const handler = handlers[path];
     if (handler) {
       return Promise.resolve(handler(init));
     }
@@ -357,6 +375,24 @@ describe("RescheduleDialog", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /couldn't reschedule this appointment/i
     );
+  });
+
+  it("labels open slots on the provider's clock, not the patient's, when the two differ", async () => {
+    mockFetchRouter({
+      [PROVIDERS_PATH]: () =>
+        jsonResponse([{ ...PROVIDER, timezone: "America/New_York" }]),
+      [APPOINTMENT_TYPES_PATH]: () => jsonResponse(APPOINTMENT_TYPES),
+      [SLOTS_PATH]: () => jsonResponse(bookableResponse([NEW_SLOT])),
+    });
+    renderDialog({ patientTimeZone: "America/Chicago" });
+
+    // 13:00 UTC is 9:00am for the provider (EDT) and 8:00am for this
+    // patient (CDT). The provider's calendar calls this slot 9:00am, so
+    // that's what the picker has to call it too.
+    expect(
+      await screen.findByRole("button", { name: "9:00am (8:00am your time)" })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "8:00am" })).not.toBeInTheDocument();
   });
 
   it("Escape closes the dialog when not mid-request", async () => {

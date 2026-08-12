@@ -452,18 +452,18 @@ export function WorkingHoursSection() {
     return (
       <section
         aria-labelledby="working-hours-heading"
-        className="flex flex-col gap-3 rounded border border-gray-200 p-6"
+        className="flex flex-col gap-3 rounded border border-border p-6"
       >
         <h2 id="working-hours-heading" className="text-lg font-semibold">
           Weekly working hours
         </h2>
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger-text">
           {loadError}
         </p>
         <button
           type="button"
           onClick={retry}
-          className="self-start rounded border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50"
+          className="self-start rounded border border-border-strong px-3 py-1.5 text-sm font-medium hover:bg-accent"
         >
           Try again
         </button>
@@ -475,12 +475,12 @@ export function WorkingHoursSection() {
     return (
       <section
         aria-labelledby="working-hours-heading"
-        className="flex flex-col gap-3 rounded border border-gray-200 p-6"
+        className="flex flex-col gap-3 rounded border border-border p-6"
       >
         <h2 id="working-hours-heading" className="text-lg font-semibold">
           Weekly working hours
         </h2>
-        <p className="text-sm text-gray-600">Loading working hours…</p>
+        <p className="text-sm text-muted-foreground">Loading working hours…</p>
       </section>
     );
   }
@@ -488,21 +488,21 @@ export function WorkingHoursSection() {
   return (
     <section
       aria-labelledby="working-hours-heading"
-      className="flex flex-col gap-4 rounded border border-gray-200 p-6"
+      className="flex flex-col gap-4 rounded border border-border p-6"
     >
       <h2 id="working-hours-heading" className="text-lg font-semibold">
         Weekly working hours
       </h2>
 
       {!hasSavedAnyDay ? (
-        <div className="flex flex-col items-start gap-3 rounded border border-dashed border-gray-300 p-4">
-          <p className="text-sm text-gray-600">
+        <div className="flex flex-col items-start gap-3 rounded border border-dashed border-border-strong p-4">
+          <p className="text-sm text-muted-foreground">
             You haven&apos;t set your working hours yet.
           </p>
           <button
             type="button"
             onClick={focusMonday}
-            className="rounded bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
           >
             Set up working hours
           </button>
@@ -552,9 +552,9 @@ export function WorkingHoursSection() {
                         }
                         aria-invalid={error ? true : undefined}
                         aria-describedby={error ? errorId : undefined}
-                        className="rounded border border-gray-300 px-3 py-2 text-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+                        className="rounded border border-input px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
                       />
-                      <span className="text-sm text-gray-600">to</span>
+                      <span className="text-sm text-muted-foreground">to</span>
                       <label htmlFor={endId} className="sr-only">
                         {label} end time
                       </label>
@@ -567,15 +567,15 @@ export function WorkingHoursSection() {
                         }
                         aria-invalid={error ? true : undefined}
                         aria-describedby={error ? errorId : undefined}
-                        className="rounded border border-gray-300 px-3 py-2 text-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+                        className="rounded border border-input px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
                       />
                     </>
                   ) : (
-                    <span className="text-sm text-gray-500">Unavailable</span>
+                    <span className="text-sm text-muted-foreground">Unavailable</span>
                   )}
                 </div>
                 {error ? (
-                  <p id={errorId} role="alert" className="text-sm text-red-600">
+                  <p id={errorId} role="alert" className="text-sm text-danger-text">
                     {error}
                   </p>
                 ) : null}
@@ -585,12 +585,12 @@ export function WorkingHoursSection() {
         </fieldset>
 
         {formError ? (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-danger-text">
             {formError}
           </p>
         ) : null}
         {saved ? (
-          <p role="status" aria-live="polite" className="text-sm text-green-700">
+          <p role="status" aria-live="polite" className="text-sm text-success-text">
             Working hours saved.
           </p>
         ) : null}
@@ -598,7 +598,7 @@ export function WorkingHoursSection() {
         <button
           type="submit"
           disabled={saving}
-          className="self-start rounded bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+          className="self-start rounded bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
         >
           {saving ? "Saving…" : "Save working hours"}
         </button>

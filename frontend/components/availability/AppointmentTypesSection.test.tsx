@@ -112,13 +112,14 @@ describe("AppointmentTypesSection", () => {
     ).toBeInTheDocument();
   });
 
-  it("displays the provider's timezone, read-only, from GET /profile", async () => {
+  it("displays the provider's timezone as a friendly label (never the raw IANA id), read-only, from GET /profile", async () => {
     mockFetchRouter({ [TYPES_PATH]: () => jsonResponse(SAMPLE_TYPES) });
     render(<AppointmentTypesSection />);
 
     expect(
-      await screen.findByText(/timezone: america\/new_york/i)
+      await screen.findByText(/timezone: eastern time \(new york\)/i)
     ).toBeInTheDocument();
+    expect(screen.queryByText(/america\/new_york/i)).not.toBeInTheDocument();
   });
 
   it("adds a new appointment type: opens the form focused, validates the name inline, then POSTs and shows the new row", async () => {

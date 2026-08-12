@@ -53,17 +53,21 @@ class ReminderEmailBodyContentTests(RemindersTestCase):
 
     @override_settings(FRONTEND_BASE_URL="https://app.example.com")
     def test_body_contains_a_generic_notice_and_a_link_to_the_frontend(self):
+        # Regression (doctor-cancel-reason-notify ticket 03's approved
+        # fix): the link is the frontend's real `/patient/appointments`
+        # page -- the old `/appointments/{id}` route never existed.
         body = build_reminder_email_body(self.booking)
 
         self.assertIn("upcoming appointment", body)
-        self.assertIn(f"https://app.example.com/appointments/{self.booking.id}", body)
+        self.assertIn("https://app.example.com/patient/appointments", body)
+        self.assertNotIn(f"/appointments/{self.booking.id}", body)
 
     @override_settings(FRONTEND_BASE_URL="https://app.example.com/")
     def test_frontend_base_url_trailing_slash_does_not_double_up(self):
         body = build_reminder_email_body(self.booking)
 
-        self.assertIn(f"https://app.example.com/appointments/{self.booking.id}", body)
-        self.assertNotIn("com//appointments", body)
+        self.assertIn("https://app.example.com/patient/appointments", body)
+        self.assertNotIn("com//patient", body)
 
 
 class SendReminderEmailNoApiKeyTests(RemindersTestCase):

@@ -35,6 +35,7 @@ class BookingCreationHappyPathTests(BookingsAPITestCase):
                 "start_time",
                 "end_time",
                 "status",
+                "cancellation_reason",
             },
         )
         self.assertEqual(body["provider_id"], self.provider.id)

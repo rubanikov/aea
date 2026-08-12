@@ -38,7 +38,7 @@ export function PasswordField({
           type={visible ? "text" : "password"}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? errorId : undefined}
-          className="flex-1 rounded border border-gray-300 px-3 py-2 text-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+          className="flex-1 rounded border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
           {...inputProps}
         />
         <button
@@ -46,13 +46,13 @@ export function PasswordField({
           aria-pressed={visible}
           aria-label={`${visible ? "Hide" : "Show"} ${label.toLowerCase()}`}
           onClick={() => setVisible((value) => !value)}
-          className="shrink-0 rounded border border-gray-300 px-2 py-2 text-xs font-medium hover:bg-gray-50"
+          className="shrink-0 rounded border border-border-strong px-2 py-2 text-xs font-medium hover:bg-accent"
         >
           {visible ? "Hide" : "Show"}
         </button>
       </div>
       {error ? (
-        <p id={errorId} role="alert" className="text-sm text-red-600">
+        <p id={errorId} role="alert" className="text-sm text-danger-text">
           {error}
         </p>
       ) : null}

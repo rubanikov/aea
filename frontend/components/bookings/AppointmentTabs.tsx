@@ -63,7 +63,7 @@ export function AppointmentTabs({ active, onChange }: AppointmentTabsProps) {
       role="tablist"
       aria-label="Appointments"
       onKeyDown={handleKeyDown}
-      className="flex gap-4 border-b border-gray-200"
+      className="flex gap-4 border-b border-border"
     >
       {TABS.map((tab) => {
         const selected = tab.id === active;
@@ -82,8 +82,8 @@ export function AppointmentTabs({ active, onChange }: AppointmentTabsProps) {
             onClick={() => onChange(tab.id)}
             className={`-mb-px border-b-2 px-1 py-2 text-sm font-medium ${
               selected
-                ? "border-black text-black"
-                : "border-transparent text-gray-500 hover:text-black"
+                ? "border-foreground text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
             {tab.label}

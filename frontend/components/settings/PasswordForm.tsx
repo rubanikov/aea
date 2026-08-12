@@ -145,19 +145,19 @@ export function PasswordForm() {
         inputRef={confirmNewPasswordRef}
       />
       {formError ? (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger-text">
           {formError}
         </p>
       ) : null}
       {saved ? (
-        <p role="status" aria-live="polite" className="text-sm text-green-700">
+        <p role="status" aria-live="polite" className="text-sm text-success-text">
           Password updated.
         </p>
       ) : null}
       <button
         type="submit"
         disabled={saving}
-        className="self-start rounded bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+        className="self-start rounded bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
       >
         {saving ? "Updating…" : "Update password"}
       </button>

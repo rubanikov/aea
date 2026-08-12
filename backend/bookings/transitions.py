@@ -53,7 +53,7 @@ def check_cancellation_notice(booking):
         raise CancellationNoticeTooShort()
 
 
-def transition(booking, new_status, *, actor, enforce_notice=True):
+def transition(booking, new_status, *, actor, enforce_notice=True, cancellation_reason=None):
     """Move `booking.status` to `new_status`, writing the status change and
     its audit entry atomically, or raise without touching either:
 
@@ -91,6 +91,18 @@ def transition(booking, new_status, *, actor, enforce_notice=True):
     protect the *booking*, not the account-deletion flow. No other call
     site should ever pass `False`.
 
+    `cancellation_reason` (doctor-cancel-reason-notify ticket 01): the
+    provider's written reason, already validated by
+    `BookingStatusUpdateSerializer` (non-blank, <= 500 chars, only ever
+    present for a `-> CANCELLED` transition). Written to
+    `Booking.cancellation_reason` in the *same* `save()` as the status
+    change, so the two can never disagree. Every guard above runs first
+    and unchanged -- a rejected transition leaves the stored reason
+    exactly as it was. The default `None` means "leave the field alone,"
+    which is what every cancel path *other* than the provider status
+    endpoint (patient self-cancel, reschedule's implicit cancel, account
+    deletion) passes implicitly, keeping their bookings' reasons `""`.
+
     Returns the same `booking` instance, saved and with `.status` already
     updated.
     """
@@ -106,11 +118,20 @@ def transition(booking, new_status, *, actor, enforce_notice=True):
 
     with transaction.atomic():
         booking.status = new_status
-        booking.save(update_fields=["status", "updated_at"])
+        if cancellation_reason is not None:
+            booking.cancellation_reason = cancellation_reason
+        booking.save(update_fields=["status", "cancellation_reason", "updated_at"])
         record_audit_event(
             actor=actor,
             action=f"status:{current_status}->{new_status}",
             target_type="booking",
             target_id=booking.id,
+            # Deliberately records *who* (by role), never the reason text:
+            # audit metadata is identifiers/status values only, never free
+            # text or contact details (see `record_audit_event`'s docstring;
+            # architecture.md §6, "no PHI in logs"). The reason lives on the
+            # Booking row -- its absence here is intentional, not an
+            # oversight.
+            metadata={"initiated_by_role": actor.role if actor else "system"},
         )
     return booking

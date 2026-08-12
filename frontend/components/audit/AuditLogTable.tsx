@@ -15,7 +15,7 @@ export function AuditLogTable({ entries }: AuditLogTableProps) {
     <table className="w-full border-collapse text-left text-sm">
       <caption className="sr-only">Audit log entries</caption>
       <thead>
-        <tr className="border-b border-gray-300">
+        <tr className="border-b border-border-strong">
           <th scope="col" className="py-2 pr-4 font-medium">
             Timestamp (UTC)
           </th>
@@ -32,7 +32,7 @@ export function AuditLogTable({ entries }: AuditLogTableProps) {
       </thead>
       <tbody>
         {entries.map((entry) => (
-          <tr key={entry.id} className="border-b border-gray-100">
+          <tr key={entry.id} className="border-b border-border">
             <td className="whitespace-nowrap py-2 pr-4 font-mono text-xs">
               <time dateTime={entry.timestamp}>
                 {formatAuditTimestamp(entry.timestamp)}

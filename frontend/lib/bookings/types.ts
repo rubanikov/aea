@@ -25,6 +25,55 @@ export interface ProviderBooking {
   start_time: string;
   end_time: string;
   status: BookingStatus;
+  /** The provider's written reason for a cancellation, `""` unless
+   * `status` is `cancelled` (and even then `""` for rows cancelled before
+   * reasons were required). Set via `PATCH /bookings/:id/status`'s
+   * `cancellation_reason` body field. */
+  cancellation_reason: string;
+}
+
+/**
+ * `PATCH /bookings/:id/status`'s report of whether the patient was told
+ * about a cancellation. Present only on a successful *cancellation*
+ * response — absent on completed/no_show changes and on error responses.
+ *
+ * The shape is final now that the SMS ticket has landed, so all five keys
+ * are typed properly (the earlier open index signature is gone).
+ * `sms_attempted` is true only when the patient had both a phone number
+ * and a carrier on file; `sms_skipped_reason` explains why no text went
+ * out: `"no_phone"` / `"no_carrier"` / `"unknown_carrier"` mean SMS was
+ * never attempted (expected, not an error), `"send_failed"` means an
+ * attempted send failed, `"rate_limited"` means neither channel was tried
+ * because the patient hit their hourly notification cap (see
+ * `rate_limited` below), and `null` means nothing was skipped.
+ */
+export interface CancellationNotification {
+  email_sent: boolean;
+  email_failed: boolean;
+  sms_attempted: boolean;
+  sms_sent: boolean;
+  sms_skipped_reason: string | null;
+  /** True when the server declined to notify this patient at all because
+   * they've already been sent their hourly limit of cancellation notices
+   * (an anti-abuse cap, not a delivery failure — hence `email_failed`
+   * false and `sms_skipped_reason` `"rate_limited"`). The cancellation
+   * itself still succeeded. The existing "we couldn't reach the patient"
+   * warning is deliberately still shown for this case, because the
+   * patient genuinely wasn't told; this flag is here for wording that
+   * wants to distinguish the two. Optional so older/other response
+   * shapes still typecheck. */
+  rate_limited?: boolean;
+}
+
+/**
+ * What a row's `onStatusChange` resolves with: the updated row (the
+ * PATCH response's changed fields merged onto the row already in state —
+ * see `ProviderCalendar.handleStatusChange`), plus the cancellation
+ * notification report when the server sent one.
+ */
+export interface BookingStatusChangeResult {
+  booking: ProviderBooking;
+  notification?: CancellationNotification;
 }
 
 /**
@@ -58,6 +107,9 @@ export interface PatientBooking {
   end_time: string;
   status: BookingStatus;
   reminder_sent: boolean;
+  /** The provider's written reason when they cancelled this booking, `""`
+   * otherwise. Same field as `ProviderBooking.cancellation_reason`. */
+  cancellation_reason: string;
 }
 
 /**

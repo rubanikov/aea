@@ -75,6 +75,7 @@ class BookingMineListTests(BookingsAPITestCase):
                 "end_time",
                 "status",
                 "reminder_sent",
+                "cancellation_reason",
             },
         )
         self.assertEqual(row["id"], self.own_booking.id)

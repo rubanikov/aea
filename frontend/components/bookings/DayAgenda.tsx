@@ -1,6 +1,10 @@
 "use client";
 
-import type { BookingStatusAction, ProviderBooking } from "@/lib/bookings/types";
+import type {
+  BookingStatusAction,
+  BookingStatusChangeResult,
+  ProviderBooking,
+} from "@/lib/bookings/types";
 import { AgendaRow } from "./AgendaRow";
 
 interface DayAgendaProps {
@@ -11,8 +15,9 @@ interface DayAgendaProps {
   timezone: string;
   onStatusChange: (
     id: number,
-    status: BookingStatusAction
-  ) => Promise<ProviderBooking>;
+    status: BookingStatusAction,
+    cancellationReason?: string
+  ) => Promise<BookingStatusChangeResult>;
 }
 
 /**
@@ -25,7 +30,7 @@ export function DayAgenda({ dateLabel, bookings, timezone, onStatusChange }: Day
     <div className="flex flex-col gap-3">
       <h2 className="text-lg font-semibold">{dateLabel}</h2>
       {bookings.length === 0 ? (
-        <p className="text-sm text-gray-600">No appointments on {dateLabel}.</p>
+        <p className="text-sm text-muted-foreground">No appointments on {dateLabel}.</p>
       ) : (
         <ul className="flex flex-col">
           {bookings.map((booking) => (

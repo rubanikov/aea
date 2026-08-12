@@ -45,7 +45,7 @@ export function WeekStrip({
             type="button"
             onClick={onPrevWeek}
             aria-label="Go to previous week"
-            className="rounded border border-gray-300 px-2 py-1 text-sm font-medium hover:bg-gray-50"
+            className="rounded border border-border-strong px-2 py-1 text-sm font-medium hover:bg-accent"
           >
             «
           </button>
@@ -57,7 +57,7 @@ export function WeekStrip({
             type="button"
             onClick={onNextWeek}
             aria-label="Go to next week"
-            className="rounded border border-gray-300 px-2 py-1 text-sm font-medium hover:bg-gray-50"
+            className="rounded border border-border-strong px-2 py-1 text-sm font-medium hover:bg-accent"
           >
             »
           </button>
@@ -65,7 +65,7 @@ export function WeekStrip({
         <button
           type="button"
           onClick={onToday}
-          className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50"
+          className="rounded border border-border-strong px-3 py-1.5 text-sm font-medium hover:bg-accent"
         >
           Today
         </button>
@@ -86,13 +86,13 @@ export function WeekStrip({
               aria-label={`${formatFullDate(year, month, dayOfMonth)}, ${count} appointment${count === 1 ? "" : "s"}`}
               className={`flex flex-col items-center gap-1 rounded border px-2 py-2 text-sm ${
                 selected
-                  ? "border-black bg-gray-100 font-semibold"
-                  : "border-gray-300 hover:bg-gray-50"
+                  ? "border-foreground bg-accent font-semibold text-accent-foreground"
+                  : "border-border-strong hover:bg-accent"
               }`}
             >
               <span aria-hidden="true">{SHORT_WEEKDAY_NAMES[index]}</span>
               <span aria-hidden="true">{dayOfMonth}</span>
-              <span aria-hidden="true" className="text-xs text-gray-500">
+              <span aria-hidden="true" className="text-xs text-muted-foreground">
                 {count === 0 ? "–" : count}
               </span>
             </button>

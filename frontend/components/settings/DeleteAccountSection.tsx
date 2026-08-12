@@ -102,7 +102,7 @@ export function DeleteAccountSection() {
       <div
         role="status"
         aria-live="polite"
-        className="rounded border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-800"
+        className="rounded border border-border bg-muted px-4 py-3 text-sm text-foreground"
       >
         Your account has been deleted. You&apos;ve been logged out.
       </div>
@@ -110,16 +110,16 @@ export function DeleteAccountSection() {
   }
 
   return (
-    <div className="rounded border border-red-300 bg-red-50 p-4">
+    <div className="rounded border border-danger-border bg-danger-soft p-4 text-danger-soft-foreground">
       <div className="flex items-start gap-2">
-        <span aria-hidden="true" className="text-lg leading-none text-red-700">
+        <span aria-hidden="true" className="text-lg leading-none text-danger-text">
           {"⚠"}
         </span>
-        <h3 className="font-semibold text-red-900">
+        <h3 className="font-semibold text-danger-soft-foreground">
           Request account & data deletion
         </h3>
       </div>
-      <p className="mt-2 text-sm text-red-800">
+      <p className="mt-2 text-sm text-danger-soft-foreground">
         Deletes your profile and appointment history per our retention
         policy. Upcoming appointments are cancelled first. Not undoable once
         processed.
@@ -129,7 +129,7 @@ export function DeleteAccountSection() {
         <button
           type="button"
           onClick={startConfirm}
-          className="mt-3 rounded border border-red-600 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
+          className="mt-3 rounded border border-danger bg-card px-4 py-2 text-sm font-medium text-danger-text hover:bg-accent"
         >
           Request deletion
         </button>
@@ -137,9 +137,9 @@ export function DeleteAccountSection() {
         <form
           onSubmit={handleSubmit}
           noValidate
-          className="mt-4 flex flex-col gap-3 border-t border-red-200 pt-4"
+          className="mt-4 flex flex-col gap-3 border-t border-danger-border pt-4"
         >
-          <p className="text-sm text-red-900">
+          <p className="text-sm text-danger-soft-foreground">
             Any upcoming appointments will be cancelled automatically as part
             of this request. Enter your current password to confirm — this
             can&apos;t be undone once processed.
@@ -158,7 +158,7 @@ export function DeleteAccountSection() {
             error={passwordError}
           />
           {formError ? (
-            <p role="alert" className="text-sm text-red-700">
+            <p role="alert" className="text-sm text-danger-text">
               {formError}
             </p>
           ) : null}
@@ -166,7 +166,7 @@ export function DeleteAccountSection() {
             <button
               type="submit"
               disabled={submitting}
-              className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              className="rounded bg-danger px-4 py-2 text-sm font-medium text-danger-foreground hover:opacity-90 disabled:opacity-50"
             >
               {submitting ? "Deleting…" : "Confirm deletion request"}
             </button>
@@ -174,7 +174,7 @@ export function DeleteAccountSection() {
               type="button"
               onClick={cancelConfirm}
               disabled={submitting}
-              className="rounded border border-gray-300 bg-white px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+              className="rounded border border-border-strong bg-card px-4 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
             >
               Cancel
             </button>

@@ -15,7 +15,7 @@ export default function PatientAppointmentsPage() {
         <h1 className="text-2xl font-semibold tracking-tight">My Appointments</h1>
         <Link
           href="/patient"
-          className="rounded bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+          className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
         >
           + Book new
         </Link>

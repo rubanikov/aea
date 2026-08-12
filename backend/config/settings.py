@@ -132,6 +132,11 @@ MIDDLEWARE = [
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Outermost-but-one on the way back out, so it sees the finished response
+    # of every view (and every DRF exception handler) and can mark it
+    # uncacheable — see core/middleware.py for why a cached identity response
+    # is both a wrong "access denied" and a PHI leak.
+    "core.middleware.NoStoreSessionScopedResponsesMiddleware",
 ]
 
 # Custom user model — swapped in before the first `migrate` (see TICKET-01's
@@ -259,6 +264,13 @@ REST_FRAMEWORK = {
         # LoginRateThrottle) — a blanket AnonRateThrottle would also throttle
         # registration off the back of a login attack.
         "login": "5/min",
+        # Cancellations only, on PATCH /bookings/<id>/status (bookings/
+        # views.py's CancellationRateThrottle) -- the one authenticated
+        # action that makes the server send provider-written text to a
+        # patient's inbox and phone, so it gets a tighter limit than the
+        # generic per-account floor below. Ten a minute is far more than a
+        # provider clearing a morning by hand ever needs.
+        "booking_cancel": "10/min",
         "anon": "100/min",
         "user": "300/min",
     },
@@ -302,6 +314,19 @@ SIMPLE_JWT = {
     # SECRET_KEY" actually needs to mean here.
     "SIGNING_KEY": os.environ.get("JWT_SECRET_KEY") or SECRET_KEY,
 }
+
+# How long after a refresh token is rotated out it may still be presented
+# without that counting as reuse. Two tabs open on the same account share one
+# refresh cookie, so when the access token expires they both post to
+# /auth/refresh at once and the loser arrives holding a token the winner has
+# already rotated — see accounts/models.py's RefreshTokenRotation.
+#
+# The window only has to cover the spread between two clients reacting to the
+# same expiry: a request round trip, plus a suspended tab's timers firing
+# late, plus one retry. Ten seconds covers that with room to spare and is
+# still far too narrow to be useful to an attacker replaying an exfiltrated
+# token — anything slower than "already in flight" gets the full revocation.
+REFRESH_ROTATION_GRACE_PERIOD = timedelta(seconds=10)
 
 AUTH_COOKIE_SECURE = not DEBUG
 AUTH_COOKIE_SAMESITE = "Strict"

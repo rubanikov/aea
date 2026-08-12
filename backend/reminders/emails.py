@@ -1,35 +1,43 @@
-"""The one seam that talks to Resend -- architecture.md §7 + this ticket's
+"""The reminder-email seam -- architecture.md §7 + the reminders ticket's
 brief ("a thin `send_reminder_email(booking)` function you can
 monkey-patch/mock in tests, rather than the dispatch loop calling
-`requests.post` inline"). `reminders.services.dispatch_due_reminders` calls
-`send_reminder_email` and nothing else in this module; tests patch that one
-function rather than reaching into `urllib`.
+`requests.post` inline"). `reminders.services.dispatch_due_reminders`
+calls `send_reminder_email` and nothing else in this module; tests patch
+that one function rather than reaching into `urllib`.
 
-No `requests` dependency added -- it isn't already in `requirements.txt`,
-and a single POST to Resend's REST API is simple enough that stdlib
-`urllib.request` covers it without a new third-party dependency.
+The actual Resend HTTP call lives in `bookings.notifications.send_email`
+(doctor-cancel-reason-notify ticket 03 extracted it) -- one transport,
+shared with the cancellation-notification path, instead of two copies of
+the same `urllib` POST. The `request`/`error` aliases below are re-imported
+here so existing tests that patch `reminders.emails.request.urlopen`
+keep intercepting the shared transport's call (both modules reference
+`urllib.request.urlopen` through the module object, never a bound name).
 
 PHI-free by design (architecture.md §7's explicit requirement): the email
 subject/body never include the patient's name, the appointment type, or
-any other health-context detail -- see `build_reminder_email_body` below,
-whose only booking-derived input is `booking.id` (an opaque identifier,
-not PHI) embedded in a link into the authenticated frontend portal, where
-the actual appointment detail lives behind login.
+any other health-context detail -- see `build_reminder_email_body` below.
+The body's link points at the frontend's `/patient/appointments` page
+(the only appointments route the frontend actually has -- the earlier
+`/appointments/{id}` link was a dead route), where the actual appointment
+detail lives behind login.
 """
 
 from __future__ import annotations
 
-import json
 import logging
-from urllib import error, request
+from urllib import error, request  # noqa: F401 -- test patch target, see docstring
 
 from django.conf import settings
 
+from bookings.notifications import RESEND_SEND_URL, SendEmailError, send_email  # noqa: F401
+
 logger = logging.getLogger(__name__)
 
-RESEND_SEND_URL = "https://api.resend.com/emails"
-
 REMINDER_EMAIL_SUBJECT = "You have an upcoming appointment"
+
+# The cron job's send timeout -- background dispatch can afford a longer
+# wait than `bookings.notifications`' user-facing 5s.
+REMINDER_SEND_TIMEOUT_SECONDS = 10
 
 
 class SendReminderEmailError(Exception):
@@ -43,16 +51,16 @@ class SendReminderEmailError(Exception):
 
 def build_reminder_email_body(booking) -> str:
     """The literal, PHI-free email body: a generic notice plus a link into
-    the frontend's appointment view (`FRONTEND_BASE_URL`, see
-    config/settings.py). Deliberately references only `booking.id` --
-    never `booking.patient.name`, `booking.appointment_type.name`, or
-    `booking.start_time` -- so nothing about *why* the appointment exists
-    or *who* the patient is ever reaches Resend's servers. The actual
-    detail is available to the patient only after they authenticate at
-    that link.
+    the frontend's "My Appointments" page (`FRONTEND_BASE_URL`, see
+    config/settings.py). Deliberately references nothing booking-derived
+    at all -- never `booking.patient.name`,
+    `booking.appointment_type.name`, or `booking.start_time` -- so nothing
+    about *why* the appointment exists or *who* the patient is ever
+    reaches Resend's servers. The actual detail is available to the
+    patient only after they authenticate at that link.
     """
     frontend_base_url = settings.FRONTEND_BASE_URL.rstrip("/")
-    link = f"{frontend_base_url}/appointments/{booking.id}"
+    link = f"{frontend_base_url}/patient/appointments"
     return (
         "You have an upcoming appointment.\n\n"
         f"View the details securely in your account: {link}\n\n"
@@ -65,8 +73,8 @@ def send_reminder_email(booking) -> bool:
 
     Returns `True` if Resend accepted the send -- the caller may write a
     `ReminderLog` row. Returns `False` if the send was skipped because
-    `RESEND_API_KEY` isn't configured (logged at WARNING so it's visible
-    without crashing the whole dispatch run) -- a deliberate choice for
+    `RESEND_API_KEY` isn't configured (logged at WARNING, with the
+    booking id for this job's log trail) -- a deliberate choice for
     local/test/demo environments, which never have a real Resend key: a
     missing key here fails safe (no send, no log row, retried next run)
     rather than raising and aborting every other due reminder in the same
@@ -74,44 +82,18 @@ def send_reminder_email(booking) -> bool:
     request or the HTTP call fails -- a real failure, distinct from "not
     configured," that the caller also must not log as sent.
     """
-    api_key = settings.RESEND_API_KEY
-    if not api_key:
+    if not settings.RESEND_API_KEY:
         logger.warning(
             "reminder email skipped, RESEND_API_KEY not set booking_id=%s", booking.id
         )
         return False
 
-    payload = json.dumps(
-        {
-            "from": settings.RESEND_FROM_EMAIL,
-            "to": [booking.patient.email],
-            "subject": REMINDER_EMAIL_SUBJECT,
-            "text": build_reminder_email_body(booking),
-        }
-    ).encode("utf-8")
-
-    req = request.Request(
-        RESEND_SEND_URL,
-        data=payload,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-    )
     try:
-        with request.urlopen(req, timeout=10) as response:
-            if response.status >= 300:
-                raise SendReminderEmailError(
-                    f"Resend returned status {response.status} for booking_id={booking.id}"
-                )
-    except error.HTTPError as exc:
-        raise SendReminderEmailError(
-            f"Resend HTTP error {exc.code} for booking_id={booking.id}"
-        ) from exc
-    except error.URLError as exc:
-        raise SendReminderEmailError(
-            f"Resend request failed for booking_id={booking.id}: {exc.reason}"
-        ) from exc
-
-    return True
+        return send_email(
+            booking.patient.email,
+            REMINDER_EMAIL_SUBJECT,
+            build_reminder_email_body(booking),
+            timeout=REMINDER_SEND_TIMEOUT_SECONDS,
+        )
+    except SendEmailError as exc:
+        raise SendReminderEmailError(f"{exc} for booking_id={booking.id}") from exc

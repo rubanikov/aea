@@ -69,6 +69,12 @@ type Mode = "view" | "confirm-cancel";
  * not derived client-side, since whether the 24h email actually went out
  * is a backend fact (`reminders.models.ReminderLog`), not something this
  * card can infer from `start_time` alone.
+ *
+ * Cancellation reason: on a `cancelled` booking with a non-empty
+ * `cancellation_reason`, a display-only "Cancelled — reason: ..." line
+ * renders under the date/time, `whitespace-pre-wrap` so a provider's
+ * multi-line reason keeps its line breaks. Patient self-cancels never
+ * carry a reason (the field is `""`), so they render no extra line.
  */
 export function AppointmentCard({
   booking,
@@ -125,18 +131,23 @@ export function AppointmentCard({
   }
 
   return (
-    <li className="flex flex-col gap-2 rounded border border-gray-200 p-4">
+    <li className="flex flex-col gap-2 rounded border border-border p-4">
       <div aria-live="polite">
         <BookingStatusBadge status={booking.status} />
       </div>
       <p className="font-medium">
         {booking.appointment_type_name} — {booking.provider_name}
       </p>
-      <p className="text-sm text-gray-600">
+      <p className="text-sm text-muted-foreground">
         {dateTimeLabel} (your time, {timezone})
       </p>
+      {booking.status === "cancelled" && booking.cancellation_reason ? (
+        <p className="whitespace-pre-wrap text-sm text-muted-foreground">
+          Cancelled — reason: {booking.cancellation_reason}
+        </p>
+      ) : null}
       {booking.reminder_sent ? (
-        <p className="text-xs text-gray-500">
+        <p className="text-xs text-muted-foreground">
           <span aria-hidden="true">✉ </span>
           Reminder sent
         </p>
@@ -151,7 +162,7 @@ export function AppointmentCard({
               disabled={withinNoticeWindow}
               aria-label={`Reschedule: ${actionContext}`}
               aria-describedby={withinNoticeWindow ? noticeReasonId : undefined}
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+              className="rounded border border-border-strong px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
             >
               Reschedule
             </button>
@@ -162,13 +173,13 @@ export function AppointmentCard({
               disabled={withinNoticeWindow}
               aria-label={`Cancel: ${actionContext}`}
               aria-describedby={withinNoticeWindow ? noticeReasonId : undefined}
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50 disabled:opacity-50"
+              className="rounded border border-border-strong px-3 py-1.5 text-sm font-medium text-danger-text hover:bg-danger-soft disabled:opacity-50"
             >
               Cancel
             </button>
           </div>
           {withinNoticeWindow ? (
-            <p id={noticeReasonId} className="text-xs text-gray-500">
+            <p id={noticeReasonId} className="text-xs text-muted-foreground">
               <span aria-hidden="true">🔒 </span>
               {formatCancellationNoticeMessage(hoursUntilBookingStart(booking.start_time, now))}
             </p>
@@ -187,7 +198,7 @@ export function AppointmentCard({
               type="button"
               onClick={handleConfirmCancel}
               disabled={cancelling}
-              className="rounded bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              className="rounded bg-danger px-3 py-1.5 text-sm font-medium text-danger-foreground hover:opacity-90 disabled:opacity-50"
             >
               {cancelling ? "Cancelling…" : "Confirm cancel"}
             </button>
@@ -195,7 +206,7 @@ export function AppointmentCard({
               type="button"
               onClick={() => setMode("view")}
               disabled={cancelling}
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+              className="rounded border border-border-strong px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
             >
               Never mind
             </button>
@@ -204,7 +215,7 @@ export function AppointmentCard({
       ) : null}
 
       {error ? (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger-text">
           {error}
         </p>
       ) : null}

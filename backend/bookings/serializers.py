@@ -23,12 +23,14 @@ class BookingCreateSerializer(serializers.Serializer):
 
 class BookingSerializer(serializers.ModelSerializer):
     """Output shape for a created/returned `Booking`: `{id, provider_id,
-    patient_id, appointment_type_id, start_time, end_time, status}` (this
-    ticket's point 8). Exposes the related rows as their raw `_id` FK
-    columns rather than nested objects -- nothing downstream needs more
-    than the id yet. Reused as-is for `PATCH /bookings/<id>/status`'s
-    response (TICKET-08) -- same canonical shape, just a different status
-    value.
+    patient_id, appointment_type_id, start_time, end_time, status,
+    cancellation_reason}` (this ticket's point 8; `cancellation_reason` --
+    `""` for every non-cancelled booking -- added by
+    doctor-cancel-reason-notify ticket 01). Exposes the related rows as
+    their raw `_id` FK columns rather than nested objects -- nothing
+    downstream needs more than the id yet. Reused as-is for `PATCH
+    /bookings/<id>/status`'s response (TICKET-08) -- same canonical shape,
+    just a different status value.
     """
 
     provider_id = serializers.IntegerField(read_only=True)
@@ -45,6 +47,7 @@ class BookingSerializer(serializers.ModelSerializer):
             "start_time",
             "end_time",
             "status",
+            "cancellation_reason",
         ]
         read_only_fields = fields
 
@@ -58,11 +61,40 @@ class BookingStatusUpdateSerializer(serializers.Serializer):
     these three values. Whether that specific transition is legal from
     the booking's *current* status is `bookings.transitions.transition`'s
     job, not this serializer's -- this only rejects garbage input.
+
+    `cancellation_reason` (doctor-cancel-reason-notify ticket 01) is
+    required, non-blank, and <= 500 chars when `status` is `cancelled` --
+    a provider cancelling a patient's appointment must say why. For
+    `completed`/`no_show` the field is *rejected* rather than silently
+    ignored: dropping it would look to the caller like a stored reason,
+    so an explicit 400 is the honest response. DRF's default
+    `trim_whitespace=True` means a whitespace-only value arrives here
+    already `""` and hits the same required-when-cancelling error.
     """
 
     status = serializers.ChoiceField(
         choices=[Booking.Status.COMPLETED, Booking.Status.CANCELLED, Booking.Status.NO_SHOW]
     )
+    cancellation_reason = serializers.CharField(
+        required=False, allow_blank=True, max_length=500
+    )
+
+    def validate(self, attrs):
+        reason = attrs.get("cancellation_reason", "")
+        if attrs["status"] == Booking.Status.CANCELLED:
+            if not reason:
+                raise serializers.ValidationError(
+                    {"cancellation_reason": "This field is required when cancelling."}
+                )
+        elif "cancellation_reason" in attrs:
+            raise serializers.ValidationError(
+                {
+                    "cancellation_reason": (
+                        "This field is only allowed when status is 'cancelled'."
+                    )
+                }
+            )
+        return attrs
 
 
 class BookingRescheduleSerializer(serializers.Serializer):
@@ -126,6 +158,7 @@ class BookingListSerializer(serializers.ModelSerializer):
             "start_time",
             "end_time",
             "status",
+            "cancellation_reason",
         ]
         read_only_fields = fields
 
@@ -210,5 +243,6 @@ class PatientBookingListSerializer(serializers.ModelSerializer):
             "end_time",
             "status",
             "reminder_sent",
+            "cancellation_reason",
         ]
         read_only_fields = fields

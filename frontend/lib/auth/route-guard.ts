@@ -18,7 +18,20 @@ const AUTHENTICATED_ROUTE_PREFIXES: readonly string[] = ["/settings"];
 
 export type RouteAccessResult =
   | { allowed: true }
-  | { allowed: false; redirectTo: "/login" | "/access-denied" };
+  | {
+      allowed: false;
+      redirectTo: "/login";
+    }
+  | {
+      allowed: false;
+      redirectTo: "/access-denied";
+      /**
+       * The role the route demanded. Carried out of the guard so the denial
+       * page can say what was needed, rather than leaving the visitor to
+       * guess why a page they use every day suddenly refused them.
+       */
+      requiredRole: Role;
+    };
 
 function requiredRoleFor(pathname: string): Role | null {
   for (const role of Object.keys(ROLE_ROUTE_PREFIXES) as Role[]) {
@@ -56,7 +69,7 @@ export function resolveRouteAccess(
       return { allowed: false, redirectTo: "/login" };
     }
     if (!isRole(role) || role !== requiredRole) {
-      return { allowed: false, redirectTo: "/access-denied" };
+      return { allowed: false, redirectTo: "/access-denied", requiredRole };
     }
     return { allowed: true };
   }

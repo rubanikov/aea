@@ -8,7 +8,7 @@ import type {
 } from "@/lib/availability/validation";
 
 const FIELD_CLASS =
-  "rounded border border-gray-300 px-3 py-2 text-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black";
+  "rounded border border-input px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring";
 
 interface BlockedTimeFormProps {
   idPrefix: string;
@@ -69,7 +69,7 @@ export function BlockedTimeForm({
         onSubmit();
       }}
       noValidate
-      className="flex flex-col gap-3 rounded border border-gray-200 bg-gray-50 p-4"
+      className="flex flex-col gap-3 rounded border border-border bg-muted p-4 text-foreground"
     >
       <TextField
         label="Label (optional)"
@@ -94,7 +94,7 @@ export function BlockedTimeForm({
             className={FIELD_CLASS}
           />
           {fieldErrors.fromDate ? (
-            <p id={`${fromDateId}-error`} role="alert" className="text-sm text-red-600">
+            <p id={`${fromDateId}-error`} role="alert" className="text-sm text-danger-text">
               {fieldErrors.fromDate}
             </p>
           ) : null}
@@ -115,13 +115,13 @@ export function BlockedTimeForm({
             className={FIELD_CLASS}
           />
           {fieldErrors.fromTime ? (
-            <p id={`${fromTimeId}-error`} role="alert" className="text-sm text-red-600">
+            <p id={`${fromTimeId}-error`} role="alert" className="text-sm text-danger-text">
               {fieldErrors.fromTime}
             </p>
           ) : null}
         </div>
 
-        <span className="pb-2.5 text-sm text-gray-600">to</span>
+        <span className="pb-2.5 text-sm text-muted-foreground">to</span>
 
         <div className="flex flex-col gap-1">
           <label htmlFor={toDateId} className="text-sm font-medium">
@@ -144,7 +144,7 @@ export function BlockedTimeForm({
             className={FIELD_CLASS}
           />
           {fieldErrors.toDate ? (
-            <p id={`${toDateId}-error`} role="alert" className="text-sm text-red-600">
+            <p id={`${toDateId}-error`} role="alert" className="text-sm text-danger-text">
               {fieldErrors.toDate}
             </p>
           ) : null}
@@ -171,7 +171,7 @@ export function BlockedTimeForm({
             className={FIELD_CLASS}
           />
           {fieldErrors.toTime ? (
-            <p id={`${toTimeId}-error`} role="alert" className="text-sm text-red-600">
+            <p id={`${toTimeId}-error`} role="alert" className="text-sm text-danger-text">
               {fieldErrors.toTime}
             </p>
           ) : null}
@@ -179,7 +179,7 @@ export function BlockedTimeForm({
       </div>
 
       {fieldErrors.range ? (
-        <p id={rangeErrorId} role="alert" className="text-sm text-red-600">
+        <p id={rangeErrorId} role="alert" className="text-sm text-danger-text">
           {fieldErrors.range}
         </p>
       ) : null}
@@ -188,7 +188,7 @@ export function BlockedTimeForm({
         <button
           type="submit"
           disabled={saving}
-          className="rounded bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+          className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
         >
           {saving ? "Saving…" : "Save block"}
         </button>
@@ -196,14 +196,14 @@ export function BlockedTimeForm({
           type="button"
           onClick={onCancel}
           disabled={saving}
-          className="rounded border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-100 disabled:opacity-50"
+          className="rounded border border-border-strong px-4 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
         >
           Cancel
         </button>
       </div>
 
       {formError ? (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger-text">
           {formError}
         </p>
       ) : null}

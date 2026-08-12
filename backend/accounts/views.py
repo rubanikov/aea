@@ -19,8 +19,10 @@ from .serializers import (
 )
 from .tokens import (
     REFRESH_COOKIE_NAME,
+    RefreshTokenReuse,
     clear_auth_cookies,
     issue_tokens_for_user,
+    rotate_refresh_token,
     set_auth_cookies,
 )
 
@@ -119,7 +121,9 @@ class RefreshView(APIView):
     token cookie may well be expired — that's the point) and reads the
     refresh cookie directly instead. Always rotates the refresh token
     (`ROTATE_REFRESH_TOKENS`/`BLACKLIST_AFTER_ROTATION`, see settings.py) —
-    the old refresh token is blacklisted the moment a new pair is issued.
+    the old refresh token is blacklisted the moment a new pair is issued,
+    with a short grace window for the two-tabs-refreshing-at-once race (see
+    `accounts/tokens.py`).
     """
 
     permission_classes = [AllowAny]
@@ -135,18 +139,20 @@ class RefreshView(APIView):
             )
 
         try:
-            refresh = RefreshToken(raw_refresh)
-            access_token = str(refresh.access_token)
-            refresh.blacklist()
-            refresh.set_jti()
-            refresh.set_exp()
-            refresh.set_iat()
-            refresh.outstand()
+            access_token, refresh_token = rotate_refresh_token(raw_refresh)
+        except RefreshTokenReuse as exc:
+            # Every session for the account is already revoked by the time
+            # this is raised; all that's left is to strip the cookies off
+            # whichever client presented the replayed token.
+            logger.warning("refresh token reuse detected -- all sessions revoked")
+            response = Response({"detail": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
+            clear_auth_cookies(response)
+            return response
         except TokenError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_401_UNAUTHORIZED)
 
         response = Response(status=status.HTTP_204_NO_CONTENT)
-        set_auth_cookies(response, access_token, str(refresh))
+        set_auth_cookies(response, access_token, refresh_token)
         return response
 
 

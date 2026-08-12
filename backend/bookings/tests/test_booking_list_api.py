@@ -65,6 +65,7 @@ class BookingListTests(BookingsAPITestCase):
                 "start_time",
                 "end_time",
                 "status",
+                "cancellation_reason",
             },
         )
         self.assertEqual(row["patient_id"], self.patient.id)

@@ -8,6 +8,9 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // jsdom only provides `window.localStorage` on a non-opaque origin; the
+    // theme persistence tests (and any future storage-backed code) need it.
+    environmentOptions: { jsdom: { url: "http://localhost/" } },
     setupFiles: ["./vitest.setup.ts"],
     exclude: ["node_modules", ".next", "e2e"],
   },

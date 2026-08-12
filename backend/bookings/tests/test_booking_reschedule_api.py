@@ -69,6 +69,7 @@ class BookingRescheduleTests(BookingsAPITestCase):
                 "start_time",
                 "end_time",
                 "status",
+                "cancellation_reason",
                 "previous_booking_id",
             },
         )

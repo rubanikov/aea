@@ -18,7 +18,16 @@ export async function proxy(request: NextRequest) {
   const result = resolveRouteAccess(request.nextUrl.pathname, role);
 
   if (!result.allowed) {
-    return NextResponse.redirect(new URL(result.redirectTo, request.url));
+    const destination = new URL(result.redirectTo, request.url);
+    if (result.redirectTo === "/access-denied") {
+      // A wrong-role visit is usually a replaced session, not an
+      // under-privileged account: one browser profile holds one auth cookie,
+      // so signing in as a second user anywhere -- another tab included --
+      // takes the session over everywhere. Pass along what the route wanted
+      // so the denial page can explain that instead of blaming the account.
+      destination.searchParams.set("required", result.requiredRole);
+    }
+    return NextResponse.redirect(destination);
   }
 
   return NextResponse.next();

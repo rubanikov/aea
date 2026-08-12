@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCurrentUser } from "@/hooks/use-current-user";
 import { apiFetch } from "@/lib/api/client";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 /**
  * Nav-corner "who am I" display. Uses `useCurrentUser()` for display only;
@@ -33,29 +35,32 @@ export function UserBadge() {
 
   if (user === null) {
     return (
-      <Link href="/login" className="text-sm font-medium underline">
-        Log in
-      </Link>
+      <Button asChild variant="link" size="sm" className="h-auto p-0 text-sm">
+        <Link href="/login">Log in</Link>
+      </Button>
     );
   }
 
   return (
     <div className="flex items-center gap-3 text-sm">
       <span data-testid="current-user-name">{user.name}</span>
-      <span
+      <Badge
+        variant="secondary"
+        className="capitalize"
         data-testid="current-user-role"
-        className="capitalize text-gray-500"
       >
         {user.role}
-      </span>
-      <button
+      </Badge>
+      <Button
         type="button"
+        variant="ghost"
+        size="sm"
         onClick={handleLogout}
         disabled={loggingOut}
-        className="font-medium underline disabled:opacity-50"
+        className="h-auto px-2 py-1"
       >
         {loggingOut ? "Logging out…" : "Log out"}
-      </button>
+      </Button>
     </div>
   );
 }

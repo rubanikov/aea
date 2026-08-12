@@ -289,7 +289,7 @@ export function BlockedTimeSection() {
   return (
     <section
       aria-labelledby="blocked-time-heading"
-      className="flex flex-col gap-4 rounded border border-gray-200 p-6"
+      className="flex flex-col gap-4 rounded border border-border p-6"
     >
       <div className="flex items-center justify-between gap-4">
         <h2 id="blocked-time-heading" className="text-lg font-semibold">
@@ -299,7 +299,7 @@ export function BlockedTimeSection() {
           <button
             type="button"
             onClick={startAdding}
-            className="rounded bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
           >
             + Add block
           </button>
@@ -308,36 +308,36 @@ export function BlockedTimeSection() {
 
       {loadError ? (
         <div className="flex flex-col items-start gap-2">
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-danger-text">
             {loadError}
           </p>
           <button
             type="button"
             onClick={retry}
-            className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50"
+            className="rounded border border-border-strong px-3 py-1.5 text-sm font-medium hover:bg-accent"
           >
             Try again
           </button>
         </div>
       ) : blocks === null ? (
-        <p className="text-sm text-gray-600">Loading blocked time…</p>
+        <p className="text-sm text-muted-foreground">Loading blocked time…</p>
       ) : blocks.length === 0 && !adding ? (
-        <div className="flex flex-col items-start gap-3 rounded border border-dashed border-gray-300 p-4">
-          <p className="text-sm text-gray-600">
+        <div className="flex flex-col items-start gap-3 rounded border border-dashed border-border-strong p-4">
+          <p className="text-sm text-muted-foreground">
             No blocked time yet. Add vacation or a one-off block — it stacks
             on top of your weekly hours.
           </p>
           <button
             type="button"
             onClick={startAdding}
-            className="rounded bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
           >
             Add block
           </button>
         </div>
       ) : (
         <>
-          <h3 className="text-sm font-medium text-gray-700">Upcoming blocks</h3>
+          <h3 className="text-sm font-medium text-muted-foreground">Upcoming blocks</h3>
           <ul className="flex flex-col">
             {blocks.map((block) => (
               <BlockedTimeRow

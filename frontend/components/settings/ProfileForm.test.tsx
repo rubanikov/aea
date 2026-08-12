@@ -14,6 +14,7 @@ const SAMPLE_PROFILE = {
   email: "pat@example.com",
   phone: "555-0100",
   timezone: "America/Chicago",
+  sms_carrier: "",
 };
 
 function mockFetchSequence(responses: Response[]) {
@@ -45,6 +46,23 @@ describe("ProfileForm", () => {
     expect(screen.getByLabelText("Email")).toHaveValue("pat@example.com");
     expect(screen.getByLabelText("Phone")).toHaveValue("555-0100");
     expect(screen.getByLabelText("Timezone")).toHaveValue("America/Chicago");
+  });
+
+  it("labels each timezone option with its common name, keeping the IANA value", async () => {
+    mockFetchSequence([
+      new Response(JSON.stringify(SAMPLE_PROFILE), { status: 200 }),
+    ]);
+    render(<ProfileForm />);
+
+    await screen.findByLabelText("Timezone");
+    const selected = screen.getByRole("option", {
+      name: "Central Time (Chicago)",
+    }) as HTMLOptionElement;
+    expect(selected.selected).toBe(true);
+    expect(selected).toHaveValue("America/Chicago");
+    expect(
+      screen.getByRole("option", { name: "Eastern Time (New York)" })
+    ).toHaveValue("America/New_York");
   });
 
   it("shows an actionable error if the profile fails to load", async () => {
@@ -111,6 +129,92 @@ describe("ProfileForm", () => {
     expect(
       await screen.findByText("Enter a valid email address.")
     ).toBeInTheDocument();
+  });
+
+  it("renders all nine carrier options plus the 'Not set' default", async () => {
+    mockFetchSequence([
+      new Response(JSON.stringify(SAMPLE_PROFILE), { status: 200 }),
+    ]);
+    render(<ProfileForm />);
+
+    const select = await screen.findByLabelText(/mobile carrier/i);
+    const options = Array.from(
+      (select as HTMLSelectElement).options,
+      (option) => [option.value, option.label]
+    );
+    expect(options).toEqual([
+      ["", "Not set — email only"],
+      ["verizon", "Verizon"],
+      ["att", "AT&T"],
+      ["tmobile", "T-Mobile"],
+      ["sprint", "Sprint"],
+      ["uscellular", "US Cellular"],
+      ["boost", "Boost Mobile"],
+      ["cricket", "Cricket Wireless"],
+      ["metropcs", "Metro by T-Mobile"],
+      ["googlefi", "Google Fi"],
+    ]);
+  });
+
+  it("includes the selected sms_carrier in the PATCH /profile body", async () => {
+    const fetchMock = mockFetchSequence([
+      new Response(JSON.stringify(SAMPLE_PROFILE), { status: 200 }), // GET
+      new Response(
+        JSON.stringify({ ...SAMPLE_PROFILE, sms_carrier: "tmobile" }),
+        { status: 200 }
+      ), // PATCH
+    ]);
+    const user = userEvent.setup();
+    render(<ProfileForm />);
+
+    const select = await screen.findByLabelText(/mobile carrier/i);
+    await user.selectOptions(select, "tmobile");
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    await screen.findByRole("status");
+    const [, patchOptions] = fetchMock.mock.calls[1];
+    expect(JSON.parse(patchOptions.body)).toMatchObject({
+      sms_carrier: "tmobile",
+    });
+  });
+
+  it("pre-selects the profile's existing sms_carrier on initial render", async () => {
+    mockFetchSequence([
+      new Response(
+        JSON.stringify({ ...SAMPLE_PROFILE, sms_carrier: "verizon" }),
+        { status: 200 }
+      ),
+    ]);
+    render(<ProfileForm />);
+
+    const select = await screen.findByLabelText(/mobile carrier/i);
+    expect(select).toHaveValue("verizon");
+    const selected = screen.getByRole("option", {
+      name: "Verizon",
+    }) as HTMLOptionElement;
+    expect(selected.selected).toBe(true);
+  });
+
+  it("shows an inline error next to the carrier select from a 400 sms_carrier field error", async () => {
+    mockFetchSequence([
+      new Response(JSON.stringify(SAMPLE_PROFILE), { status: 200 }), // GET
+      new Response(
+        JSON.stringify({ sms_carrier: ["Select a valid carrier."] }),
+        { status: 400 }
+      ), // PATCH
+    ]);
+    const user = userEvent.setup();
+    render(<ProfileForm />);
+
+    await screen.findByLabelText(/mobile carrier/i);
+    await user.click(screen.getByRole("button", { name: /save changes/i }));
+
+    expect(
+      await screen.findByText("Select a valid carrier.")
+    ).toBeInTheDocument();
+    const select = screen.getByLabelText(/mobile carrier/i);
+    expect(select).toHaveAttribute("aria-invalid", "true");
+    expect(select).toHaveFocus();
   });
 
   it("redirects to /login with a session-expired message if the profile fetch 401s", async () => {

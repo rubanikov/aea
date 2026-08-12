@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Booking Option 1 — Calendly three-pane (low-fi wireframe)</title>
+<style>
+  *{box-sizing:border-box;margin:0}
+  body{font-family:"Segoe UI",Arial,sans-serif;background:#e9e9e9;color:#222;padding:28px;font-size:14px}
+  .annot{max-width:1060px;margin:0 auto 10px;font-size:13px;color:#555;line-height:1.5}
+  .annot b{color:#222}
+  .frame{background:#fff;border:2px solid #333;max-width:1060px;margin:0 auto 44px;box-shadow:4px 4px 0 #ccc}
+  h1{font-size:20px;max-width:1060px;margin:0 auto 6px}
+  h2{font-size:15px;max-width:1060px;margin:28px auto 6px}
+  .shell{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #333;padding:10px 16px;background:#f3f3f3;gap:12px;flex-wrap:wrap}
+  .shell .brand{font-weight:700}
+  .shell nav{font-size:12px;color:#444;display:flex;gap:14px}
+  .seg{display:inline-flex;border:1.5px solid #444;border-radius:4px;overflow:hidden;font-size:11px}
+  .seg span{padding:3px 9px;border-right:1px solid #444}
+  .seg span:last-child{border-right:0}
+  .seg .on{background:#444;color:#fff}
+  .avatar{width:26px;height:26px;border:1.5px solid #444;border-radius:50%;background:#ddd}
+  .spacer{flex:1}
+  .btn{display:inline-block;border:1.5px solid #444;padding:4px 12px;font-size:12px;background:#fff;border-radius:4px}
+  .btn.primary{background:#444;color:#fff}
+  /* card */
+  .stage{background:#ddd;padding:34px;display:flex;justify-content:center}
+  .bcard{background:#fff;border:2px solid #333;border-radius:8px;width:100%;max-width:900px;display:flex;min-height:420px;box-shadow:4px 4px 0 #aaa}
+  .pane{padding:18px;border-right:1.5px solid #999}
+  .pane:last-child{border-right:0}
+  .p1{width:250px;flex-shrink:0}
+  .p2{flex:1}
+  .p3{width:230px;flex-shrink:0;overflow:hidden}
+  .back{font-size:12px;text-decoration:underline;color:#555;display:inline-block;margin-bottom:12px}
+  .p1 .pv{width:52px;height:52px;border:1.5px solid #444;border-radius:50%;background:#ddd;margin-bottom:8px}
+  .p1 h3{font-size:16px}
+  .p1 .svc{font-size:14px;font-weight:700;margin:4px 0 10px}
+  .meta{font-size:12px;color:#555;margin:5px 0;display:flex;gap:6px;align-items:center}
+  .meta .ic{width:14px;height:14px;border:1.5px solid #666;border-radius:3px;display:inline-block;flex-shrink:0}
+  .mon table{width:100%;border-collapse:collapse;text-align:center;font-size:12px}
+  .mon td,.mon th{padding:8px 0;width:14.28%}
+  .mon .has{font-weight:700;border:1.5px solid #777;border-radius:50%}
+  .mon .dim{color:#ccc}
+  .mon .sel{background:#444;color:#fff;border-radius:50%}
+  .monhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-weight:700}
+  .p3 h4{font-size:13px;margin-bottom:10px}
+  .times{display:flex;flex-direction:column;gap:8px;max-height:300px;overflow:hidden}
+  .tbtn{border:1.5px solid #555;border-radius:6px;padding:8px;text-align:center;font-size:13px;background:#fff}
+  .tbtn small{display:block;font-size:10px;color:#888}
+  .tsplit{display:flex;gap:6px}
+  .tsplit .tbtn{flex:1;background:#eee}
+  .tsplit .go{flex:1;background:#444;color:#fff;border:1.5px solid #444;border-radius:6px;display:flex;align-items:center;justify-content:center;font-size:13px}
+  .tzline{font-size:10px;color:#777;margin-top:10px;border-top:1px dashed #ccc;padding-top:8px}
+  /* states */
+  .states{display:grid;grid-template-columns:repeat(4,1fr);border-top:2px solid #333}
+  .state{border-right:1.5px solid #999;padding:12px;min-height:130px}
+  .state:last-child{border-right:0}
+  .state h3{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888;margin-bottom:8px}
+  .ghost{background:repeating-linear-gradient(45deg,#eee,#eee 6px,#f8f8f8 6px,#f8f8f8 12px);border:1px solid #ddd;border-radius:6px}
+  .empty{border:1.5px dashed #999;color:#777;text-align:center;padding:16px 8px;font-size:11px;border-radius:6px}
+  .errbox{border:1.5px solid #333;background:#e2e2e2;padding:10px;font-size:11px;border-radius:6px}
+  .okbox{border:1.5px solid #333;background:#f2f2f2;padding:10px;font-size:11px;border-radius:6px}
+  /* confirm stage */
+  .cwrap{display:flex;min-height:320px}
+  .cleft{width:250px;flex-shrink:0;border-right:1.5px solid #999;padding:18px}
+  .cmain{flex:1;padding:18px}
+  .cmain h3{font-size:16px;margin-bottom:12px}
+  .field{margin-bottom:12px}
+  .field label{font-size:12px;font-weight:700;display:block;margin-bottom:4px}
+  .field .inp{border:1.5px solid #777;border-radius:4px;height:64px;background:#fafafa}
+</style>
+</head>
+<body>
+
+<h1>Booking — Option 1: "Calendly three-pane card"</h1>
+<p class="annot"><b>Channeling: Calendly.</b> The whole flow lives in one centered card with Calendly's exact three-pane anatomy: left = who/what/how-long context rail (always visible, so patients never lose track of what they're booking), center = month calendar, right = scrollable time list for the selected day. <b>Borrowed specifically:</b> the pane layout; the ringed "has availability" day markers; and Calendly's signature <b>split-button confirm</b> — clicking a time splits it into [time | Next →] inline, killing a whole modal step. Confirm is then a second view of the same card (left rail persists, panes 2–3 swap for the details form). <b>Tradeoff:</b> best-in-class for a single known provider+service; the provider/service pick still happens <i>before</i> this card (kept as today's step), so it's a 2-scene flow, and the three panes need a thoughtful mobile collapse (Calendly stacks them: context → calendar → times).</p>
+
+<div class="frame">
+  <div class="shell">
+    <span class="brand">AEA — Patient portal</span>
+    <nav><span>Book</span><span>My appointments</span></nav>
+    <span class="spacer"></span>
+    <span class="seg"><span>Light</span><span>Dark</span><span class="on">System</span></span>
+    <span class="avatar"></span>
+  </div>
+
+  <div class="stage">
+    <div class="bcard">
+      <div class="pane p1">
+        <span class="back">← Change provider / service</span>
+        <div class="pv"></div>
+        <h3>Dr. Sarah Lee</h3>
+        <div class="svc">Consult</div>
+        <div class="meta"><span class="ic"></span> 45 min</div>
+        <div class="meta"><span class="ic"></span> Video / in-office (copy TBD)</div>
+        <div class="meta"><span class="ic"></span> Eastern Time (New York)</div>
+        <div class="tzline">Your timezone: Central Time (Chicago) — detected from your browser. Each time also shows yours.</div>
+      </div>
+      <div class="pane p2 mon">
+        <h4 style="margin-bottom:10px">Select a Date</h4>
+        <div class="monhead"><span class="btn">&lt;</span> August 2026 <span class="btn">&gt;</span></div>
+        <table>
+          <tr><th>S</th><th>M</th><th>T</th><th>W</th><th>T</th><th>F</th><th>S</th></tr>
+          <tr><td class="dim">26</td><td class="dim">27</td><td class="dim">28</td><td class="dim">29</td><td class="dim">30</td><td class="dim">31</td><td>1</td></tr>
+          <tr><td>2</td><td>3</td><td class="has">4</td><td>5</td><td class="has">6</td><td>7</td><td>8</td></tr>
+          <tr><td>9</td><td class="has">10</td><td class="sel">11</td><td class="has">12</td><td>13</td><td class="has">14</td><td>15</td></tr>
+          <tr><td>16</td><td class="has">17</td><td class="has">18</td><td>19</td><td class="has">20</td><td>21</td><td>22</td></tr>
+          <tr><td>23</td><td>24</td><td>25</td><td>26</td><td>27</td><td>28</td><td>29</td></tr>
+          <tr><td>30</td><td>31</td><td class="dim">1</td><td class="dim">2</td><td class="dim">3</td><td class="dim">4</td><td class="dim">5</td></tr>
+        </table>
+      </div>
+      <div class="pane p3">
+        <h4>Tuesday, August 11</h4>
+        <div class="times">
+          <div class="tbtn">10:00 AM<small>9:00 AM yours</small></div>
+          <div class="tsplit"><div class="tbtn">11:15 AM</div><div class="go">Next →</div></div>
+          <div class="tbtn">1:00 PM<small>12:00 PM yours</small></div>
+          <div class="tbtn">2:30 PM<small>1:30 PM yours</small></div>
+          <div class="tbtn">4:00 PM<small>3:00 PM yours</small></div>
+        </div>
+        <div class="tzline">Clicked time splits into [time | Next] — Calendly's inline confirm affordance.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="states">
+    <div class="state"><h3>Loading</h3>
+      <div class="ghost" style="height:80px;margin-bottom:6px"></div>
+      <p style="font-size:10px;color:#888">Card chrome + left rail render instantly; calendar & times shimmer.</p>
+    </div>
+    <div class="state"><h3>Empty (no availability)</h3>
+      <div class="empty">Dr. Lee has no open times this month.<br>[&lt; ] [ &gt;] month nav stays active.</div>
+    </div>
+    <div class="state"><h3>Error</h3>
+      <div class="errbox">Couldn't load open slots — please try again.<br><br><span class="btn">Try again</span></div>
+    </div>
+    <div class="state"><h3>Slot conflict (409)</h3>
+      <div class="errbox">This time is no longer available. Nothing was booked.<br><br><span class="btn primary">Choose another time</span></div>
+    </div>
+  </div>
+</div>
+
+<h2>Scene 2 — confirm view (same card, panes swap)</h2>
+<p class="annot">After [Next], the calendar/time panes are replaced by the details form. Left rail now shows the chosen time in both timezones. Success replaces the form with a "You're booked" summary + confirmation number, mirroring Calendly's confirmation page.</p>
+<div class="frame">
+  <div class="stage">
+    <div class="bcard" style="min-height:320px">
+      <div class="cwrap" style="width:100%">
+        <div class="cleft">
+          <span class="back">← Back</span>
+          <div class="pv" style="width:52px;height:52px;border:1.5px solid #444;border-radius:50%;background:#ddd;margin-bottom:8px"></div>
+          <h3 style="font-size:16px">Dr. Sarah Lee</h3>
+          <div class="svc" style="font-size:14px;font-weight:700;margin:4px 0 10px">Consult · 45 min</div>
+          <div class="meta"><span class="ic"></span> Tue, Aug 11 · 11:15 AM<br>Eastern Time (New York)</div>
+          <div class="meta"><span class="ic"></span> 10:15 AM your time<br>Central Time (Chicago)</div>
+        </div>
+        <div class="cmain">
+          <h3>Confirm your appointment</h3>
+          <div class="field"><label>Reason for visit (optional)</label><div class="inp"></div></div>
+          <div style="display:flex;gap:8px"><span class="btn primary">Confirm booking</span><span class="btn">Cancel</span></div>
+          <div class="okbox" style="margin-top:16px;max-width:340px">✓ Success state: "You're booked" + summary in both timezones + Confirmation #214 + [Done]</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

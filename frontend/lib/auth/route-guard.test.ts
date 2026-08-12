@@ -25,6 +25,7 @@ describe("resolveRouteAccess", () => {
     expect(resolveRouteAccess("/provider", "patient")).toEqual({
       allowed: false,
       redirectTo: "/access-denied",
+      requiredRole: "provider",
     });
   });
 
@@ -32,6 +33,20 @@ describe("resolveRouteAccess", () => {
     expect(resolveRouteAccess("/admin/users", "provider")).toEqual({
       allowed: false,
       redirectTo: "/access-denied",
+      requiredRole: "admin",
+    });
+  });
+
+  it("reports which role the route needed, so the denial can explain itself", () => {
+    // A wrong-role denial in this app is most often a *session swap*, not a
+    // genuinely under-privileged account: browsers keep one cookie jar per
+    // profile, so signing in as a second user in another tab replaces the
+    // session in every tab. `/access-denied` can only say so if it's told
+    // what the route actually wanted.
+    expect(resolveRouteAccess("/patient/appointments", "provider")).toEqual({
+      allowed: false,
+      redirectTo: "/access-denied",
+      requiredRole: "patient",
     });
   });
 
@@ -63,6 +78,7 @@ describe("resolveRouteAccess", () => {
     expect(resolveRouteAccess("/admin", "not-a-real-role")).toEqual({
       allowed: false,
       redirectTo: "/access-denied",
+      requiredRole: "admin",
     });
   });
 

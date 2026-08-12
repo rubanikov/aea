@@ -104,7 +104,7 @@ export function AppointmentTypeRow({
 
   if (mode === "edit") {
     return (
-      <li className="border-b border-gray-200 py-3 last:border-b-0">
+      <li className="border-b border-border py-3 last:border-b-0">
         <AppointmentTypeForm
           idPrefix={`appointment-type-${appointmentType.id}`}
           name={name}
@@ -125,7 +125,7 @@ export function AppointmentTypeRow({
 
   if (mode === "confirm-delete") {
     return (
-      <li className="flex flex-col gap-2 border-b border-gray-200 py-3 last:border-b-0">
+      <li className="flex flex-col gap-2 border-b border-border py-3 last:border-b-0">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm">
             Remove {appointmentType.name}? Patients won&apos;t be able to book
@@ -136,7 +136,7 @@ export function AppointmentTypeRow({
               type="button"
               onClick={handleConfirmDelete}
               disabled={deleting}
-              className="rounded bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              className="rounded bg-danger px-3 py-1.5 text-sm font-medium text-danger-foreground hover:opacity-90 disabled:opacity-50"
             >
               {deleting ? "Removing…" : "Confirm remove"}
             </button>
@@ -144,14 +144,14 @@ export function AppointmentTypeRow({
               type="button"
               onClick={() => setMode("view")}
               disabled={deleting}
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+              className="rounded border border-border-strong px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
             >
               Cancel
             </button>
           </div>
         </div>
         {formError ? (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-danger-text">
             {formError}
           </p>
         ) : null}
@@ -160,18 +160,18 @@ export function AppointmentTypeRow({
   }
 
   return (
-    <li className="flex flex-col gap-2 border-b border-gray-200 py-3 last:border-b-0">
+    <li className="flex flex-col gap-2 border-b border-border py-3 last:border-b-0">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="font-medium">{appointmentType.name}</span>
         <div className="flex items-center gap-3">
-          <span className="text-sm text-gray-600">
+          <span className="text-sm text-muted-foreground">
             {formatDuration(appointmentType.duration_minutes)}
           </span>
           <button
             type="button"
             onClick={startEdit}
             aria-label={`Edit ${appointmentType.name} appointment type`}
-            className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50"
+            className="rounded border border-border-strong px-3 py-1.5 text-sm font-medium hover:bg-accent"
           >
             Edit
           </button>
@@ -179,14 +179,14 @@ export function AppointmentTypeRow({
             type="button"
             onClick={() => setMode("confirm-delete")}
             aria-label={`Remove ${appointmentType.name} appointment type`}
-            className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
+            className="rounded border border-border-strong px-3 py-1.5 text-sm font-medium text-danger-text hover:bg-danger-soft"
           >
             Remove
           </button>
         </div>
       </div>
       {formError ? (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger-text">
           {formError}
         </p>
       ) : null}

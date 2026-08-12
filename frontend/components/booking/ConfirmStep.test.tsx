@@ -2,7 +2,7 @@ import type { ComponentProps } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { BookingConfirmPanel } from "./BookingConfirmPanel";
+import { ConfirmStep } from "./ConfirmStep";
 
 const pushMock = vi.fn();
 
@@ -54,59 +54,55 @@ function idempotencyKeyHeader(init: RequestInit | undefined): string | undefined
   return (init?.headers as Record<string, string> | undefined)?.["Idempotency-Key"];
 }
 
-function renderPanel(
-  overrides: Partial<ComponentProps<typeof BookingConfirmPanel>> = {}
-) {
-  const onClose = vi.fn();
+function renderStep(overrides: Partial<ComponentProps<typeof ConfirmStep>> = {}) {
   const onBooked = vi.fn();
   const onSlotUnavailable = vi.fn();
+  const onStartOver = vi.fn();
   render(
-    <BookingConfirmPanel
+    <ConfirmStep
       provider={PROVIDER}
       appointmentType={APPOINTMENT_TYPE}
       slot={SLOT}
       patientTimeZone={PATIENT_TIME_ZONE}
-      triggerElement={null}
-      onClose={onClose}
       onBooked={onBooked}
       onSlotUnavailable={onSlotUnavailable}
+      onStartOver={onStartOver}
       {...overrides}
     />
   );
-  return { onClose, onBooked, onSlotUnavailable };
+  return { onBooked, onSlotUnavailable, onStartOver };
 }
 
-describe("BookingConfirmPanel", () => {
+describe("ConfirmStep", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     pushMock.mockClear();
   });
 
-  it("renders a labeled dialog with the appointment details in both the patient's and the provider's timezone", () => {
-    renderPanel();
+  it("shows the appointment details in both timezones, as human names, provider's clock first", () => {
+    renderStep();
 
-    const dialog = screen.getByRole("dialog", { name: "Confirm your appointment" });
-    expect(dialog).toHaveAttribute("aria-modal", "true");
     expect(
-      screen.getByText("Annual Physical with Dr. Amara Osei")
+      screen.getByRole("heading", { name: "Confirm your appointment" })
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Tuesday, August 18, 2026, 10:00am–10:30am — your time (America/Chicago)")
+      screen.getByText("Annual Physical (30 min) with Dr. Amara Osei")
     ).toBeInTheDocument();
+    // The provider's clock leads, matching the slot button that opened this
+    // step; the patient's own local time follows it. Zones are shown via
+    // `formatTimezone`, never as raw IANA ids.
     expect(
       screen.getByText(
-        "Provider's local time: Tuesday, August 18, 2026, 11:00am–11:30am (America/New_York)"
+        "Tuesday, August 18, 2026, 11:00–11:30am — provider's local time (Eastern Time (New York))"
       )
     ).toBeInTheDocument();
     expect(
-      screen.getByLabelText("Reason for visit (optional)")
+      screen.getByText(
+        "Your local time: Tuesday, August 18, 2026, 10:00–10:30am (Central Time (Chicago))"
+      )
     ).toBeInTheDocument();
-  });
-
-  it("moves focus into the dialog on open", () => {
-    renderPanel();
-
-    expect(screen.getByRole("dialog")).toHaveFocus();
+    expect(screen.queryByText(/America\/New_York/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Reason for visit (optional)")).toBeInTheDocument();
   });
 
   it("disables the confirm button immediately on click, before the request resolves", async () => {
@@ -118,7 +114,7 @@ describe("BookingConfirmPanel", () => {
         })
     );
     const user = userEvent.setup();
-    renderPanel();
+    renderStep();
 
     const confirmButton = screen.getByRole("button", { name: "Confirm booking" });
     await user.click(confirmButton);
@@ -139,10 +135,9 @@ describe("BookingConfirmPanel", () => {
         })
     );
     const user = userEvent.setup();
-    renderPanel();
+    renderStep();
 
-    const confirmButton = screen.getByRole("button", { name: "Confirm booking" });
-    await user.dblClick(confirmButton);
+    await user.dblClick(screen.getByRole("button", { name: "Confirm booking" }));
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
@@ -150,10 +145,10 @@ describe("BookingConfirmPanel", () => {
     await screen.findByRole("status");
   });
 
-  it("sends provider_id, appointment_type_id, start_time in the body and an Idempotency-Key header generated for this panel session", async () => {
+  it("sends provider_id, appointment_type_id, start_time in the body and an Idempotency-Key header generated for this step session", async () => {
     const fetchMock = mockFetchRouter(() => jsonResponse(BOOKING_RESPONSE, 201));
     const user = userEvent.setup();
-    renderPanel();
+    renderStep();
 
     await user.click(screen.getByRole("button", { name: "Confirm booking" }));
     await screen.findByRole("status");
@@ -169,14 +164,14 @@ describe("BookingConfirmPanel", () => {
     expect(key).not.toBe("");
   });
 
-  it("reuses the same Idempotency-Key header on a retry within the same panel session", async () => {
+  it("reuses the same Idempotency-Key header on a retry within the same step session", async () => {
     let calls = 0;
     const fetchMock = mockFetchRouter(() => {
       calls += 1;
       return calls === 1 ? new Response("", { status: 500 }) : jsonResponse(BOOKING_RESPONSE, 201);
     });
     const user = userEvent.setup();
-    renderPanel();
+    renderStep();
 
     await user.click(screen.getByRole("button", { name: "Confirm booking" }));
     await screen.findByRole("alert");
@@ -190,25 +185,38 @@ describe("BookingConfirmPanel", () => {
     expect(secondKey).toBe(firstKey);
   });
 
-  it("on success, shows a definitive confirmation with a reference number and reports the booked slot", async () => {
+  it("on success, shows a definitive confirmation with a reference number and reports the created booking", async () => {
     mockFetchRouter(() => jsonResponse(BOOKING_RESPONSE, 201));
     const user = userEvent.setup();
-    const { onBooked } = renderPanel();
+    const { onBooked } = renderStep();
 
     await user.click(screen.getByRole("button", { name: "Confirm booking" }));
 
     const confirmation = await screen.findByRole("status");
     expect(confirmation).toHaveTextContent(/you're booked/i);
     expect(confirmation).toHaveTextContent("Confirmation #501");
-    expect(onBooked).toHaveBeenCalledWith(SLOT);
+    expect(onBooked).toHaveBeenCalledWith(BOOKING_RESPONSE);
     // The form is gone; can't double-book from a stale confirm button.
     expect(screen.queryByRole("button", { name: "Confirm booking" })).not.toBeInTheDocument();
+  });
+
+  it("offers to start a fresh booking from the success view", async () => {
+    mockFetchRouter(() => jsonResponse(BOOKING_RESPONSE, 201));
+    const user = userEvent.setup();
+    const { onStartOver } = renderStep();
+
+    await user.click(screen.getByRole("button", { name: "Confirm booking" }));
+    await screen.findByRole("status");
+
+    await user.click(screen.getByRole("button", { name: "Book another appointment" }));
+
+    expect(onStartOver).toHaveBeenCalledTimes(1);
   });
 
   it("on a 409 conflict, shows the race-lost error and offers to choose another time", async () => {
     mockFetchRouter(() => new Response("", { status: 409 }));
     const user = userEvent.setup();
-    const { onSlotUnavailable } = renderPanel();
+    const { onSlotUnavailable } = renderStep();
 
     await user.click(screen.getByRole("button", { name: "Confirm booking" }));
 
@@ -225,7 +233,7 @@ describe("BookingConfirmPanel", () => {
   it("on a generic failure, shows an actionable error and lets the patient retry", async () => {
     mockFetchRouter(() => new Response("", { status: 500 }));
     const user = userEvent.setup();
-    renderPanel();
+    renderStep();
 
     await user.click(screen.getByRole("button", { name: "Confirm booking" }));
 
@@ -235,118 +243,10 @@ describe("BookingConfirmPanel", () => {
     expect(screen.getByRole("button", { name: "Confirm booking" })).not.toBeDisabled();
   });
 
-  it("Escape closes the panel (does not book anything)", async () => {
-    mockFetchRouter(() => jsonResponse(BOOKING_RESPONSE, 201));
-    const user = userEvent.setup();
-    const { onClose } = renderPanel();
-
-    await user.keyboard("{Escape}");
-
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("disables Cancel while a request is in flight", async () => {
-    mockFetchRouter(
-      () =>
-        new Promise<Response>(() => {
-          // never resolves
-        })
-    );
-    const user = userEvent.setup();
-    renderPanel();
-
-    await user.click(screen.getByRole("button", { name: "Confirm booking" }));
-
-    expect(screen.getByRole("button", { name: "Cancel" })).toBeDisabled();
-  });
-
-  it("Cancel calls onClose (before any submission)", async () => {
-    const user = userEvent.setup();
-    const { onClose } = renderPanel();
-
-    await user.click(screen.getByRole("button", { name: "Cancel" }));
-
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it("traps Tab focus within the dialog, wrapping from the last focusable element to the first", async () => {
-    const user = userEvent.setup();
-    renderPanel();
-
-    const closeButton = screen.getByRole("button", { name: "Close" });
-    const cancelButton = screen.getByRole("button", { name: "Cancel" });
-
-    cancelButton.focus();
-    expect(cancelButton).toHaveFocus();
-
-    await user.tab();
-    expect(closeButton).toHaveFocus();
-  });
-
-  it("traps Shift+Tab, wrapping from the first focusable element to the last", async () => {
-    const user = userEvent.setup();
-    renderPanel();
-
-    const closeButton = screen.getByRole("button", { name: "Close" });
-    const cancelButton = screen.getByRole("button", { name: "Cancel" });
-
-    closeButton.focus();
-    expect(closeButton).toHaveFocus();
-
-    await user.tab({ shift: true });
-    expect(cancelButton).toHaveFocus();
-  });
-
-  it("returns focus to the triggering element when the panel unmounts", () => {
-    const trigger = document.createElement("button");
-    trigger.textContent = "9:00am";
-    document.body.appendChild(trigger);
-    trigger.focus();
-
-    const { unmount } = render(
-      <BookingConfirmPanel
-        provider={PROVIDER}
-        appointmentType={APPOINTMENT_TYPE}
-        slot={SLOT}
-        patientTimeZone={PATIENT_TIME_ZONE}
-        triggerElement={trigger}
-        onClose={vi.fn()}
-        onBooked={vi.fn()}
-        onSlotUnavailable={vi.fn()}
-      />
-    );
-
-    unmount();
-
-    expect(trigger).toHaveFocus();
-    document.body.removeChild(trigger);
-  });
-
-  it("does not throw when the triggering element is no longer in the document on unmount", async () => {
-    const trigger = document.createElement("button");
-    document.body.appendChild(trigger);
-    document.body.removeChild(trigger); // detached before the panel closes
-
-    const { unmount } = render(
-      <BookingConfirmPanel
-        provider={PROVIDER}
-        appointmentType={APPOINTMENT_TYPE}
-        slot={SLOT}
-        patientTimeZone={PATIENT_TIME_ZONE}
-        triggerElement={trigger}
-        onClose={vi.fn()}
-        onBooked={vi.fn()}
-        onSlotUnavailable={vi.fn()}
-      />
-    );
-
-    expect(() => unmount()).not.toThrow();
-  });
-
   it("does not send the optional reason field to the backend", async () => {
     const fetchMock = mockFetchRouter(() => jsonResponse(BOOKING_RESPONSE, 201));
     const user = userEvent.setup();
-    renderPanel();
+    renderStep();
 
     await user.type(
       screen.getByLabelText("Reason for visit (optional)"),

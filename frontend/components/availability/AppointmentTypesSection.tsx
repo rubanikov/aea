@@ -6,6 +6,7 @@ import { useAuthenticatedRequest } from "@/hooks/use-authenticated-request";
 import { ApiError } from "@/lib/api/client";
 import { isFieldErrorBody, splitFieldErrors } from "@/lib/api/field-errors";
 import { validateAppointmentType } from "@/lib/availability/validation";
+import { formatTimezone } from "@/lib/timezones";
 import type { AppointmentType, AppointmentTypeInput } from "@/lib/availability/types";
 import { AppointmentTypeForm } from "./AppointmentTypeForm";
 import { AppointmentTypeRow } from "./AppointmentTypeRow";
@@ -163,7 +164,7 @@ export function AppointmentTypesSection() {
   return (
     <section
       aria-labelledby="appointment-types-heading"
-      className="flex flex-col gap-4 rounded border border-gray-200 p-6"
+      className="flex flex-col gap-4 rounded border border-border p-6"
     >
       <div className="flex items-center justify-between gap-4">
         <h2 id="appointment-types-heading" className="text-lg font-semibold">
@@ -173,7 +174,7 @@ export function AppointmentTypesSection() {
           <button
             type="button"
             onClick={startAdding}
-            className="rounded bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
           >
             + Add type
           </button>
@@ -182,29 +183,29 @@ export function AppointmentTypesSection() {
 
       {loadError ? (
         <div className="flex flex-col items-start gap-2">
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-danger-text">
             {loadError}
           </p>
           <button
             type="button"
             onClick={retry}
-            className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50"
+            className="rounded border border-border-strong px-3 py-1.5 text-sm font-medium hover:bg-accent"
           >
             Try again
           </button>
         </div>
       ) : types === null ? (
-        <p className="text-sm text-gray-600">Loading appointment types…</p>
+        <p className="text-sm text-muted-foreground">Loading appointment types…</p>
       ) : types.length === 0 && !adding ? (
-        <div className="flex flex-col items-start gap-3 rounded border border-dashed border-gray-300 p-4">
-          <p className="text-sm text-gray-600">
+        <div className="flex flex-col items-start gap-3 rounded border border-dashed border-border-strong p-4">
+          <p className="text-sm text-muted-foreground">
             Add at least one appointment type before patients can book with
             you.
           </p>
           <button
             type="button"
             onClick={startAdding}
-            className="rounded bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
           >
             Add type
           </button>
@@ -240,8 +241,8 @@ export function AppointmentTypesSection() {
       ) : null}
 
       {timezone ? (
-        <p className="text-sm text-gray-600">
-          Timezone: {timezone} —{" "}
+        <p className="text-sm text-muted-foreground">
+          Timezone: {formatTimezone(timezone)} —{" "}
           <Link href="/settings" className="underline">
             change in Account settings
           </Link>

@@ -35,7 +35,7 @@ export function DurationSelect({
         ref={selectRef}
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="rounded border border-gray-300 px-3 py-2 text-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+        className="rounded border border-input px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
       >
         {durationOptions(value).map((minutes) => (
           <option key={minutes} value={minutes}>

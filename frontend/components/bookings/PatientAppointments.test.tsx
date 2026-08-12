@@ -369,6 +369,11 @@ describe("PatientAppointments", () => {
       },
       "/scheduling/providers/10/appointment-types": () =>
         jsonResponse([{ id: 55, name: "Annual Physical", duration_minutes: 30 }]),
+      // The reschedule picker renders on the provider's clock (see
+      // `SlotBrowser`), so it resolves the provider's zone here. Given the
+      // same zone as this runner, the expected labels above hold either way.
+      "/scheduling/providers": () =>
+        jsonResponse([{ id: 10, name: "Dr. Amara Osei", timezone: zone }]),
       "/scheduling/slots": () =>
         jsonResponse({
           provider_id: 10,

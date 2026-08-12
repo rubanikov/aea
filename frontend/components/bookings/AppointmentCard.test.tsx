@@ -24,6 +24,7 @@ const ANNUAL_PHYSICAL: PatientBooking = {
   end_time: "2026-08-18T15:30:00.000Z",
   status: "confirmed",
   reminder_sent: false,
+  cancellation_reason: "",
 };
 
 // Starts 14h from NOW: inside the 24h notice window.
@@ -37,6 +38,7 @@ const LAB_REVIEW: PatientBooking = {
   end_time: "2026-08-12T23:15:00.000Z",
   status: "confirmed",
   reminder_sent: false,
+  cancellation_reason: "",
 };
 
 const CANCELLED_VISIT: PatientBooking = {
@@ -111,6 +113,73 @@ describe("AppointmentCard", () => {
     );
 
     expect(screen.queryByText("Reminder sent")).not.toBeInTheDocument();
+  });
+
+  it("shows the provider's cancellation reason on a cancelled booking", () => {
+    render(
+      <AppointmentCard
+        booking={{ ...CANCELLED_VISIT, cancellation_reason: "Provider is out sick today" }}
+        timezone="America/Chicago"
+        onCancel={vi.fn()}
+        onRescheduled={vi.fn()}
+        now={NOW}
+      />
+    );
+
+    expect(
+      screen.getByText("Cancelled — reason: Provider is out sick today")
+    ).toBeInTheDocument();
+  });
+
+  it("shows no reason line on a cancelled booking with an empty reason (patient self-cancel)", () => {
+    render(
+      <AppointmentCard
+        booking={CANCELLED_VISIT}
+        timezone="America/Chicago"
+        onCancel={vi.fn()}
+        onRescheduled={vi.fn()}
+        now={NOW}
+      />
+    );
+
+    expect(screen.queryByText(/Cancelled — reason:/)).not.toBeInTheDocument();
+  });
+
+  it("never shows a reason line on a non-cancelled booking, even if the field is set", () => {
+    render(
+      <AppointmentCard
+        booking={{ ...ANNUAL_PHYSICAL, cancellation_reason: "stale data" }}
+        timezone="America/Chicago"
+        onCancel={vi.fn()}
+        onRescheduled={vi.fn()}
+        now={NOW}
+      />
+    );
+
+    expect(screen.queryByText(/Cancelled — reason:/)).not.toBeInTheDocument();
+  });
+
+  it("preserves line breaks in a multi-line cancellation reason", () => {
+    render(
+      <AppointmentCard
+        booking={{
+          ...CANCELLED_VISIT,
+          cancellation_reason: "Office flooded.\nFront desk will call to rebook.",
+        }}
+        timezone="America/Chicago"
+        onCancel={vi.fn()}
+        onRescheduled={vi.fn()}
+        now={NOW}
+      />
+    );
+
+    const reasonLine = screen.getByText(/Cancelled — reason:/);
+    // The raw `\n` must survive into the DOM, and the element must carry
+    // `whitespace-pre-wrap` so CSS actually renders it as a line break.
+    expect(reasonLine.textContent).toBe(
+      "Cancelled — reason: Office flooded.\nFront desk will call to rebook."
+    );
+    expect(reasonLine).toHaveClass("whitespace-pre-wrap");
   });
 
   it("shows no actions on a non-confirmed (e.g. cancelled) booking", () => {

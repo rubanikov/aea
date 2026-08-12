@@ -61,7 +61,7 @@ backend's CSRF mitigation for a cookie-delivered auth token).
   /auth/me` and redirects to `/patient`, `/provider`, or `/admin`.
 - `/settings` (`components/settings/ProfileForm.tsx`, `PasswordForm.tsx`,
   `DeleteAccountSection.tsx`) covers profile view/edit (name, email, phone,
-  timezone via `GET`/`PATCH /profile`), password update
+  SMS carrier, timezone via `GET`/`PATCH /profile`), password update
   (`POST /profile/password`), and account deletion ("Danger zone", via
   `POST /profile/delete-account`).
 

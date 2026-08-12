@@ -112,20 +112,20 @@ describe("BlockedTimeSection", () => {
 
     expect(await screen.findByText("Vacation")).toBeInTheDocument();
     expect(
-      screen.getByText("Aug 24, 2026 00:00 → Aug 29, 2026 23:59 (America/New_York)")
+      screen.getByText("Aug 24, 2026 00:00 → Aug 29, 2026 23:59 (Eastern Time (New York))")
     ).toBeInTheDocument();
     expect(screen.getByText("Conference (half day)")).toBeInTheDocument();
     expect(
-      screen.getByText("Sep 3, 2026 13:00 → Sep 3, 2026 17:00 (America/New_York)")
+      screen.getByText("Sep 3, 2026 13:00 → Sep 3, 2026 17:00 (Eastern Time (New York))")
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
-        name: "Remove Vacation (Aug 24, 2026 00:00 → Aug 29, 2026 23:59 (America/New_York))",
+        name: "Remove Vacation (Aug 24, 2026 00:00 → Aug 29, 2026 23:59 (Eastern Time (New York)))",
       })
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", {
-        name: "Remove Conference (half day) (Sep 3, 2026 13:00 → Sep 3, 2026 17:00 (America/New_York))",
+        name: "Remove Conference (half day) (Sep 3, 2026 13:00 → Sep 3, 2026 17:00 (Eastern Time (New York)))",
       })
     ).toBeInTheDocument();
   });
@@ -246,7 +246,7 @@ describe("BlockedTimeSection", () => {
     render(<BlockedTimeSection />);
 
     const removeConference = await screen.findByRole("button", {
-      name: "Remove Conference (half day) (Sep 3, 2026 13:00 → Sep 3, 2026 17:00 (America/New_York))",
+      name: "Remove Conference (half day) (Sep 3, 2026 13:00 → Sep 3, 2026 17:00 (Eastern Time (New York)))",
     });
     await user.click(removeConference);
     expect(screen.getByText(/remove conference \(half day\)\?/i)).toBeInTheDocument();
@@ -259,7 +259,7 @@ describe("BlockedTimeSection", () => {
 
     await user.click(
       screen.getByRole("button", {
-        name: "Remove Conference (half day) (Sep 3, 2026 13:00 → Sep 3, 2026 17:00 (America/New_York))",
+        name: "Remove Conference (half day) (Sep 3, 2026 13:00 → Sep 3, 2026 17:00 (Eastern Time (New York)))",
       })
     );
     await user.click(screen.getByRole("button", { name: "Confirm remove" }));

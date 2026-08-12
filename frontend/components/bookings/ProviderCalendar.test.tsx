@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ProviderCalendar } from "./ProviderCalendar";
 
@@ -11,7 +11,18 @@ vi.mock("next/navigation", () => ({
 
 const PROFILE_PATH = "/profile";
 const BOOKINGS_PATH = "/bookings";
+const AVAILABILITY_PATH = "/scheduling/availability";
+const BLOCKED_TIME_PATH = "/scheduling/blocked-time";
 const TIMEZONE = "America/New_York";
+
+// Mon–Fri 9–17, the provider's recurring weekly schedule as
+// `GET /scheduling/availability` returns it.
+const DEFAULT_AVAILABILITY = [0, 1, 2, 3, 4].map((day) => ({
+  id: day + 1,
+  day_of_week: day,
+  start_time: "09:00:00",
+  end_time: "17:00:00",
+}));
 
 // Tuesday, August 18, 2026, in UTC as the API would send it for a
 // provider on America/New_York (EDT, UTC-4 in August).
@@ -23,6 +34,7 @@ const NEW_PATIENT_VISIT = {
   start_time: "2026-08-18T13:00:00.000Z", // 9:00am ET
   end_time: "2026-08-18T13:45:00.000Z", // 9:45am ET
   status: "confirmed",
+  cancellation_reason: "",
 };
 
 const FOLLOW_UP = {
@@ -33,6 +45,7 @@ const FOLLOW_UP = {
   start_time: "2026-08-18T14:00:00.000Z", // 10:00am ET
   end_time: "2026-08-18T14:15:00.000Z", // 10:15am ET
   status: "confirmed",
+  cancellation_reason: "",
 };
 
 const LAB_REVIEW = {
@@ -43,6 +56,7 @@ const LAB_REVIEW = {
   start_time: "2026-08-18T17:00:00.000Z", // 1:00pm ET
   end_time: "2026-08-18T17:10:00.000Z", // 1:10pm ET
   status: "completed",
+  cancellation_reason: "",
 };
 
 // A still-`confirmed`, not-yet-started booking, to exercise the
@@ -55,15 +69,25 @@ const AFTERNOON_CHECKUP = {
   start_time: "2026-08-18T19:00:00.000Z", // 3:00pm ET
   end_time: "2026-08-18T19:30:00.000Z", // 3:30pm ET
   status: "confirmed",
+  cancellation_reason: "",
 };
+
+// Grid block accessible names: "type with patient, range, STATUS".
+const NEW_PATIENT_BLOCK = "New Patient Visit with R. Nikov, 9:00–9:45am, CONFIRMED";
+const FOLLOW_UP_BLOCK = "Follow-up with S. Patel, 10:00–10:15am, CONFIRMED";
+// Popover action names, matching the agenda fallback's convention.
+const NEW_PATIENT_CONTEXT = "New Patient Visit with R. Nikov, 9:00–9:45am";
+const FOLLOW_UP_CONTEXT = "Follow-up with S. Patel, 10:00–10:15am";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status });
 }
 
 /** Routes `fetch` by pathname (query strings are ignored, matching every
- * other section's test router in this codebase). `/profile` defaults to
- * a successful America/New_York response unless a test overrides it. */
+ * other section's test router in this codebase). `/profile` defaults to a
+ * successful America/New_York response, `/scheduling/availability` to the
+ * Mon–Fri 9–17 schedule, and `/scheduling/blocked-time` to an empty list
+ * unless a test overrides them. */
 function mockFetchRouter(
   overrides: Partial<
     Record<string, (init: RequestInit | undefined) => Response | Promise<Response>>
@@ -78,10 +102,26 @@ function mockFetchRouter(
     if (path === PROFILE_PATH) {
       return Promise.resolve(jsonResponse({ timezone: TIMEZONE }));
     }
+    if (path === AVAILABILITY_PATH) {
+      return Promise.resolve(jsonResponse(DEFAULT_AVAILABILITY));
+    }
+    if (path === BLOCKED_TIME_PATH) {
+      return Promise.resolve(jsonResponse([]));
+    }
     throw new Error(`Unhandled fetch in test: ${init?.method ?? "GET"} ${path}`);
   });
   vi.stubGlobal("fetch", fetchMock);
   return fetchMock;
+}
+
+function callsTo(fetchMock: ReturnType<typeof mockFetchRouter>, path: string): number {
+  return fetchMock.mock.calls.filter(([url]) => new URL(url as string).pathname === path)
+    .length;
+}
+
+/** Opens the detail popover for a grid block by its accessible name. */
+async function openBlock(user: ReturnType<typeof userEvent.setup>, blockName: string) {
+  await user.click(await screen.findByRole("button", { name: blockName }));
 }
 
 describe("ProviderCalendar", () => {
@@ -158,7 +198,9 @@ describe("ProviderCalendar", () => {
 
     await user.click(screen.getByRole("button", { name: /try again/i }));
 
-    expect(await screen.findByText("New Patient Visit — R. Nikov")).toBeInTheDocument();
+    expect(
+      await screen.findByRole("button", { name: NEW_PATIENT_BLOCK })
+    ).toBeInTheDocument();
   });
 
   it("does not show a generic load error on a 401 (the shared auth hook already redirects)", async () => {
@@ -174,68 +216,86 @@ describe("ProviderCalendar", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  it("renders a clean empty state, not a blank page, when there are no appointments this week", async () => {
-    mockFetchRouter({ [BOOKINGS_PATH]: () => jsonResponse([]) });
-    render(<ProviderCalendar />);
-
-    expect(await screen.findByText("No appointments this week.")).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", {
-        name: "Tuesday, August 18, 2026, 0 appointments",
-      })
-    ).toBeInTheDocument();
-  });
-
-  it("defaults to today, groups the day's appointments under a real heading, shows status as icon+text, and never shows a confirm/decline action", async () => {
+  it("renders the week as a time grid: day headers with today marked, hour ruler, and blocks positioned per booking", async () => {
     mockFetchRouter({
       [BOOKINGS_PATH]: () =>
         jsonResponse([NEW_PATIENT_VISIT, FOLLOW_UP, LAB_REVIEW, AFTERNOON_CHECKUP]),
     });
     render(<ProviderCalendar />);
 
+    // One block per booking, status carried in the accessible name.
     expect(
-      await screen.findByRole("heading", { name: "Tuesday, August 18, 2026", level: 2 })
+      await screen.findByRole("button", { name: NEW_PATIENT_BLOCK })
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: FOLLOW_UP_BLOCK })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Lab Review with T. Kim, 1:00–1:10pm, COMPLETED" })
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", {
-        name: "Tuesday, August 18, 2026, 4 appointments",
-      })
+      screen.getByRole("button", { name: "Checkup with J. Alvarez, 3:00–3:30pm, CONFIRMED" })
     ).toBeInTheDocument();
 
-    // Confirmed rows: time range, icon+text status badge, type + patient.
-    expect(screen.getByText("9:00–9:45am")).toBeInTheDocument();
-    expect(screen.getByText("New Patient Visit — R. Nikov")).toBeInTheDocument();
-    expect(screen.getAllByText("CONFIRMED")).toHaveLength(3);
+    // Day headers Mon–Sun, with today (Tue Aug 18) marked.
+    expect(screen.getByText("Mon 17")).toBeInTheDocument();
+    expect(screen.getByText("Sun 23")).toBeInTheDocument();
+    // (The mini month marks today too, so scope to the header cell.)
+    expect(screen.getByText("Tue 18").closest('[aria-current="date"]')).not.toBeNull();
 
-    // Completed row: no "(closed)" actions, no status-change buttons.
-    expect(screen.getByText("1:00–1:10pm")).toBeInTheDocument();
-    expect(screen.getByText("Lab Review — T. Kim (closed)")).toBeInTheDocument();
-    expect(screen.getByText("COMPLETED")).toBeInTheDocument();
+    // Hour ruler spans the configured 9–17 hours.
+    expect(screen.getByText("9 AM")).toBeInTheDocument();
+    expect(screen.getByText("4 PM")).toBeInTheDocument();
+    expect(screen.queryByText("7 AM")).not.toBeInTheDocument();
+
+    // Week range label in the toolbar.
+    expect(screen.getByText("Week of Aug 17–23, 2026")).toBeInTheDocument();
+  });
+
+  it("opens a detail popover with the role-appropriate actions, and never a confirm/decline action", async () => {
+    mockFetchRouter({
+      [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT, LAB_REVIEW]),
+    });
+    const user = userEvent.setup();
+    render(<ProviderCalendar />);
+
+    await openBlock(user, NEW_PATIENT_BLOCK);
+
     expect(
-      screen.queryByRole("button", { name: /Lab Review/ })
+      screen.getByRole("button", { name: `Mark completed: ${NEW_PATIENT_CONTEXT}` })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: `Mark no-show: ${NEW_PATIENT_CONTEXT}` })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: `Cancel: ${NEW_PATIENT_CONTEXT}` })
+    ).toBeInTheDocument();
+    expect(screen.getByText("CONFIRMED")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /confirm booking/i })
     ).not.toBeInTheDocument();
-
-    // Role-appropriate actions on a confirmed row, and never a
-    // confirm/decline action anywhere on this screen.
-    const context = "New Patient Visit with R. Nikov, 9:00–9:45am";
-    expect(
-      screen.getByRole("button", { name: `Mark completed: ${context}` })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: `Mark no-show: ${context}` })
-    ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: `Cancel: ${context}` })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /confirm booking/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /decline/i })).not.toBeInTheDocument();
+  });
+
+  it("shows no status actions in the popover for a closed (completed) booking", async () => {
+    mockFetchRouter({ [BOOKINGS_PATH]: () => jsonResponse([LAB_REVIEW]) });
+    const user = userEvent.setup();
+    render(<ProviderCalendar />);
+
+    await openBlock(user, "Lab Review with T. Kim, 1:00–1:10pm, COMPLETED");
+
+    expect(screen.getByText("COMPLETED")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Mark completed:/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Cancel:/ })).not.toBeInTheDocument();
   });
 
   it("keeps 'Mark no-show' disabled with a visible reason until the appointment's start time has passed", async () => {
     mockFetchRouter({ [BOOKINGS_PATH]: () => jsonResponse([AFTERNOON_CHECKUP]) });
+    const user = userEvent.setup();
     render(<ProviderCalendar />);
 
-    const context = "Checkup with J. Alvarez, 3:00–3:30pm";
-    const noShowButton = await screen.findByRole("button", {
-      name: `Mark no-show: ${context}`,
+    await openBlock(user, "Checkup with J. Alvarez, 3:00–3:30pm, CONFIRMED");
+
+    const noShowButton = screen.getByRole("button", {
+      name: "Mark no-show: Checkup with J. Alvarez, 3:00–3:30pm",
     });
     expect(noShowButton).toBeDisabled();
     expect(
@@ -245,36 +305,48 @@ describe("ProviderCalendar", () => {
 
   it("enables 'Mark no-show' once the appointment's start time has passed", async () => {
     mockFetchRouter({ [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT]) });
-    render(<ProviderCalendar />);
-
-    const context = "New Patient Visit with R. Nikov, 9:00–9:45am";
-    expect(
-      await screen.findByRole("button", { name: `Mark no-show: ${context}` })
-    ).toBeEnabled();
-  });
-
-  it("filters the agenda list to whichever day is selected in the week strip", async () => {
-    mockFetchRouter({ [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT]) });
     const user = userEvent.setup();
     render(<ProviderCalendar />);
 
-    await screen.findByRole("heading", { name: "Tuesday, August 18, 2026" });
-    expect(screen.getByText("New Patient Visit — R. Nikov")).toBeInTheDocument();
-
-    await user.click(
-      screen.getByRole("button", { name: "Wednesday, August 19, 2026, 0 appointments" })
-    );
+    await openBlock(user, NEW_PATIENT_BLOCK);
 
     expect(
-      await screen.findByRole("heading", { name: "Wednesday, August 19, 2026" })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText("No appointments on Wednesday, August 19, 2026.")
-    ).toBeInTheDocument();
-    expect(screen.queryByText("New Patient Visit — R. Nikov")).not.toBeInTheDocument();
+      screen.getByRole("button", { name: `Mark no-show: ${NEW_PATIENT_CONTEXT}` })
+    ).toBeEnabled();
   });
 
-  it("navigates prev/next week (re-fetching for the new range) and Today (back to the current week)", async () => {
+  it("navigates prev/next week (re-fetching bookings for the new range) and Today, WITHOUT re-fetching availability", async () => {
+    const fetchMock = mockFetchRouter({
+      [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT]),
+    });
+    const user = userEvent.setup();
+    render(<ProviderCalendar />);
+
+    await screen.findByText("Week of Aug 17–23, 2026");
+    expect(callsTo(fetchMock, AVAILABILITY_PATH)).toBe(1);
+
+    await user.click(screen.getByRole("button", { name: "Go to previous week" }));
+
+    expect(await screen.findByText("Week of Aug 10–16, 2026")).toBeInTheDocument();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        (url as string).includes("date_from=2026-08-10&date_to=2026-08-16")
+      )
+    ).toBe(true);
+
+    await user.click(screen.getByRole("button", { name: "Today" }));
+    expect(await screen.findByText("Week of Aug 17–23, 2026")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Go to next week" }));
+    expect(await screen.findByText("Week of Aug 24–30, 2026")).toBeInTheDocument();
+
+    // The recurring schedule is identical every week: availability was
+    // fetched once on mount and never again across three navigations.
+    expect(callsTo(fetchMock, AVAILABILITY_PATH)).toBe(1);
+    expect(callsTo(fetchMock, PROFILE_PATH)).toBe(1);
+  });
+
+  it("jumps the grid to a day's week from the mini month", async () => {
     const fetchMock = mockFetchRouter({
       [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT]),
     });
@@ -283,27 +355,121 @@ describe("ProviderCalendar", () => {
 
     await screen.findByText("Week of Aug 17–23, 2026");
 
-    await user.click(screen.getByRole("button", { name: "Go to previous week" }));
+    await user.click(screen.getByRole("button", { name: "Wednesday, August 26, 2026" }));
 
-    expect(await screen.findByText("Week of Aug 10–16, 2026")).toBeInTheDocument();
-    expect(
-      await screen.findByRole("heading", { name: "Monday, August 10, 2026" })
-    ).toBeInTheDocument();
+    expect(await screen.findByText("Week of Aug 24–30, 2026")).toBeInTheDocument();
     expect(
       fetchMock.mock.calls.some(([url]) =>
-        (url as string).includes("date_from=2026-08-10&date_to=2026-08-16")
+        (url as string).includes("date_from=2026-08-24&date_to=2026-08-30")
       )
     ).toBe(true);
-
-    await user.click(screen.getByRole("button", { name: "Today" }));
-
-    expect(await screen.findByText("Week of Aug 17–23, 2026")).toBeInTheDocument();
-    expect(
-      await screen.findByRole("heading", { name: "Tuesday, August 18, 2026" })
-    ).toBeInTheDocument();
+    expect(callsTo(fetchMock, AVAILABILITY_PATH)).toBe(1);
   });
 
-  it("marks a booking completed: PATCHes /bookings/:id/status and the badge updates without a full reload", async () => {
+  it("extends the visible hours to include a booking outside configured availability instead of cutting it off", async () => {
+    // 11:00Z is 7:00am ET — before the configured 9:00 start.
+    const earlyBird = {
+      ...NEW_PATIENT_VISIT,
+      start_time: "2026-08-18T11:00:00.000Z",
+      end_time: "2026-08-18T11:45:00.000Z",
+    };
+    mockFetchRouter({ [BOOKINGS_PATH]: () => jsonResponse([earlyBird]) });
+    render(<ProviderCalendar />);
+
+    expect(
+      await screen.findByRole("button", {
+        name: "New Patient Visit with R. Nikov, 7:00–7:45am, CONFIRMED",
+      })
+    ).toBeInTheDocument();
+    expect(screen.getByText("7 AM")).toBeInTheDocument();
+  });
+
+  it("renders the grid with gridlines and an empty-week message when there are no appointments", async () => {
+    mockFetchRouter({ [BOOKINGS_PATH]: () => jsonResponse([]) });
+    render(<ProviderCalendar />);
+
+    expect(await screen.findByText("No appointments this week.")).toBeInTheDocument();
+    // The calendar stays recognizable as a calendar: headers + ruler intact.
+    expect(screen.getByText("Mon 17")).toBeInTheDocument();
+    expect(screen.getByText("9 AM")).toBeInTheDocument();
+  });
+
+  it("shows a setup prompt instead of an empty grid when there is no availability AND no bookings", async () => {
+    mockFetchRouter({
+      [AVAILABILITY_PATH]: () => jsonResponse([]),
+      [BOOKINGS_PATH]: () => jsonResponse([]),
+    });
+    render(<ProviderCalendar />);
+
+    expect(await screen.findByText("No working hours set up yet")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Your calendar shows the hours you're available. Set your weekly working hours to see them here."
+      )
+    ).toBeInTheDocument();
+    const setupLink = screen.getByRole("link", { name: "Set working hours" });
+    expect(setupLink).toHaveAttribute("href", "/provider");
+    // No grid pretending to be a calendar behind it.
+    expect(screen.queryByText("No appointments this week.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Mon 17")).not.toBeInTheDocument();
+  });
+
+  it("still renders the grid (bounded by the bookings) with an inline nudge when availability is empty but bookings exist", async () => {
+    mockFetchRouter({
+      [AVAILABILITY_PATH]: () => jsonResponse([]),
+      [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT]),
+    });
+    render(<ProviderCalendar />);
+
+    expect(
+      await screen.findByRole("button", { name: NEW_PATIENT_BLOCK })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/No working hours configured — showing booked times only\./)
+    ).toBeInTheDocument();
+    // A nudge, not the blocking setup card.
+    expect(screen.queryByText("No working hours set up yet")).not.toBeInTheDocument();
+  });
+
+  it("keeps the grid rendering when the availability fetch fails, with a scoped retry that re-fires only that fetch", async () => {
+    let availabilityCalls = 0;
+    const fetchMock = mockFetchRouter({
+      [AVAILABILITY_PATH]: () => {
+        availabilityCalls += 1;
+        return availabilityCalls === 1
+          ? new Response("", { status: 500 })
+          : jsonResponse(DEFAULT_AVAILABILITY);
+      },
+      [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT]),
+    });
+    const user = userEvent.setup();
+    render(<ProviderCalendar />);
+
+    // Non-blocking: the grid (bounded by the booking) renders alongside
+    // the warning, which is a status, not an alert.
+    expect(
+      await screen.findByRole("button", { name: NEW_PATIENT_BLOCK })
+    ).toBeInTheDocument();
+    const warning = await screen.findByRole("status");
+    expect(warning).toHaveTextContent(/couldn't load your working hours/i);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    const profileCallsBefore = callsTo(fetchMock, PROFILE_PATH);
+    const bookingsCallsBefore = callsTo(fetchMock, BOOKINGS_PATH);
+
+    await user.click(within(warning).getByRole("button", { name: "Try again" }));
+
+    // The retried schedule arrives and reshapes the grid (9 AM start).
+    expect(await screen.findByText("9 AM")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+    // Scoped: only the availability fetch re-fired.
+    expect(callsTo(fetchMock, AVAILABILITY_PATH)).toBe(2);
+    expect(callsTo(fetchMock, PROFILE_PATH)).toBe(profileCallsBefore);
+    expect(callsTo(fetchMock, BOOKINGS_PATH)).toBe(bookingsCallsBefore);
+  });
+
+  it("marks a booking completed from the popover: PATCHes /bookings/:id/status and the block updates without a full reload", async () => {
     const fetchMock = mockFetchRouter({
       [BOOKINGS_PATH]: (init) => {
         if (!init || (init.method ?? "GET") === "GET") {
@@ -322,14 +488,18 @@ describe("ProviderCalendar", () => {
     const user = userEvent.setup();
     render(<ProviderCalendar />);
 
-    const context = "New Patient Visit with R. Nikov, 9:00–9:45am";
+    await openBlock(user, NEW_PATIENT_BLOCK);
     await user.click(
-      await screen.findByRole("button", { name: `Mark completed: ${context}` })
+      screen.getByRole("button", { name: `Mark completed: ${NEW_PATIENT_CONTEXT}` })
     );
 
-    expect(await screen.findByText("COMPLETED")).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: `Mark completed: ${context}` })
+      await screen.findByRole("button", {
+        name: "New Patient Visit with R. Nikov, 9:00–9:45am, COMPLETED",
+      })
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: `Mark completed: ${NEW_PATIENT_CONTEXT}` })
     ).not.toBeInTheDocument();
 
     const patchCall = fetchMock.mock.calls.find(([url]) =>
@@ -374,17 +544,74 @@ describe("ProviderCalendar", () => {
     const user = userEvent.setup();
     render(<ProviderCalendar />);
 
-    const context = "New Patient Visit with R. Nikov, 9:00–9:45am";
+    await openBlock(user, NEW_PATIENT_BLOCK);
     await user.click(
-      await screen.findByRole("button", { name: `Mark completed: ${context}` })
+      screen.getByRole("button", { name: `Mark completed: ${NEW_PATIENT_CONTEXT}` })
     );
 
-    expect(await screen.findByText("COMPLETED")).toBeInTheDocument();
-    expect(screen.getByText(/R\. Nikov/)).toBeInTheDocument();
-    expect(screen.getByText(/New Patient Visit/)).toBeInTheDocument();
+    // The block's display fields survive the partial merge.
+    expect(
+      await screen.findByRole("button", {
+        name: "New Patient Visit with R. Nikov, 9:00–9:45am, COMPLETED",
+      })
+    ).toBeInTheDocument();
+    expect(screen.getByText("COMPLETED")).toBeInTheDocument();
   });
 
-  it("cancels a booking: the row loses its status-action buttons once cancelled", async () => {
+  it("cancels a booking through the popover's reason step: PATCHes cancellation_reason and the block loses its actions once cancelled", async () => {
+    const fetchMock = mockFetchRouter({
+      [BOOKINGS_PATH]: (init) => {
+        if (!init || (init.method ?? "GET") === "GET") {
+          return jsonResponse([FOLLOW_UP]);
+        }
+        throw new Error("unexpected call to the collection endpoint");
+      },
+      "/bookings/2/status": (init) => {
+        if (init?.method === "PATCH") {
+          const body = JSON.parse(init.body as string);
+          return jsonResponse({
+            ...FOLLOW_UP,
+            status: body.status,
+            cancellation_reason: body.cancellation_reason,
+          });
+        }
+        throw new Error("unexpected call");
+      },
+    });
+    const user = userEvent.setup();
+    render(<ProviderCalendar />);
+
+    await openBlock(user, FOLLOW_UP_BLOCK);
+    await user.click(
+      screen.getByRole("button", { name: `Cancel: ${FOLLOW_UP_CONTEXT}` })
+    );
+
+    // Two-step: nothing is PATCHed until the reason is confirmed.
+    const textarea = screen.getByLabelText("Reason for cancelling");
+    expect(textarea).toHaveAttribute("maxlength", "500");
+    const confirmButton = screen.getByRole("button", { name: "Confirm cancel" });
+    expect(confirmButton).toBeDisabled();
+
+    await user.type(textarea, "Provider is out sick today");
+    await user.click(confirmButton);
+
+    expect(await screen.findByText("CANCELLED")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: `Cancel: ${FOLLOW_UP_CONTEXT}` })
+    ).not.toBeInTheDocument();
+    // The popover now shows the written reason on the cancelled booking.
+    expect(screen.getByText("Reason: Provider is out sick today")).toBeInTheDocument();
+
+    const patchCall = fetchMock.mock.calls.find(([url]) =>
+      (url as string).endsWith("/2/status")
+    );
+    expect(JSON.parse((patchCall?.[1] as RequestInit).body as string)).toEqual({
+      status: "cancelled",
+      cancellation_reason: "Provider is out sick today",
+    });
+  });
+
+  it("warns (role=status, not alert) when the cancel succeeds but the cancellation email didn't reach the patient, without hiding the cancelled block", async () => {
     mockFetchRouter({
       [BOOKINGS_PATH]: (init) => {
         if (!init || (init.method ?? "GET") === "GET") {
@@ -395,7 +622,18 @@ describe("ProviderCalendar", () => {
       "/bookings/2/status": (init) => {
         if (init?.method === "PATCH") {
           const body = JSON.parse(init.body as string);
-          return jsonResponse({ ...FOLLOW_UP, status: body.status });
+          return jsonResponse({
+            ...FOLLOW_UP,
+            status: body.status,
+            cancellation_reason: body.cancellation_reason,
+            notification: {
+              email_sent: false,
+              email_failed: true,
+              sms_attempted: false,
+              sms_sent: false,
+              sms_skipped_reason: "no_phone",
+            },
+          });
         }
         throw new Error("unexpected call");
       },
@@ -403,13 +641,143 @@ describe("ProviderCalendar", () => {
     const user = userEvent.setup();
     render(<ProviderCalendar />);
 
-    const context = "Follow-up with S. Patel, 10:00–10:15am";
-    await user.click(await screen.findByRole("button", { name: `Cancel: ${context}` }));
+    await openBlock(user, FOLLOW_UP_BLOCK);
+    await user.click(screen.getByRole("button", { name: `Cancel: ${FOLLOW_UP_CONTEXT}` }));
+    await user.type(screen.getByLabelText("Reason for cancelling"), "Out sick");
+    await user.click(screen.getByRole("button", { name: "Confirm cancel" }));
+
+    const warning = await screen.findByRole("status");
+    expect(warning).toHaveTextContent(
+      "Appointment cancelled, but we couldn't reach the patient by email. Please call them."
+    );
+    // Informational, not an error: the cancellation itself succeeded. And
+    // the SMS skip (no phone on file) is expected — one warning only.
+    expect(screen.getAllByRole("status")).toHaveLength(1);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("CANCELLED")).toBeInTheDocument();
+  });
+
+  it("warns separately about an attempted-and-failed text message, alongside the email warning", async () => {
+    mockFetchRouter({
+      [BOOKINGS_PATH]: (init) => {
+        if (!init || (init.method ?? "GET") === "GET") {
+          return jsonResponse([FOLLOW_UP]);
+        }
+        throw new Error("unexpected call to the collection endpoint");
+      },
+      "/bookings/2/status": (init) => {
+        if (init?.method === "PATCH") {
+          const body = JSON.parse(init.body as string);
+          return jsonResponse({
+            ...FOLLOW_UP,
+            status: body.status,
+            cancellation_reason: body.cancellation_reason,
+            notification: {
+              email_sent: false,
+              email_failed: true,
+              sms_attempted: true,
+              sms_sent: false,
+              sms_skipped_reason: "send_failed",
+            },
+          });
+        }
+        throw new Error("unexpected call");
+      },
+    });
+    const user = userEvent.setup();
+    render(<ProviderCalendar />);
+
+    await openBlock(user, FOLLOW_UP_BLOCK);
+    await user.click(screen.getByRole("button", { name: `Cancel: ${FOLLOW_UP_CONTEXT}` }));
+    await user.type(screen.getByLabelText("Reason for cancelling"), "Out sick");
+    await user.click(screen.getByRole("button", { name: "Confirm cancel" }));
+
+    const warnings = await screen.findAllByRole("status");
+    expect(warnings).toHaveLength(2);
+    expect(
+      screen.getByText(
+        "Appointment cancelled, but we couldn't reach the patient by email. Please call them."
+      )
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Appointment cancelled, but we couldn't send the text message. Please call the patient."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("renders no warning when the cancellation email and text were delivered", async () => {
+    mockFetchRouter({
+      [BOOKINGS_PATH]: (init) => {
+        if (!init || (init.method ?? "GET") === "GET") {
+          return jsonResponse([FOLLOW_UP]);
+        }
+        throw new Error("unexpected call to the collection endpoint");
+      },
+      "/bookings/2/status": (init) => {
+        if (init?.method === "PATCH") {
+          const body = JSON.parse(init.body as string);
+          return jsonResponse({
+            ...FOLLOW_UP,
+            status: body.status,
+            cancellation_reason: body.cancellation_reason,
+            notification: {
+              email_sent: true,
+              email_failed: false,
+              sms_attempted: true,
+              sms_sent: true,
+              sms_skipped_reason: null,
+            },
+          });
+        }
+        throw new Error("unexpected call");
+      },
+    });
+    const user = userEvent.setup();
+    render(<ProviderCalendar />);
+
+    await openBlock(user, FOLLOW_UP_BLOCK);
+    await user.click(screen.getByRole("button", { name: `Cancel: ${FOLLOW_UP_CONTEXT}` }));
+    await user.type(screen.getByLabelText("Reason for cancelling"), "Out sick");
+    await user.click(screen.getByRole("button", { name: "Confirm cancel" }));
 
     expect(await screen.findByText("CANCELLED")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: `Cancel: ${context}` })
+      screen.queryByText(/couldn't reach the patient by email/)
     ).not.toBeInTheDocument();
+  });
+
+  it("renders no warning (and doesn't crash) when the cancel response has no notification key at all", async () => {
+    mockFetchRouter({
+      [BOOKINGS_PATH]: (init) => {
+        if (!init || (init.method ?? "GET") === "GET") {
+          return jsonResponse([FOLLOW_UP]);
+        }
+        throw new Error("unexpected call to the collection endpoint");
+      },
+      "/bookings/2/status": (init) => {
+        if (init?.method === "PATCH") {
+          const body = JSON.parse(init.body as string);
+          return jsonResponse({
+            ...FOLLOW_UP,
+            status: body.status,
+            cancellation_reason: body.cancellation_reason,
+          });
+        }
+        throw new Error("unexpected call");
+      },
+    });
+    const user = userEvent.setup();
+    render(<ProviderCalendar />);
+
+    await openBlock(user, FOLLOW_UP_BLOCK);
+    await user.click(screen.getByRole("button", { name: `Cancel: ${FOLLOW_UP_CONTEXT}` }));
+    await user.type(screen.getByLabelText("Reason for cancelling"), "Out sick");
+    await user.click(screen.getByRole("button", { name: "Confirm cancel" }));
+
+    expect(await screen.findByText("CANCELLED")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("shows the server's specific error message inline when a status update is rejected as an invalid transition", async () => {
@@ -429,15 +797,15 @@ describe("ProviderCalendar", () => {
     const user = userEvent.setup();
     render(<ProviderCalendar />);
 
-    const context = "New Patient Visit with R. Nikov, 9:00–9:45am";
+    await openBlock(user, NEW_PATIENT_BLOCK);
     await user.click(
-      await screen.findByRole("button", { name: `Mark no-show: ${context}` })
+      screen.getByRole("button", { name: `Mark no-show: ${NEW_PATIENT_CONTEXT}` })
     );
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Can't mark no-show before the appointment start time."
     );
-    // The row's own status is unchanged; a rejected transition never
+    // The booking's own status is unchanged; a rejected transition never
     // silently updates the UI.
     expect(screen.getByText("CONFIRMED")).toBeInTheDocument();
   });
@@ -455,13 +823,232 @@ describe("ProviderCalendar", () => {
     const user = userEvent.setup();
     render(<ProviderCalendar />);
 
-    const context = "New Patient Visit with R. Nikov, 9:00–9:45am";
-    await user.click(
-      await screen.findByRole("button", { name: `Cancel: ${context}` })
-    );
+    await openBlock(user, NEW_PATIENT_BLOCK);
+    await user.click(screen.getByRole("button", { name: `Cancel: ${NEW_PATIENT_CONTEXT}` }));
+    await user.type(screen.getByLabelText("Reason for cancelling"), "Out sick");
+    await user.click(screen.getByRole("button", { name: "Confirm cancel" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /couldn't update this appointment/i
     );
+  });
+
+  it("falls back to the week-strip + day-agenda list on narrow screens", async () => {
+    // jsdom has no matchMedia; provide one that reports a narrow viewport.
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    mockFetchRouter({ [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT]) });
+    render(<ProviderCalendar />);
+
+    // The agenda fallback: selected-day heading, day buttons with counts,
+    // and the row list — no grid blocks.
+    expect(
+      await screen.findByRole("heading", { name: "Tuesday, August 18, 2026", level: 2 })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Tuesday, August 18, 2026, 1 appointment" })
+    ).toBeInTheDocument();
+    expect(screen.getByText("New Patient Visit — R. Nikov")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: NEW_PATIENT_BLOCK })
+    ).not.toBeInTheDocument();
+  });
+
+  describe("blocked time", () => {
+    // 10:00am–12:00pm ET on Tuesday, August 18 — inside the visible week.
+    const LUNCH_HOLD = {
+      id: 1,
+      label: "Lunch",
+      start: "2026-08-18T14:00:00.000Z",
+      end: "2026-08-18T16:00:00.000Z",
+    };
+    // 10:00am–12:00pm ET on Tuesday, August 25 — the FOLLOWING week.
+    const NEXT_WEEK_HOLD = {
+      id: 2,
+      label: "Conference",
+      start: "2026-08-25T14:00:00.000Z",
+      end: "2026-08-25T16:00:00.000Z",
+    };
+
+    it("hatches blocked ranges overlapping the visible week, and renders nothing for a block outside it", async () => {
+      mockFetchRouter({
+        [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT]),
+        [BLOCKED_TIME_PATH]: () => jsonResponse([LUNCH_HOLD, NEXT_WEEK_HOLD]),
+      });
+      render(<ProviderCalendar />);
+
+      expect(await screen.findByText("Blocked: Lunch, 10:00am–12:00pm")).toBeInTheDocument();
+      expect(document.querySelectorAll(".hatch-unavailable")).toHaveLength(1);
+      // The next-week hold is filtered out client-side, not painted.
+      expect(screen.queryByText(/Conference/)).not.toBeInTheDocument();
+    });
+
+    it("names an unlabeled block 'Blocked' without a dangling label", async () => {
+      mockFetchRouter({
+        [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT]),
+        [BLOCKED_TIME_PATH]: () => jsonResponse([{ ...LUNCH_HOLD, label: "" }]),
+      });
+      render(<ProviderCalendar />);
+
+      expect(await screen.findByText("Blocked, 10:00am–12:00pm")).toBeInTheDocument();
+      expect(screen.queryByText(/^Blocked: /)).not.toBeInTheDocument();
+    });
+
+    it("announces the CLIPPED range for a block extending past the grid's visible hours, truncated at the grid edge", async () => {
+      // 7:00am–10:00am ET against the configured 9–17 grid: only
+      // 9:00–10:00 is visible (the booking keeps the range at 9–17).
+      mockFetchRouter({
+        [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT]),
+        [BLOCKED_TIME_PATH]: () =>
+          jsonResponse([
+            {
+              id: 3,
+              label: "Early hold",
+              start: "2026-08-18T11:00:00.000Z",
+              end: "2026-08-18T14:00:00.000Z",
+            },
+          ]),
+      });
+      render(<ProviderCalendar />);
+
+      expect(
+        await screen.findByText("Blocked: Early hold, 9:00–10:00am")
+      ).toBeInTheDocument();
+      const hatch = document.querySelector<HTMLElement>(".hatch-unavailable");
+      expect(hatch?.style.top).toBe("0%"); // truncated at the top edge, no overflow
+    });
+
+    it("renders a multi-day block as a separate clipped region in EACH day column it spans", async () => {
+      // Wednesday Aug 19 00:00 ET through Saturday Aug 22 00:00 ET:
+      // Wed, Thu, Fri each get their own full-height clipped region.
+      mockFetchRouter({
+        [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT]),
+        [BLOCKED_TIME_PATH]: () =>
+          jsonResponse([
+            {
+              id: 4,
+              label: "Vacation",
+              start: "2026-08-19T04:00:00.000Z",
+              end: "2026-08-22T04:00:00.000Z",
+            },
+          ]),
+      });
+      render(<ProviderCalendar />);
+
+      expect(
+        await screen.findAllByText("Blocked: Vacation, 9:00am–5:00pm")
+      ).toHaveLength(3);
+      const hatches = document.querySelectorAll<HTMLElement>(".hatch-unavailable");
+      expect(hatches).toHaveLength(3);
+      for (const hatch of hatches) {
+        expect(hatch.style.top).toBe("0%");
+        expect(hatch.style.height).toBe("100%");
+      }
+    });
+
+    it("fetches blocked time exactly once per mount, re-filtering (not re-fetching) on week navigation", async () => {
+      const fetchMock = mockFetchRouter({
+        [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT]),
+        [BLOCKED_TIME_PATH]: () => jsonResponse([LUNCH_HOLD, NEXT_WEEK_HOLD]),
+      });
+      const user = userEvent.setup();
+      render(<ProviderCalendar />);
+
+      expect(await screen.findByText("Blocked: Lunch, 10:00am–12:00pm")).toBeInTheDocument();
+      expect(callsTo(fetchMock, BLOCKED_TIME_PATH)).toBe(1);
+
+      await user.click(screen.getByRole("button", { name: "Go to next week" }));
+      await screen.findByText("Week of Aug 24–30, 2026");
+
+      // The following week's hold appears purely from the already-held
+      // list; this week's disappears.
+      expect(
+        await screen.findByText("Blocked: Conference, 10:00am–12:00pm")
+      ).toBeInTheDocument();
+      expect(screen.queryByText(/Blocked: Lunch/)).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Today" }));
+      await screen.findByText("Week of Aug 17–23, 2026");
+      await user.click(screen.getByRole("button", { name: "Go to previous week" }));
+      await screen.findByText("Week of Aug 10–16, 2026");
+      expect(screen.queryByText(/^Blocked/)).not.toBeInTheDocument();
+
+      expect(callsTo(fetchMock, BLOCKED_TIME_PATH)).toBe(1);
+    });
+
+    it("keeps a booking inside a blocked window fully clickable — the hatch never intercepts its popover click", async () => {
+      // The hold covers the whole 9–17 day, including New Patient Visit.
+      mockFetchRouter({
+        [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT]),
+        [BLOCKED_TIME_PATH]: () =>
+          jsonResponse([
+            {
+              id: 5,
+              label: "Admin day",
+              start: "2026-08-18T13:00:00.000Z",
+              end: "2026-08-18T21:00:00.000Z",
+            },
+          ]),
+      });
+      const user = userEvent.setup();
+      render(<ProviderCalendar />);
+
+      await screen.findByText("Blocked: Admin day, 9:00am–5:00pm");
+      const hatch = document.querySelector<HTMLElement>(".hatch-unavailable");
+      expect(hatch).toHaveAttribute("aria-hidden", "true");
+      expect(hatch).toHaveClass("pointer-events-none");
+
+      await openBlock(user, NEW_PATIENT_BLOCK);
+      expect(
+        screen.getByRole("button", { name: `Mark completed: ${NEW_PATIENT_CONTEXT}` })
+      ).toBeInTheDocument();
+    });
+
+    it("keeps the grid rendering when the blocked-time fetch fails — no false hatching — with a scoped retry that re-fires only that fetch", async () => {
+      let blockedCalls = 0;
+      const fetchMock = mockFetchRouter({
+        [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT]),
+        [BLOCKED_TIME_PATH]: () => {
+          blockedCalls += 1;
+          return blockedCalls === 1
+            ? new Response("", { status: 500 })
+            : jsonResponse([LUNCH_HOLD]);
+        },
+      });
+      const user = userEvent.setup();
+      render(<ProviderCalendar />);
+
+      // Non-blocking: bookings and availability render normally alongside
+      // the warning, and NOTHING is painted as blocked.
+      expect(
+        await screen.findByRole("button", { name: NEW_PATIENT_BLOCK })
+      ).toBeInTheDocument();
+      expect(screen.getByText("9 AM")).toBeInTheDocument();
+      const warning = await screen.findByRole("status");
+      expect(warning).toHaveTextContent(
+        "Couldn't load your blocked time — the grid may show hours that are actually blocked."
+      );
+      expect(document.querySelectorAll(".hatch-unavailable")).toHaveLength(0);
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+      const profileCallsBefore = callsTo(fetchMock, PROFILE_PATH);
+      const bookingsCallsBefore = callsTo(fetchMock, BOOKINGS_PATH);
+      const availabilityCallsBefore = callsTo(fetchMock, AVAILABILITY_PATH);
+
+      await user.click(within(warning).getByRole("button", { name: "Try again" }));
+
+      expect(await screen.findByText("Blocked: Lunch, 10:00am–12:00pm")).toBeInTheDocument();
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+
+      // Scoped: only the blocked-time fetch re-fired.
+      expect(callsTo(fetchMock, BLOCKED_TIME_PATH)).toBe(2);
+      expect(callsTo(fetchMock, PROFILE_PATH)).toBe(profileCallsBefore);
+      expect(callsTo(fetchMock, BOOKINGS_PATH)).toBe(bookingsCallsBefore);
+      expect(callsTo(fetchMock, AVAILABILITY_PATH)).toBe(availabilityCallsBefore);
+    });
   });
 });

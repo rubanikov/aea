@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calendar Option B — Polished Strip + Agenda (low-fi wireframe)</title>
+<style>
+  *{box-sizing:border-box;margin:0}
+  body{font-family:"Segoe UI",Arial,sans-serif;background:#e9e9e9;color:#222;padding:28px;font-size:14px}
+  .annot{max-width:1000px;margin:0 auto 10px;font-size:13px;color:#555;line-height:1.5}
+  .annot b{color:#222}
+  .frame{background:#fff;border:2px solid #333;max-width:1000px;margin:0 auto 44px;box-shadow:4px 4px 0 #ccc}
+  h1{font-size:20px;max-width:1000px;margin:0 auto 6px}
+  h2{font-size:15px;max-width:1000px;margin:28px auto 6px}
+  .shell{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #333;padding:10px 16px;background:#f3f3f3;gap:12px;flex-wrap:wrap}
+  .shell .brand{font-weight:700}
+  .shell nav{font-size:12px;color:#444;display:flex;gap:14px}
+  .seg{display:inline-flex;border:1.5px solid #444;border-radius:4px;overflow:hidden;font-size:11px}
+  .seg span{padding:3px 9px;border-right:1px solid #444}
+  .seg span:last-child{border-right:0}
+  .seg .on{background:#444;color:#fff}
+  .avatar{width:26px;height:26px;border:1.5px solid #444;border-radius:50%;background:#ddd}
+  .spacer{flex:1}
+  .btn{display:inline-block;border:1.5px solid #444;padding:4px 12px;font-size:12px;background:#fff;border-radius:4px}
+  .btn.primary{background:#444;color:#fff}
+  .btn.danger{border-color:#333;background:#fff;text-decoration:underline}
+  .content{padding:18px 22px}
+  .toolbar{display:flex;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap}
+  .range{font-weight:700;font-size:16px}
+  /* week strip: pills */
+  .strip{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:18px}
+  .day{border:1.5px solid #999;border-radius:10px;padding:8px 4px;text-align:center;font-size:11px;background:#fafafa}
+  .day .num{font-size:18px;font-weight:700;display:block}
+  .day .dots{display:flex;gap:3px;justify-content:center;margin-top:5px;min-height:6px}
+  .day .dots i{width:6px;height:6px;border-radius:50%;background:#555;display:block}
+  .day.sel{border:2.5px solid #333;background:#e8e8e8;box-shadow:2px 2px 0 #bbb}
+  .day.today .num{text-decoration:underline}
+  .day .cnt{font-size:9px;color:#888}
+  /* agenda */
+  .agendahead{display:flex;align-items:baseline;gap:10px;margin-bottom:10px}
+  .agendahead h3{font-size:16px}
+  .agendahead small{color:#888;font-size:11px}
+  .arow{display:flex;gap:14px;border:1.5px solid #aaa;border-radius:8px;padding:12px 14px;margin-bottom:10px;background:#fcfcfc;align-items:flex-start}
+  .arow:hover{box-shadow:2px 2px 0 #ccc}
+  .timerail{width:86px;flex-shrink:0;text-align:right;font-size:12px;color:#333}
+  .timerail b{display:block;font-size:14px}
+  .bar{width:5px;border-radius:3px;background:#555;align-self:stretch;flex-shrink:0}
+  .bar.done{background:#ccc}
+  .bar.cxl{background:repeating-linear-gradient(45deg,#ddd,#ddd 3px,#fff 3px,#fff 6px)}
+  .main{flex:1}
+  .main .t1{font-weight:700;font-size:14px}
+  .main .t2{font-size:12px;color:#666;margin-top:2px}
+  .badge{display:inline-block;border:1px solid #666;border-radius:10px;padding:1px 8px;font-size:10px;text-transform:uppercase;letter-spacing:.4px;margin-left:8px;background:#eee}
+  .actions{display:flex;gap:8px;flex-shrink:0;align-items:center}
+  .kebab{border:1.5px solid #444;border-radius:4px;width:26px;height:26px;text-align:center;line-height:24px}
+  /* states */
+  .states{display:grid;grid-template-columns:repeat(3,1fr);border-top:2px solid #333}
+  .state{border-right:1.5px solid #999;padding:12px;min-height:140px}
+  .state:last-child{border-right:0}
+  .state h3{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888;margin-bottom:8px}
+  .ghost{background:repeating-linear-gradient(45deg,#eee,#eee 6px,#f8f8f8 6px,#f8f8f8 12px);border:1px solid #ddd;border-radius:6px}
+  .empty{border:1.5px dashed #999;color:#777;text-align:center;padding:20px 10px;font-size:12px;border-radius:8px}
+  .errbox{border:1.5px solid #333;background:#e2e2e2;padding:12px;font-size:12px;border-radius:6px}
+  /* dialog */
+  .dialogwrap{background:#bbb;padding:36px;display:flex;justify-content:center}
+  .dialog{background:#fff;border:2px solid #333;border-radius:10px;width:420px;padding:18px;box-shadow:4px 4px 0 #999}
+  .dialog h3{font-size:15px;margin-bottom:8px}
+  .dialog p{font-size:12px;color:#555;margin-bottom:10px}
+  .reserved{border:1.5px dashed #aaa;border-radius:6px;padding:14px 10px;font-size:11px;color:#999;text-align:center;margin-bottom:12px}
+  .row{display:flex;gap:8px;justify-content:flex-end}
+  /* patient picker */
+  .pickgrid{display:grid;grid-template-columns:1fr 1.2fr;gap:22px}
+  .mon{border:1.5px solid #999;border-radius:10px;padding:12px}
+  .mon table{width:100%;border-collapse:collapse;text-align:center;font-size:12px}
+  .mon td,.mon th{padding:7px 0;width:14.28%}
+  .mon td{border-radius:50%}
+  .mon .has{font-weight:700;text-decoration:underline}
+  .mon .dim{color:#ccc}
+  .mon .sel{background:#444;color:#fff;border-radius:50%}
+  .monhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-weight:700;font-size:14px}
+  .grp{margin-bottom:12px}
+  .grp .glabel{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:#888;margin-bottom:6px}
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{border:1.5px solid #555;border-radius:8px;padding:6px 10px;font-size:12px;text-align:center;background:#fff}
+  .chip small{display:block;font-size:9px;color:#888}
+</style>
+</head>
+<body>
+
+<h1>Calendar — Option B: "Polished Strip + Agenda"</h1>
+<p class="annot"><b>Direction:</b> keeps the current structure exactly (Monday-first week strip + one selected day's agenda) but restyles it to Google Calendar's <i>Schedule/Agenda view</i> language: rounded day pills with per-day event dots, a strong time rail on the left of each row, a status-coded color bar per appointment, hover elevation, and row actions collapsed behind a kebab menu instead of three always-visible buttons. <b>Borrowed from Google Calendar:</b> the Schedule-view row anatomy (time rail → color bar → title/meta), the dot-marker density signal, and Today/chevron toolbar. <b>Tradeoff:</b> smallest lift — zero data/interaction rework, so it ships fastest, but it will never read as a "real calendar grid"; providers who want to see gaps between appointments spatially don't get that here.</p>
+
+<div class="frame">
+  <div class="shell">
+    <span class="brand">AEA — Provider portal</span>
+    <nav><span>Calendar</span><span>Availability</span><span>Profile</span></nav>
+    <span class="spacer"></span>
+    <span class="seg"><span>Light</span><span>Dark</span><span class="on">System</span></span>
+    <span class="avatar"></span>
+  </div>
+
+  <div class="content">
+    <div class="toolbar">
+      <span class="btn">Today</span>
+      <span class="btn">&lt;</span><span class="btn">&gt;</span>
+      <span class="range">Aug 10 – 16, 2026</span>
+      <span class="spacer"></span>
+      <span style="font-size:11px;color:#777">Eastern Time (New York)</span>
+    </div>
+
+    <div class="strip">
+      <div class="day"><span>Mon</span><span class="num">10</span><span class="dots"><i></i><i></i></span><span class="cnt">2 appts</span></div>
+      <div class="day sel today"><span>Tue</span><span class="num">11</span><span class="dots"><i></i><i></i><i></i></span><span class="cnt">3 appts</span></div>
+      <div class="day"><span>Wed</span><span class="num">12</span><span class="dots"><i></i></span><span class="cnt">1 appt</span></div>
+      <div class="day"><span>Thu</span><span class="num">13</span><span class="dots"></span><span class="cnt">—</span></div>
+      <div class="day"><span>Fri</span><span class="num">14</span><span class="dots"><i></i></span><span class="cnt">1 appt</span></div>
+      <div class="day"><span>Sat</span><span class="num">15</span><span class="dots"></span><span class="cnt">—</span></div>
+      <div class="day"><span>Sun</span><span class="num">16</span><span class="dots"></span><span class="cnt">—</span></div>
+    </div>
+
+    <div class="agendahead"><h3>Tuesday, August 11, 2026</h3><small>3 appointments</small></div>
+
+    <div class="arow">
+      <div class="timerail"><b>10:00 AM</b>– 11:45 AM</div>
+      <div class="bar"></div>
+      <div class="main"><span class="t1">Consult — M. Chen</span><span class="badge">Confirmed</span><div class="t2">105 min · booked Aug 2</div></div>
+      <div class="actions"><span class="btn">Mark completed</span><span class="kebab">⋮</span></div>
+    </div>
+    <div class="arow">
+      <div class="timerail"><b>1:00 PM</b>– 1:30 PM</div>
+      <div class="bar cxl"></div>
+      <div class="main"><span class="t1" style="color:#999;text-decoration:line-through">Follow-up — A. Silva</span><span class="badge">Cancelled</span></div>
+      <div class="actions"></div>
+    </div>
+    <div class="arow">
+      <div class="timerail"><b>3:00 PM</b>– 3:30 PM</div>
+      <div class="bar"></div>
+      <div class="main"><span class="t1">Intake — P. Novak</span><span class="badge">Confirmed</span><div class="t2">30 min</div></div>
+      <div class="actions"><span class="btn">Mark completed</span><span class="kebab" title="kebab: Mark no-show / Cancel">⋮</span></div>
+    </div>
+    <p style="font-size:11px;color:#999">Kebab menu holds Mark no-show (disabled until start passes, reason shown in menu) and Cancel → confirm dialog below.</p>
+  </div>
+
+  <div class="states">
+    <div class="state">
+      <h3>Loading</h3>
+      <div class="ghost" style="height:44px;margin-bottom:8px"></div>
+      <div class="ghost" style="height:52px;margin-bottom:8px"></div>
+      <div class="ghost" style="height:52px"></div>
+    </div>
+    <div class="state">
+      <h3>Empty day / week</h3>
+      <div class="empty">No appointments on Tuesday, August 11.<br><span style="font-size:11px">Strip stays; per-day dots show where the week's appointments are.</span></div>
+    </div>
+    <div class="state">
+      <h3>Error</h3>
+      <div class="errbox">Couldn't load your appointments — please try again.<br><br><span class="btn">Try again</span></div>
+    </div>
+  </div>
+</div>
+
+<h2>Same option — provider cancel confirmation (new)</h2>
+<div class="frame">
+  <div class="dialogwrap">
+    <div class="dialog">
+      <h3>Cancel this appointment?</h3>
+      <p>Intake — P. Novak · Tue, Aug 11, 3:00–3:30 PM · Eastern Time (New York)</p>
+      <div class="reserved">[ reserved: cancellation-reason field — parallel story ]</div>
+      <div class="row"><span class="btn">Keep appointment</span><span class="btn primary">Cancel appointment</span></div>
+    </div>
+  </div>
+</div>
+
+<h2>Same option — patient date/slot picker</h2>
+<p class="annot">Keeps the current month-grid + slot-list split but restyled to match: circular day cells (Google-Calendar mini-month style, filled circle = selected, underline-bold = has open slots), and slots grouped under Morning / Afternoon / Evening headers as rounded chips with the patient's own time as a second line. Structure and data flow identical to today's <code>Calendar.tsx</code> + <code>TimeSlotGrid.tsx</code>.</p>
+<div class="frame">
+  <div class="shell">
+    <span class="brand">AEA — Patient portal</span>
+    <nav><span>Book</span><span>My appointments</span></nav>
+    <span class="spacer"></span>
+    <span class="seg"><span>Light</span><span>Dark</span><span class="on">System</span></span>
+    <span class="avatar"></span>
+  </div>
+  <div class="content">
+    <div class="toolbar">
+      <span style="font-size:13px"><b>Consult (45 min) with Dr. Sarah Lee</b> · <span style="text-decoration:underline;font-size:12px">Change</span></span>
+      <span class="spacer"></span>
+      <span style="font-size:11px;color:#777">Times in Eastern Time (New York) · yours shown below each</span>
+    </div>
+    <div class="pickgrid">
+      <div class="mon">
+        <div class="monhead"><span class="btn">&lt;</span> August 2026 <span class="btn">&gt;</span></div>
+        <table>
+          <tr><th>S</th><th>M</th><th>T</th><th>W</th><th>T</th><th>F</th><th>S</th></tr>
+          <tr><td class="dim">26</td><td class="dim">27</td><td class="dim">28</td><td class="dim">29</td><td class="dim">30</td><td class="dim">31</td><td>1</td></tr>
+          <tr><td>2</td><td>3</td><td class="has">4</td><td>5</td><td class="has">6</td><td>7</td><td>8</td></tr>
+          <tr><td>9</td><td class="has">10</td><td class="sel">11</td><td class="has">12</td><td>13</td><td class="has">14</td><td>15</td></tr>
+          <tr><td>16</td><td class="has">17</td><td class="has">18</td><td>19</td><td class="has">20</td><td>21</td><td>22</td></tr>
+          <tr><td>23</td><td>24</td><td>25</td><td>26</td><td>27</td><td>28</td><td>29</td></tr>
+        </table>
+      </div>
+      <div>
+        <p style="font-weight:700;margin-bottom:10px">Tuesday, August 11</p>
+        <div class="grp"><div class="glabel">Morning</div>
+          <div class="chips"><span class="chip">10:00 AM<small>9:00 AM yours</small></span><span class="chip">11:15 AM<small>10:15 AM yours</small></span></div>
+        </div>
+        <div class="grp"><div class="glabel">Afternoon</div>
+          <div class="chips"><span class="chip">1:00 PM<small>12:00 PM yours</small></span><span class="chip">2:30 PM<small>1:30 PM yours</small></span><span class="chip">4:00 PM<small>3:00 PM yours</small></span></div>
+        </div>
+        <div class="grp"><div class="glabel">Evening</div>
+          <div class="empty" style="padding:10px">No evening times on this day.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

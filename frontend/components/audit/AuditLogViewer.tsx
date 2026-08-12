@@ -104,31 +104,31 @@ export function AuditLogViewer() {
         disabled={loading}
       />
 
-      <p className="text-sm text-gray-600">
+      <p className="text-sm text-muted-foreground">
         {describeActiveFilters(appliedFilters)}
       </p>
 
       {loading ? (
-        <p role="status" className="text-sm text-gray-600">
+        <p role="status" className="text-sm text-muted-foreground">
           Loading audit log…
         </p>
       ) : error ? (
         <div
           role="alert"
-          className="flex flex-col items-start gap-2 text-sm text-red-600"
+          className="flex flex-col items-start gap-2 text-sm text-danger-text"
         >
           <p>{error}</p>
           <button
             type="button"
             onClick={handleRetry}
-            className="rounded border border-red-600 px-4 py-2 text-sm font-medium hover:bg-red-50"
+            className="rounded border border-danger px-4 py-2 text-sm font-medium hover:bg-danger-soft"
           >
             Retry
           </button>
         </div>
       ) : !data || data.results.length === 0 ? (
         <div className="flex flex-col items-start gap-2">
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-muted-foreground">
             No audit events match these filters.
           </p>
           <button
@@ -141,7 +141,7 @@ export function AuditLogViewer() {
         </div>
       ) : (
         <>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-muted-foreground">
             All timestamps are UTC. This log is append-only.
           </p>
           <AuditLogTable entries={data.results} />

@@ -37,7 +37,7 @@ export function AuthPageClient() {
         <h1 className="text-2xl font-semibold tracking-tight">
           {mode === "login" ? "Log in" : "Create your account"}
         </h1>
-        <p className="mt-2 text-sm text-gray-600">
+        <p className="mt-2 text-sm text-muted-foreground">
           Patient, provider, and admin accounts all sign in here.
         </p>
       </div>
@@ -46,7 +46,7 @@ export function AuthPageClient() {
         <p
           role="status"
           aria-live="polite"
-          className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800"
+          className="rounded border border-warning-border bg-warning-soft px-3 py-2 text-sm text-warning-soft-foreground"
         >
           {sessionExpiredMessage}
         </p>
@@ -56,7 +56,7 @@ export function AuthPageClient() {
         <p
           role="status"
           aria-live="polite"
-          className="rounded border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-800"
+          className="rounded border border-border bg-muted px-3 py-2 text-sm text-foreground"
         >
           {accountDeletedMessage}
         </p>
@@ -65,14 +65,16 @@ export function AuthPageClient() {
       <div
         role="group"
         aria-label="Choose account action"
-        className="flex gap-2 rounded border border-gray-300 p-1 text-sm"
+        className="flex gap-2 rounded border border-border-strong p-1 text-sm"
       >
         <button
           type="button"
           aria-pressed={mode === "login"}
           onClick={() => setMode("login")}
           className={`flex-1 rounded px-3 py-1.5 font-medium ${
-            mode === "login" ? "bg-black text-white" : "hover:bg-gray-50"
+            mode === "login"
+              ? "bg-primary text-primary-foreground"
+              : "hover:bg-accent"
           }`}
         >
           Log in
@@ -82,7 +84,9 @@ export function AuthPageClient() {
           aria-pressed={mode === "register"}
           onClick={() => setMode("register")}
           className={`flex-1 rounded px-3 py-1.5 font-medium ${
-            mode === "register" ? "bg-black text-white" : "hover:bg-gray-50"
+            mode === "register"
+              ? "bg-primary text-primary-foreground"
+              : "hover:bg-accent"
           }`}
         >
           Sign up

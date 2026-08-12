@@ -1,17 +1,19 @@
 import logging
 from datetime import datetime, time
-from datetime import timezone as dt_timezone
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.response import Response
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.views import APIView
 
 from audit.permissions import IsOwnerOrAdmin
 from audit.services import record_audit_event
 from scheduling.models import AppointmentType
 
+from . import notifications
 from .exceptions import (
     CancellationNoticeTooShort,
     InvalidTransition,
@@ -51,6 +53,62 @@ IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 MAX_IDEMPOTENCY_KEY_LENGTH = 255
 
 
+class CancellationRateThrottle(UserRateThrottle):
+    """Per-account limit on *cancellations* through
+    `BookingStatusView` (see `DEFAULT_THROTTLE_RATES["booking_cancel"]`).
+
+    Every cancel through that endpoint sends the patient provider-written
+    text by email and, when a carrier is on file, by SMS. Without a limit
+    of its own that send loop sat behind nothing but the generic 300/min
+    account throttle, which is a lot of attacker-influenced mail to point
+    at one inbox or phone.
+
+    Narrowed to cancellations rather than the whole PATCH: DRF runs
+    throttles in `initial()`, before the handler, but the parsed body is
+    already available there, so the requested status is readable without
+    guessing. A `completed`/`no_show` change sends nothing and is left on
+    the generic throttle alone (`throttle_classes` below keeps that one
+    too -- a view-level list replaces the defaults entirely).
+
+    This is one of two limits: it caps how fast one account can cancel,
+    while `notifications.RECIPIENT_HOURLY_NOTIFICATION_BUDGET` caps how
+    much any single patient can be made to receive, from however many
+    accounts or booking ids.
+    """
+
+    scope = "booking_cancel"
+
+    def allow_request(self, request, view):
+        requested_status = request.data.get("status") if hasattr(request.data, "get") else None
+        if requested_status != Booking.Status.CANCELLED:
+            return True
+        return super().allow_request(request, view)
+
+
+def _calendar_zone(request, provider_id):
+    """The timezone `GET /bookings`'s `date_from`/`date_to` are calendar
+    days *in* -- the zone of whoever's calendar is being listed.
+
+    A provider listing their own calendar gets their own zone; an admin
+    filtering to one provider gets that provider's; an admin listing every
+    provider at once has no single calendar owner, so their own zone stands
+    in. Never plain UTC: a provider's working day is a range on their wall
+    clock, and for any provider whose day doesn't happen to sit inside a UTC
+    one (an 08:00 start in Asia/Tokyo is 23:00Z the day before; a 18:00
+    appointment in America/Los_Angeles is 01:00Z the day after) UTC bounds
+    silently drop appointments off the ends of the week they're viewing --
+    the same "one set of rows, two clocks" disagreement `SlotBrowser` had on
+    the patient's side.
+    """
+    if request.user.role == User.Role.PROVIDER:
+        return ZoneInfo(request.user.timezone)
+    if provider_id:
+        provider = User.objects.filter(pk=provider_id).first()
+        if provider is not None:
+            return ZoneInfo(provider.timezone)
+    return ZoneInfo(request.user.timezone)
+
+
 class BookingListCreateView(APIView):
     """`GET`/`POST /bookings`.
 
@@ -79,10 +137,11 @@ class BookingListCreateView(APIView):
     scope to `request.user`" shape as `scheduling.views
     .AvailabilityListCreateView.get`. An admin sees every booking, or one
     provider's if `provider_id` is given. `date_from`/`date_to` are an
-    optional pair of UTC calendar-date bounds on `start_time` -- this is a
-    read/list view, not `scheduling.slots.get_open_slots`'s provider-local-
-    timezone-aware slot computation, so the simpler UTC-day interpretation
-    is deliberate here (see this ticket's handoff notes).
+    optional pair of calendar-date bounds on `start_time`, resolved in the
+    timezone of whoever's calendar is being listed (`_calendar_zone` above)
+    -- the same provider-local calendar day `scheduling.slots
+    .get_open_slots` generates against, so a day means the same thing on
+    this endpoint as it does on the patient-facing slot feed.
     """
 
     def get(self, request):
@@ -122,9 +181,10 @@ class BookingListCreateView(APIView):
         date_from = params.get("date_from")
         date_to = params.get("date_to")
         if date_from and date_to:
+            zone = _calendar_zone(request, params.get("provider_id"))
             queryset = queryset.filter(
-                start_time__gte=datetime.combine(date_from, time.min, tzinfo=dt_timezone.utc),
-                start_time__lte=datetime.combine(date_to, time.max, tzinfo=dt_timezone.utc),
+                start_time__gte=datetime.combine(date_from, time.min, tzinfo=zone),
+                start_time__lte=datetime.combine(date_to, time.max, tzinfo=zone),
             )
 
         queryset = queryset.order_by("start_time")
@@ -246,14 +306,29 @@ class BookingStatusView(APIView):
     endpoints, one per ownership axis, rather than this view branching
     its permission check on the requested target status.
 
-    Responses: `200` with the updated booking; `400` for an invalid
-    transition (including the no-show-before-start-time and, for
-    `cancelled`, the TICKET-09 minimum-notice case) or a bad body; `403`
-    if the requester isn't the booking's provider/admin; `404` if the
-    booking doesn't exist.
+    Cancelling through this endpoint requires a written
+    `cancellation_reason` in the body (doctor-cancel-reason-notify ticket
+    01) -- see `BookingStatusUpdateSerializer` for the exact rules
+    (required + non-blank for `cancelled`, rejected for `completed`/
+    `no_show`). The reason is stored on the booking and echoed back in the
+    response; it is deliberately *not* written to the audit log (see
+    `bookings.transitions.transition`). Cancellations are additionally
+    rate-limited per account (`CancellationRateThrottle` above -- `429`
+    past the limit); the other two target statuses are not.
+
+    Responses: `200` with the updated booking (including its
+    `cancellation_reason`); on a `cancelled` transition the body also
+    carries a `notification` key -- `bookings.notifications
+    .notify_cancellation`'s result dict, sent strictly *after* the
+    transition committed (see `patch` below), and never affecting the
+    200 itself; `400` for an invalid transition (including
+    the no-show-before-start-time and, for `cancelled`, the TICKET-09
+    minimum-notice case) or a bad body; `403` if the requester isn't the
+    booking's provider/admin; `404` if the booking doesn't exist.
     """
 
     permission_classes = [IsBookingProviderOrAdmin]
+    throttle_classes = [UserRateThrottle, CancellationRateThrottle]
 
     def patch(self, request, pk):
         booking = get_object_or_404(Booking, pk=pk)
@@ -262,9 +337,14 @@ class BookingStatusView(APIView):
         serializer = BookingStatusUpdateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         new_status = serializer.validated_data["status"]
+        # Only ever present (and non-blank) for a `cancelled` target --
+        # `BookingStatusUpdateSerializer` rejects it for any other status.
+        cancellation_reason = serializer.validated_data.get("cancellation_reason")
 
         try:
-            transition(booking, new_status, actor=request.user)
+            transition(
+                booking, new_status, actor=request.user, cancellation_reason=cancellation_reason
+            )
         except (InvalidTransition, NoShowBeforeStartTime, CancellationNoticeTooShort) as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -274,7 +354,19 @@ class BookingStatusView(APIView):
             request.user.id,
             new_status,
         )
-        return Response(BookingSerializer(booking).data)
+
+        body = BookingSerializer(booking).data
+        if new_status == Booking.Status.CANCELLED:
+            # Only after `transition()` has returned -- its atomic block has
+            # committed by now, so the email can never describe a
+            # cancellation that later rolls back. `notify_cancellation`
+            # never raises, and its outcome never changes this response's
+            # 200: the cancellation itself already succeeded, the
+            # `notification` dict just tells the frontend whether the
+            # patient actually got told (doctor-cancel-reason-notify
+            # ticket 03).
+            body["notification"] = notifications.notify_cancellation(booking)
+        return Response(body)
 
 
 class BookingCancelView(APIView):

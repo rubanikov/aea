@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ApiError } from "@/lib/api/client";
 import { formatZonedDateTime } from "@/lib/availability/timezone";
+import { formatTimezone } from "@/lib/timezones";
 import type { BlockedTime } from "@/lib/availability/types";
 
 interface BlockedTimeRowProps {
@@ -27,7 +28,7 @@ export function BlockedTimeRow({ block, timezone, onRemove }: BlockedTimeRowProp
   const [error, setError] = useState<string | null>(null);
 
   const label = block.label.trim() ? block.label : "Blocked";
-  const range = `${formatZonedDateTime(block.start, timezone)} → ${formatZonedDateTime(block.end, timezone)} (${timezone})`;
+  const range = `${formatZonedDateTime(block.start, timezone)} → ${formatZonedDateTime(block.end, timezone)} (${formatTimezone(timezone)})`;
 
   async function handleConfirmDelete() {
     setDeleting(true);
@@ -45,7 +46,7 @@ export function BlockedTimeRow({ block, timezone, onRemove }: BlockedTimeRowProp
 
   if (mode === "confirm-delete") {
     return (
-      <li className="flex flex-col gap-2 border-b border-gray-200 py-3 last:border-b-0">
+      <li className="flex flex-col gap-2 border-b border-border py-3 last:border-b-0">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm">Remove {label}? These slots will become bookable again.</p>
           <div className="flex shrink-0 gap-2">
@@ -53,7 +54,7 @@ export function BlockedTimeRow({ block, timezone, onRemove }: BlockedTimeRowProp
               type="button"
               onClick={handleConfirmDelete}
               disabled={deleting}
-              className="rounded bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+              className="rounded bg-danger px-3 py-1.5 text-sm font-medium text-danger-foreground hover:opacity-90 disabled:opacity-50"
             >
               {deleting ? "Removing…" : "Confirm remove"}
             </button>
@@ -61,14 +62,14 @@ export function BlockedTimeRow({ block, timezone, onRemove }: BlockedTimeRowProp
               type="button"
               onClick={() => setMode("view")}
               disabled={deleting}
-              className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+              className="rounded border border-border-strong px-3 py-1.5 text-sm font-medium hover:bg-accent disabled:opacity-50"
             >
               Cancel
             </button>
           </div>
         </div>
         {error ? (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-danger-text">
             {error}
           </p>
         ) : null}
@@ -77,23 +78,23 @@ export function BlockedTimeRow({ block, timezone, onRemove }: BlockedTimeRowProp
   }
 
   return (
-    <li className="flex flex-col gap-2 border-b border-gray-200 py-3 last:border-b-0">
+    <li className="flex flex-col gap-2 border-b border-border py-3 last:border-b-0">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="font-medium">{label}</p>
-          <p className="text-sm text-gray-600">{range}</p>
+          <p className="text-sm text-muted-foreground">{range}</p>
         </div>
         <button
           type="button"
           onClick={() => setMode("confirm-delete")}
           aria-label={`Remove ${label} (${range})`}
-          className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium text-red-600 hover:bg-red-50"
+          className="rounded border border-border-strong px-3 py-1.5 text-sm font-medium text-danger-text hover:bg-danger-soft"
         >
           Remove
         </button>
       </div>
       {error ? (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger-text">
           {error}
         </p>
       ) : null}

@@ -39,6 +39,8 @@ describe("Calendar", () => {
     });
     expect(day18).toHaveAttribute("aria-pressed", "true");
     expect(day18).toHaveAttribute("aria-disabled", "false");
+    // A bookable day is never painted with the unavailable texture.
+    expect(day18).not.toHaveClass("hatch-unavailable");
   });
 
   it("labels a past day as in the past and not bookable, but keeps it a real, enabled button", () => {
@@ -47,10 +49,13 @@ describe("Calendar", () => {
       name: "Sunday, August 16, 2026, in the past, not bookable",
     });
     expect(pastDay).toHaveAttribute("aria-disabled", "true");
-    // Dimmed/past days stay keyboard-reachable: aria-disabled, not the
+    // Hatched/past days stay keyboard-reachable: aria-disabled, not the
     // native `disabled` attribute, which would drop them from the tab
     // order.
     expect(pastDay).not.toBeDisabled();
+    // Not-bookable days carry the shared `.hatch-unavailable` texture, the
+    // same class the provider calendar uses for blocked time.
+    expect(pastDay).toHaveClass("hatch-unavailable");
   });
 
   it("labels a future day with no slots as fully booked and not bookable", () => {

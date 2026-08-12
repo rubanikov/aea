@@ -176,12 +176,12 @@ export function CollisionWarningModal({
         aria-labelledby={HEADING_ID}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="flex w-full max-w-lg flex-col gap-4 rounded bg-white p-6 shadow-lg focus:outline-none"
+        className="flex w-full max-w-lg flex-col gap-4 rounded bg-card p-6 text-card-foreground shadow-lg focus:outline-none"
       >
         <div className="flex items-start justify-between gap-3">
           <h2
             id={HEADING_ID}
-            className="flex items-center gap-2 text-lg font-semibold text-amber-800"
+            className="flex items-center gap-2 text-lg font-semibold text-warning-text"
           >
             <span aria-hidden="true">⚠</span> This change affects existing bookings
           </h2>
@@ -190,7 +190,7 @@ export function CollisionWarningModal({
             onClick={onCancelChange}
             disabled={confirming}
             aria-label="Close"
-            className="rounded px-1 text-lg leading-none text-gray-500 hover:text-black disabled:opacity-50"
+            className="rounded px-1 text-lg leading-none text-muted-foreground hover:text-foreground disabled:opacity-50"
           >
             ×
           </button>
@@ -199,11 +199,11 @@ export function CollisionWarningModal({
         <p className="text-sm">{description}</p>
         <p className="text-sm font-medium">{collisionCountLabel}</p>
 
-        <ul className="flex max-h-64 flex-col overflow-y-auto rounded border border-gray-200">
+        <ul className="flex max-h-64 flex-col overflow-y-auto rounded border border-border">
           {collisions.map((collision) => (
             <li
               key={collision.id}
-              className="flex flex-col gap-1 border-b border-gray-200 px-3 py-2 last:border-b-0"
+              className="flex flex-col gap-1 border-b border-border px-3 py-2 last:border-b-0"
             >
               <BookingStatusBadge status={collision.status} />
               <span className="text-sm">
@@ -214,7 +214,7 @@ export function CollisionWarningModal({
           ))}
         </ul>
 
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-muted-foreground">
           These will NOT be cancelled or deleted automatically. Choose how to proceed:
         </p>
 
@@ -251,7 +251,7 @@ export function CollisionWarningModal({
         </fieldset>
 
         {error ? (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-danger-text">
             {error}
           </p>
         ) : null}
@@ -261,7 +261,7 @@ export function CollisionWarningModal({
             type="button"
             onClick={onCancelChange}
             disabled={confirming}
-            className="rounded border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+            className="rounded border border-border-strong px-4 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
           >
             Go back
           </button>
@@ -269,7 +269,7 @@ export function CollisionWarningModal({
             type="button"
             onClick={handleConfirm}
             disabled={confirming || resolution === null}
-            className="rounded bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
           >
             {confirming ? "Saving…" : "Confirm my choice"}
           </button>

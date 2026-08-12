@@ -11,7 +11,7 @@ interface AuditLogFiltersProps {
 }
 
 const FIELD_CLASS =
-  "rounded border border-gray-300 px-3 py-2 text-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black";
+  "rounded border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring";
 
 /**
  * The audit log's filter row: Actor, Action, Target type, and a date range,
@@ -137,7 +137,7 @@ export function AuditLogFilters({
 
         <button
           type="submit"
-          className="rounded bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+          className="rounded bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
         >
           Apply
         </button>

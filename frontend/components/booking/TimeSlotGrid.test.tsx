@@ -4,17 +4,20 @@ import userEvent from "@testing-library/user-event";
 import { TimeSlotGrid } from "./TimeSlotGrid";
 import type { Slot } from "@/lib/scheduling/types";
 
+const SCHEDULE_TIME_ZONE = "America/New_York";
+
 const SLOTS: Slot[] = [
   { start: "2026-08-24T13:00:00.000Z", end: "2026-08-24T13:30:00.000Z" }, // 9:00am EDT
   { start: "2026-08-24T13:30:00.000Z", end: "2026-08-24T14:00:00.000Z" }, // 9:30am EDT
 ];
 
 describe("TimeSlotGrid", () => {
-  it("renders each slot converted to the patient's timezone, in a labeled group", () => {
+  it("labels each slot on the provider's clock, in a labeled group", () => {
     render(
       <TimeSlotGrid
         slots={SLOTS}
-        patientTimeZone="America/New_York"
+        scheduleTimeZone={SCHEDULE_TIME_ZONE}
+        viewerTimeZone={SCHEDULE_TIME_ZONE}
         selectedDateLabel="Monday, August 24, 2026"
         isToday={false}
         onSelectSlot={vi.fn()}
@@ -29,11 +32,12 @@ describe("TimeSlotGrid", () => {
     expect(screen.getByRole("button", { name: "9:30am" })).toBeInTheDocument();
   });
 
-  it("shows each slot in a different viewer's zone when patientTimeZone differs", () => {
+  it("keeps the provider's clock as the label and adds the viewer's own time when the zones differ", () => {
     render(
       <TimeSlotGrid
         slots={SLOTS}
-        patientTimeZone="America/Chicago"
+        scheduleTimeZone={SCHEDULE_TIME_ZONE}
+        viewerTimeZone="America/Chicago"
         selectedDateLabel="Monday, August 24, 2026"
         isToday={false}
         onSelectSlot={vi.fn()}
@@ -41,9 +45,15 @@ describe("TimeSlotGrid", () => {
     );
 
     // Same UTC instants, one hour earlier in Chicago (CDT, UTC-5) than in
-    // New York (EDT, UTC-4).
-    expect(screen.getByRole("button", { name: "8:00am" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "8:30am" })).toBeInTheDocument();
+    // New York (EDT, UTC-4) -- shown, but never in place of the time the
+    // provider's own calendar calls this slot.
+    expect(
+      screen.getByRole("button", { name: "9:00am (8:00am your time)" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "9:30am (8:30am your time)" })
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "8:00am" })).not.toBeInTheDocument();
   });
 
   it("calls onSelectSlot with the clicked slot", async () => {
@@ -52,7 +62,8 @@ describe("TimeSlotGrid", () => {
     render(
       <TimeSlotGrid
         slots={SLOTS}
-        patientTimeZone="America/New_York"
+        scheduleTimeZone={SCHEDULE_TIME_ZONE}
+        viewerTimeZone={SCHEDULE_TIME_ZONE}
         selectedDateLabel="Monday, August 24, 2026"
         isToday={false}
         onSelectSlot={onSelectSlot}
@@ -68,7 +79,8 @@ describe("TimeSlotGrid", () => {
     render(
       <TimeSlotGrid
         slots={[]}
-        patientTimeZone="America/New_York"
+        scheduleTimeZone={SCHEDULE_TIME_ZONE}
+        viewerTimeZone={SCHEDULE_TIME_ZONE}
         selectedDateLabel="Monday, August 24, 2026"
         isToday
         onSelectSlot={vi.fn()}
@@ -82,7 +94,8 @@ describe("TimeSlotGrid", () => {
     render(
       <TimeSlotGrid
         slots={[]}
-        patientTimeZone="America/New_York"
+        scheduleTimeZone={SCHEDULE_TIME_ZONE}
+        viewerTimeZone={SCHEDULE_TIME_ZONE}
         selectedDateLabel="Wednesday, August 26, 2026"
         isToday={false}
         onSelectSlot={vi.fn()}

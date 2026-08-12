@@ -36,7 +36,15 @@ class BookingStatusUpdateTests(BookingsAPITestCase):
         )
 
     def _patch_status(self, booking_id, new_status):
-        return self.patch_json(f"/bookings/{booking_id}/status", {"status": new_status})
+        body = {"status": new_status}
+        if new_status == "cancelled":
+            # doctor-cancel-reason-notify ticket 01: cancelling through this
+            # endpoint requires a written reason. The reason-validation rules
+            # themselves are `test_cancellation_reason.py`'s job, not this
+            # file's -- this just keeps these permission/transition tests
+            # sending a valid body.
+            body["cancellation_reason"] = "Provider unavailable."
+        return self.patch_json(f"/bookings/{booking_id}/status", body)
 
     def test_provider_can_cancel_their_own_booking(self):
         self.login_as(self.provider)

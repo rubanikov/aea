@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Booking Option 2 — Zocdoc slot-first directory (low-fi wireframe)</title>
+<style>
+  *{box-sizing:border-box;margin:0}
+  body{font-family:"Segoe UI",Arial,sans-serif;background:#e9e9e9;color:#222;padding:28px;font-size:14px}
+  .annot{max-width:1020px;margin:0 auto 10px;font-size:13px;color:#555;line-height:1.5}
+  .annot b{color:#222}
+  .frame{background:#fff;border:2px solid #333;max-width:1020px;margin:0 auto 44px;box-shadow:4px 4px 0 #ccc}
+  h1{font-size:20px;max-width:1020px;margin:0 auto 6px}
+  h2{font-size:15px;max-width:1020px;margin:28px auto 6px}
+  .shell{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #333;padding:10px 16px;background:#f3f3f3;gap:12px;flex-wrap:wrap}
+  .shell .brand{font-weight:700}
+  .shell nav{font-size:12px;color:#444;display:flex;gap:14px}
+  .seg{display:inline-flex;border:1.5px solid #444;border-radius:4px;overflow:hidden;font-size:11px}
+  .seg span{padding:3px 9px;border-right:1px solid #444}
+  .seg span:last-child{border-right:0}
+  .seg .on{background:#444;color:#fff}
+  .avatar{width:26px;height:26px;border:1.5px solid #444;border-radius:50%;background:#ddd}
+  .spacer{flex:1}
+  .btn{display:inline-block;border:1.5px solid #444;padding:4px 12px;font-size:12px;background:#fff;border-radius:4px}
+  .btn.primary{background:#444;color:#fff}
+  .content{padding:18px 22px}
+  /* filter bar */
+  .fbar{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;align-items:center}
+  .sel{border:1.5px solid #555;border-radius:6px;padding:6px 12px;font-size:12px;background:#fafafa}
+  .sel b{margin-right:4px}
+  /* provider rows */
+  .prow{display:flex;gap:16px;border:1.5px solid #999;border-radius:8px;padding:14px;margin-bottom:14px;background:#fff}
+  .prow:hover{box-shadow:2px 2px 0 #ccc}
+  .pv{width:56px;height:56px;border:1.5px solid #444;border-radius:50%;background:#ddd;flex-shrink:0}
+  .pinfo{width:210px;flex-shrink:0}
+  .pinfo h3{font-size:15px}
+  .pinfo .spec{font-size:12px;color:#666;margin:2px 0}
+  .pinfo .tz{font-size:10px;color:#999;margin-top:6px}
+  .avail{flex:1}
+  .avail .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#888;margin-bottom:6px}
+  .week{display:grid;grid-template-columns:repeat(5,1fr) auto;gap:6px;font-size:10px;text-align:center}
+  .week .dh{color:#666;padding-bottom:2px}
+  .slot{border:1.5px solid #555;border-radius:5px;padding:4px 2px;background:#fff;font-size:10px}
+  .slot small{display:block;font-size:8px;color:#888}
+  .noslot{color:#ccc;padding:4px 2px}
+  .morecol{display:flex;align-items:center}
+  .more{border:1.5px dashed #999;border-radius:5px;padding:4px 8px;color:#777;font-size:10px}
+  .soon{font-size:10px;color:#555;margin-top:6px}
+  /* states */
+  .states{display:grid;grid-template-columns:repeat(3,1fr);border-top:2px solid #333}
+  .state{border-right:1.5px solid #999;padding:12px;min-height:130px}
+  .state:last-child{border-right:0}
+  .state h3{font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:#888;margin-bottom:8px}
+  .ghost{background:repeating-linear-gradient(45deg,#eee,#eee 6px,#f8f8f8 6px,#f8f8f8 12px);border:1px solid #ddd;border-radius:8px}
+  .empty{border:1.5px dashed #999;color:#777;text-align:center;padding:16px 8px;font-size:11px;border-radius:8px}
+  .errbox{border:1.5px solid #333;background:#e2e2e2;padding:10px;font-size:11px;border-radius:6px}
+  /* confirm page */
+  .cpage{display:flex;justify-content:center;background:#ddd;padding:34px}
+  .ccard{background:#fff;border:2px solid #333;border-radius:8px;width:460px;padding:20px;box-shadow:4px 4px 0 #aaa}
+  .ccard h3{font-size:16px;margin-bottom:10px}
+  .sumrow{display:flex;gap:12px;border:1.5px solid #999;border-radius:6px;padding:10px;margin-bottom:12px;font-size:12px;align-items:center}
+  .sumrow .pv{width:40px;height:40px}
+  .field{margin-bottom:12px}
+  .field label{font-size:12px;font-weight:700;display:block;margin-bottom:4px}
+  .field .inp{border:1.5px solid #777;border-radius:4px;height:56px;background:#fafafa}
+  .finemeta{font-size:11px;color:#666;line-height:1.6;margin-bottom:12px}
+</style>
+</head>
+<body>
+
+<h1>Booking — Option 2: "Zocdoc slot-first directory"</h1>
+<p class="annot"><b>Channeling: Zocdoc.</b> Inverts the current flow: instead of provider → service → then finally see times, the patient picks the <b>service first</b> (one dropdown) and immediately sees a <b>directory of provider rows, each with its next 5 days of open slots inline</b> — availability is the browsing surface, the way Zocdoc puts the appointment grid directly on every doctor card in search results. Tapping any slot chip goes straight to a single confirm page. <b>Borrowed specifically:</b> Zocdoc's card-with-availability-grid search result, "Next available:" fallback line for booked-out providers, and its one-tap slot → review-and-confirm jump (fewest taps of the three options: 3 taps to booked). <b>Tradeoff:</b> heaviest data change — one screen needs slots for <i>all</i> providers at once (N slot queries or a new batch endpoint); shines with 5+ providers, looks sparse with 2. Best fit for "I want the soonest appointment, whoever it's with".</p>
+
+<div class="frame">
+  <div class="shell">
+    <span class="brand">AEA — Patient portal</span>
+    <nav><span>Book</span><span>My appointments</span></nav>
+    <span class="spacer"></span>
+    <span class="seg"><span>Light</span><span>Dark</span><span class="on">System</span></span>
+    <span class="avatar"></span>
+  </div>
+
+  <div class="content">
+    <div class="fbar">
+      <span class="sel"><b>Service:</b> Consult (45 min) ▾</span>
+      <span class="sel"><b>Week of:</b> Aug 11 ▾</span>
+      <span class="spacer"></span>
+      <span style="font-size:11px;color:#777">Times shown in each provider's timezone; yours under each chip</span>
+    </div>
+
+    <div class="prow">
+      <div class="pv"></div>
+      <div class="pinfo">
+        <h3>Dr. Sarah Lee</h3>
+        <div class="spec">Consult · 45 min</div>
+        <div class="tz">Eastern Time (New York)</div>
+      </div>
+      <div class="avail">
+        <div class="lbl">Open times — tap to book</div>
+        <div class="week">
+          <div class="dh">Tue 11</div><div class="dh">Wed 12</div><div class="dh">Thu 13</div><div class="dh">Fri 14</div><div class="dh">Mon 17</div><div></div>
+          <div class="slot">10:00a<small>9:00a yours</small></div>
+          <div class="slot">9:30a<small>8:30a yours</small></div>
+          <div class="noslot">—</div>
+          <div class="slot">9:00a<small>8:00a yours</small></div>
+          <div class="slot">2:00p<small>1:00p yours</small></div>
+          <div class="morecol"><span class="more">More ›</span></div>
+          <div class="slot">1:00p<small>12:00p yours</small></div>
+          <div class="noslot"></div>
+          <div class="noslot"></div>
+          <div class="slot">10:00a<small>9:00a yours</small></div>
+          <div class="noslot"></div>
+          <div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="prow">
+      <div class="pv"></div>
+      <div class="pinfo">
+        <h3>Dr. Omar Haddad</h3>
+        <div class="spec">Consult · 45 min</div>
+        <div class="tz">Central Time (Chicago)</div>
+      </div>
+      <div class="avail">
+        <div class="lbl">Open times — tap to book</div>
+        <div class="week">
+          <div class="dh">Tue 11</div><div class="dh">Wed 12</div><div class="dh">Thu 13</div><div class="dh">Fri 14</div><div class="dh">Mon 17</div><div></div>
+          <div class="noslot">—</div><div class="noslot">—</div><div class="noslot">—</div><div class="noslot">—</div><div class="noslot">—</div><div class="morecol"><span class="more">More ›</span></div>
+        </div>
+        <div class="soon">Next available: <b>Thu, Aug 20 · 11:00 AM</b> — <span style="text-decoration:underline">jump to that week</span></div>
+      </div>
+    </div>
+
+    <div class="prow" style="opacity:.75">
+      <div class="pv"></div>
+      <div class="pinfo">
+        <h3>Dr. Ana Petrova</h3>
+        <div class="spec" style="color:#999">Doesn't offer Consult</div>
+      </div>
+      <div class="avail"><div class="empty" style="padding:10px">Hidden by the service filter in the real build — shown here to document the rule.</div></div>
+    </div>
+  </div>
+
+  <div class="states">
+    <div class="state"><h3>Loading</h3>
+      <div class="ghost" style="height:56px;margin-bottom:8px"></div>
+      <div class="ghost" style="height:56px"></div>
+      <p style="font-size:10px;color:#888;margin-top:6px">Provider rows appear as they resolve — no all-or-nothing wait.</p>
+    </div>
+    <div class="state"><h3>Empty</h3>
+      <div class="empty">No providers offer this service right now.<br>/ per-row: "No open times this week — Next available: …"</div>
+    </div>
+    <div class="state"><h3>Error</h3>
+      <div class="errbox">Couldn't load providers — please try again. <span class="btn">Try again</span><br><br>Per-row slot failures degrade to a row-level retry, not a page error.</div>
+    </div>
+  </div>
+</div>
+
+<h2>Scene 2 — one-page review &amp; confirm (reached directly from any slot chip)</h2>
+<p class="annot">Zocdoc's pattern: the chip tap lands on a compact review page — summary card, reason field, one primary button. Success and 409-conflict replace the card body (conflict offers "Back to open times", which refreshes the directory).</p>
+<div class="frame">
+  <div class="cpage">
+    <div class="ccard">
+      <h3>Review and book</h3>
+      <div class="sumrow">
+        <div class="pv"></div>
+        <div>
+          <b>Consult with Dr. Sarah Lee</b><br>
+          Tue, Aug 11 · 10:00–10:45 AM — Eastern Time (New York)<br>
+          <span style="color:#777">9:00–9:45 AM your time — Central Time (Chicago)</span>
+        </div>
+      </div>
+      <div class="field"><label>Reason for visit (optional)</label><div class="inp"></div></div>
+      <div class="finemeta">No payment · cancel anytime from My appointments</div>
+      <div style="display:flex;gap:8px"><span class="btn primary">Book appointment</span><span class="btn">Back to times</span></div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

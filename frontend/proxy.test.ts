@@ -56,7 +56,7 @@ describe("proxy (route guard backed by GET /auth/me)", () => {
       requestFor("/provider", "session=abc123")
     );
     expect(response.headers.get("location")).toBe(
-      "https://example.test/access-denied"
+      "https://example.test/access-denied?required=provider"
     );
     // The incoming request's cookies are forwarded to /auth/me so the
     // backend can verify the same session.
@@ -94,6 +94,21 @@ describe("proxy (route guard backed by GET /auth/me)", () => {
       requestFor("/settings", "session=abc123")
     );
     expect(response.headers.get("location")).toBeNull();
+  });
+
+  it("names the role a patient route needed when a provider's session lands on it", async () => {
+    // The multi-tab case: a doctor's tab is still showing /patient/... after
+    // a patient signed in elsewhere in the same browser (or vice versa). The
+    // redirect carries what the route wanted so /access-denied can tell the
+    // visitor their session was replaced rather than accusing their account
+    // of lacking permission.
+    mockAuthMe({ status: 200, role: "provider" });
+    const response = await proxy(
+      requestFor("/patient/appointments", "access_token=abc123")
+    );
+    expect(response.headers.get("location")).toBe(
+      "https://example.test/access-denied?required=patient"
+    );
   });
 
   it("fails closed (redirects to /login) when the backend is unreachable", async () => {

@@ -42,7 +42,7 @@ export function AuditLogPagination({
           onClick={onPrevious}
           disabled={disabled || page <= 1}
           aria-label="Go to previous page"
-          className="rounded border border-gray-300 px-3 py-1.5 font-medium hover:bg-gray-50 disabled:opacity-50"
+          className="rounded border border-border-strong px-3 py-1.5 font-medium hover:bg-accent disabled:opacity-50"
         >
           Previous
         </button>
@@ -54,7 +54,7 @@ export function AuditLogPagination({
           onClick={onNext}
           disabled={disabled || page >= totalPages}
           aria-label="Go to next page"
-          className="rounded border border-gray-300 px-3 py-1.5 font-medium hover:bg-gray-50 disabled:opacity-50"
+          className="rounded border border-border-strong px-3 py-1.5 font-medium hover:bg-accent disabled:opacity-50"
         >
           Next
         </button>

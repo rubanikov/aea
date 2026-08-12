@@ -66,6 +66,17 @@ class Booking(models.Model):
     # treats multiple NULLs in a unique column as distinct, so that's never
     # a false collision between two keyless bookings.
     idempotency_key = models.CharField(max_length=255, null=True, blank=True, unique=True)
+    # The provider's written reason for a cancellation
+    # (doctor-cancel-reason-notify ticket 01). Only ever written by
+    # `bookings.transitions.transition()` alongside a `-> CANCELLED` status
+    # change through the provider status endpoint; every other cancel path
+    # (patient self-cancel, reschedule's implicit cancel, account
+    # deletion's bulk cancel) leaves it `""`. Never nullable -- "" is the
+    # one "no reason recorded" value, so readers never branch on None.
+    # Length is capped at 500 chars by `BookingStatusUpdateSerializer`,
+    # not here: a TextField keeps the schema simple and the limit is a
+    # request-validation rule, not a storage invariant.
+    cancellation_reason = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -101,3 +112,46 @@ class Booking(models.Model):
             f"{self.start_time}-{self.end_time} provider={self.provider_id} "
             f"status={self.status}"
         )
+
+
+class CancellationNotificationLog(models.Model):
+    """One row per cancellation notification sent *at* a patient -- the
+    counter behind `bookings.notifications`' per-recipient hourly budget.
+
+    Same shape as `reminders.models.ReminderLog` (a lightweight row per
+    send, nothing about the message itself), for a different job, so the
+    two differ in two ways worth stating:
+
+    - it hangs off the *patient*, not the booking. The abuse this caps is
+      a cancel/rebook loop pumping attacker-written text at one recipient,
+      and every cycle of that loop has a fresh booking id -- only the
+      recipient stays constant, so only the recipient is worth counting.
+    - a row means "an attempt was made," not "a send succeeded"
+      (`ReminderLog`'s rule). A send that died at the transport still
+      spent a unit of the budget; retrying it should cost the same as
+      sending it did.
+
+    Nothing reads these rows except the budget check, and nothing prunes
+    them yet -- one row per cancellation is a rounding error next to
+    `AuditLog`, and keeping them costs nothing until it does.
+    """
+
+    patient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="cancellation_notification_logs",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            # The only query there is: "how many for this patient since
+            # <time>" (`notifications._claim_recipient_budget`).
+            models.Index(
+                fields=["patient", "created_at"], name="cancel_notif_patient_time_idx"
+            )
+        ]
+
+    def __str__(self):
+        return f"cancellation notification patient={self.patient_id} at={self.created_at}"

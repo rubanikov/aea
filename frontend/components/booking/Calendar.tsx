@@ -38,20 +38,27 @@ function dayClassName(options: {
 }): string {
   const base = "rounded px-2 py-1.5 text-center text-sm";
   if (options.isSelected && options.selectable) {
-    return `${base} bg-black font-semibold text-white`;
+    return `${base} bg-(--slot-selected-bg) font-semibold text-(--slot-selected-foreground)`;
   }
   if (options.selectable) {
-    return `${base} font-semibold text-black hover:bg-gray-100`;
+    return `${base} font-semibold text-foreground hover:bg-accent`;
   }
-  return `${base} ${options.inCurrentMonth ? "text-gray-400" : "text-gray-300"}`;
+  // Unavailable days (past or fully booked) share the same diagonal-hatch
+  // texture the provider calendar uses for blocked time (`globals.css`'s
+  // `.hatch-unavailable`), so "not bookable" reads identically on both
+  // sides of the app.
+  return `${base} hatch-unavailable ${
+    options.inCurrentMonth ? "text-muted-foreground" : "text-muted-foreground/60"
+  }`;
 }
 
 /**
  * The "Pick a date" month calendar: a fixed 6-week Sunday-first grid with
  * month navigation. Bookable days (bold, real `aria-pressed` buttons) vs.
- * past/fully-booked days (dimmed) are both real, focusable `<button>`s. A
- * dimmed day is `aria-disabled`, not the native `disabled` attribute, so
- * it stays in the tab order rather than being skipped entirely.
+ * past/fully-booked days (hatched, via the shared `.hatch-unavailable`
+ * utility) are both real, focusable `<button>`s. A hatched day is
+ * `aria-disabled`, not the native `disabled` attribute, so it stays in the
+ * tab order rather than being skipped entirely.
  */
 export function Calendar({
   visibleMonth,
@@ -73,7 +80,7 @@ export function Calendar({
           type="button"
           onClick={onPrevMonth}
           aria-label="Previous month"
-          className="rounded border border-gray-300 px-2 py-1 text-sm hover:bg-gray-50"
+          className="rounded border border-border-strong px-2 py-1 text-sm hover:bg-accent"
         >
           «
         </button>
@@ -84,7 +91,7 @@ export function Calendar({
           type="button"
           onClick={onNextMonth}
           aria-label="Next month"
-          className="rounded border border-gray-300 px-2 py-1 text-sm hover:bg-gray-50"
+          className="rounded border border-border-strong px-2 py-1 text-sm hover:bg-accent"
         >
           »
         </button>
@@ -99,7 +106,7 @@ export function Calendar({
           <div
             key={header}
             aria-hidden="true"
-            className="pb-1 text-center text-xs font-medium text-gray-500"
+            className="pb-1 text-center text-xs font-medium text-muted-foreground"
           >
             {header}
           </div>
@@ -134,8 +141,8 @@ export function Calendar({
         })}
       </div>
 
-      <p className="text-xs text-gray-500">
-        Bold = has open slots. Dimmed = fully booked or in the past (not bookable).
+      <p className="text-xs text-muted-foreground">
+        Bold = has open slots. Hatched = fully booked or in the past (not bookable).
       </p>
     </div>
   );

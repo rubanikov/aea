@@ -5,7 +5,8 @@ import { TextField } from "@/components/forms/TextField";
 import { useAuthenticatedRequest } from "@/hooks/use-authenticated-request";
 import { ApiError } from "@/lib/api/client";
 import { isFieldErrorBody, splitFieldErrors } from "@/lib/api/field-errors";
-import { timezoneOptions } from "@/lib/timezones";
+import { CARRIERS } from "@/lib/notifications/carriers";
+import { formatTimezone, timezoneOptions } from "@/lib/timezones";
 import type { FieldErrors } from "@/lib/auth/validation";
 
 export interface Profile {
@@ -13,14 +14,22 @@ export interface Profile {
   email: string;
   phone: string;
   timezone: string;
+  sms_carrier: string;
 }
 
-const FIELD_ORDER = ["name", "email", "phone", "timezone"] as const;
+const FIELD_ORDER = [
+  "name",
+  "email",
+  "phone",
+  "sms_carrier",
+  "timezone",
+] as const;
 const KNOWN_PROFILE_FIELDS = new Set(FIELD_ORDER);
 
 /**
  * Profile view/edit section of account settings: name, email, phone,
- * timezone. Loads via `GET /profile`, saves via `PATCH /profile`.
+ * SMS carrier, timezone. Loads via `GET /profile`, saves via
+ * `PATCH /profile`.
  */
 export function ProfileForm() {
   const authFetch = useAuthenticatedRequest();
@@ -34,11 +43,13 @@ export function ProfileForm() {
   const nameRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const phoneRef = useRef<HTMLInputElement>(null);
+  const smsCarrierRef = useRef<HTMLSelectElement>(null);
   const timezoneRef = useRef<HTMLSelectElement>(null);
   const fieldRefs = {
     name: nameRef,
     email: emailRef,
     phone: phoneRef,
+    sms_carrier: smsCarrierRef,
     timezone: timezoneRef,
   };
 
@@ -118,14 +129,14 @@ export function ProfileForm() {
 
   if (loadError) {
     return (
-      <p role="alert" className="text-sm text-red-600">
+      <p role="alert" className="text-sm text-danger-text">
         {loadError}
       </p>
     );
   }
 
   if (!profile) {
-    return <p className="text-sm text-gray-600">Loading your profile…</p>;
+    return <p className="text-sm text-muted-foreground">Loading your profile…</p>;
   }
 
   return (
@@ -160,6 +171,43 @@ export function ProfileForm() {
         inputRef={phoneRef}
       />
       <div className="flex flex-col gap-1">
+        <label htmlFor="profile-sms-carrier" className="text-sm font-medium">
+          Mobile carrier (optional)
+        </label>
+        <select
+          id="profile-sms-carrier"
+          ref={smsCarrierRef}
+          value={profile.sms_carrier}
+          onChange={(event) => updateField("sms_carrier", event.target.value)}
+          aria-invalid={fieldErrors.sms_carrier ? true : undefined}
+          aria-describedby={
+            fieldErrors.sms_carrier
+              ? "profile-sms-carrier-error profile-sms-carrier-hint"
+              : "profile-sms-carrier-hint"
+          }
+          className="rounded border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+        >
+          {CARRIERS.map((carrier) => (
+            <option key={carrier.value} value={carrier.value}>
+              {carrier.label}
+            </option>
+          ))}
+        </select>
+        {fieldErrors.sms_carrier ? (
+          <p
+            id="profile-sms-carrier-error"
+            role="alert"
+            className="text-sm text-danger-text"
+          >
+            {fieldErrors.sms_carrier}
+          </p>
+        ) : null}
+        <p id="profile-sms-carrier-hint" className="text-sm text-muted-foreground">
+          If you add your carrier, we&apos;ll also text you when an appointment
+          is cancelled. Standard message rates apply.
+        </p>
+      </div>
+      <div className="flex flex-col gap-1">
         <label htmlFor="profile-timezone" className="text-sm font-medium">
           Timezone
         </label>
@@ -172,11 +220,11 @@ export function ProfileForm() {
           aria-describedby={
             fieldErrors.timezone ? "profile-timezone-error" : undefined
           }
-          className="rounded border border-gray-300 px-3 py-2 text-sm focus:border-black focus:outline-none focus:ring-1 focus:ring-black"
+          className="rounded border border-input bg-background px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
         >
           {timezoneOptions(profile.timezone).map((timezone) => (
             <option key={timezone} value={timezone}>
-              {timezone}
+              {formatTimezone(timezone)}
             </option>
           ))}
         </select>
@@ -184,26 +232,26 @@ export function ProfileForm() {
           <p
             id="profile-timezone-error"
             role="alert"
-            className="text-sm text-red-600"
+            className="text-sm text-danger-text"
           >
             {fieldErrors.timezone}
           </p>
         ) : null}
       </div>
       {formError ? (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-danger-text">
           {formError}
         </p>
       ) : null}
       {saved ? (
-        <p role="status" aria-live="polite" className="text-sm text-green-700">
+        <p role="status" aria-live="polite" className="text-sm text-success-text">
           Profile updated.
         </p>
       ) : null}
       <button
         type="submit"
         disabled={saving}
-        className="self-start rounded bg-black px-5 py-2.5 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+        className="self-start rounded bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
       >
         {saving ? "Saving…" : "Save changes"}
       </button>

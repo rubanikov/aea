@@ -23,9 +23,14 @@ import {
   parseDateKey,
   type YearMonth,
 } from "@/lib/scheduling/calendar";
-import type { RescheduledBooking, Slot, SlotsResponse } from "@/lib/scheduling/types";
+import type {
+  Provider,
+  RescheduledBooking,
+  Slot,
+  SlotsResponse,
+} from "@/lib/scheduling/types";
+import { groupSlotsByLocalDate } from "@/lib/scheduling/slots";
 import { Calendar } from "../booking/Calendar";
-import { groupSlotsByLocalDate } from "../booking/SlotBrowser";
 import { TimeSlotGrid } from "../booking/TimeSlotGrid";
 
 const PROVIDERS_PATH = "/scheduling/providers";
@@ -40,6 +45,27 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
 }
 
 type ConfirmStatus = "form" | "submitting" | "success" | "conflict";
+
+/** What the dialog has to resolve before it can render a slot picker at
+ * all: which appointment type to ask `GET /scheduling/slots` for, and which
+ * clock to plot the answer on. */
+interface Schedule {
+  appointmentType: AppointmentType;
+  /** The provider's own zone -- the one their calendar and working hours
+   * are kept in, and therefore the one this picker labels slots in (see
+   * `SlotBrowser`'s docstring for why it can't be the patient's). */
+  timeZone: string;
+}
+
+interface Nav {
+  visibleMonth: YearMonth;
+  selectedDateKey: string;
+}
+
+function monthOf(key: string): YearMonth {
+  const { year, month } = parseDateKey(key);
+  return { year, month };
+}
 
 interface RescheduleDialogProps {
   booking: PatientBooking;
@@ -103,11 +129,13 @@ interface RescheduleDialogProps {
  * same endpoint `ServicePicker` already uses for the fresh-booking flow),
  * matched by name, which is safe because an appointment type's name is
  * unique per provider (`unique_appointment_type_name_per_provider`,
- * `backend/scheduling/models.py`). The booking's own `provider_id` is used
- * directly for every request below; there's no need to also resolve a full
- * `Provider` object here (unlike `SlotBrowser`), since this dialog never
- * needs to display the provider's own timezone, only the patient's, the
- * same "your time only" scope `AppointmentCard`'s own row already keeps.
+ * `backend/scheduling/models.py`). The provider's own timezone is resolved
+ * in the same pass, from `GET /scheduling/providers` (it isn't on
+ * `GET /bookings/mine`), because the slot picker below renders on the
+ * provider's clock exactly as `SlotBrowser` does -- see that component's
+ * docstring for why any other clock puts this picker out of step with the
+ * provider's calendar. The booking's own `provider_id` is used directly for
+ * every request below.
  *
  * The reschedule PATCH carries no idempotency key, unlike `POST /bookings`:
  * `BookingRescheduleSerializer`'s body is `{start_time}` only, with no
@@ -127,16 +155,16 @@ export function RescheduleDialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const triggerElementRef = useRef(triggerElement);
 
-  const [appointmentType, setAppointmentType] = useState<AppointmentType | null>(null);
+  const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [resolveError, setResolveError] = useState<string | null>(null);
   const [resolveReloadKey, setResolveReloadKey] = useState(0);
 
-  const [todayKey] = useState(() => zonedDateKey(new Date().toISOString(), patientTimeZone));
-  const [visibleMonth, setVisibleMonth] = useState<YearMonth>(() => {
-    const { year, month } = parseDateKey(todayKey);
-    return { year, month };
-  });
-  const [selectedDateKey, setSelectedDateKey] = useState(todayKey);
+  // Null until the patient navigates; the "month containing today, today
+  // selected" default is computed from `schedule` on every render instead of
+  // being copied into state by an effect, the same shape `ProviderCalendar`
+  // uses for the identical "the zone arrives from a fetch, then every day
+  // key derives from it" situation.
+  const [nav, setNav] = useState<Nav | null>(null);
   const [slotsResponse, setSlotsResponse] = useState<SlotsResponse | null>(null);
   const [slotsError, setSlotsError] = useState<string | null>(null);
   const [slotsReloadKey, setSlotsReloadKey] = useState(0);
@@ -145,6 +173,18 @@ export function RescheduleDialog({
   const [confirmStatus, setConfirmStatus] = useState<ConfirmStatus>("form");
   const [submitErrorMessage, setSubmitErrorMessage] = useState<string | null>(null);
   const [newBooking, setNewBooking] = useState<RescheduledBooking | null>(null);
+
+  const todayKey = schedule ? zonedDateKey(new Date().toISOString(), schedule.timeZone) : null;
+  const effectiveNav: Nav | null =
+    nav ??
+    (todayKey ? { visibleMonth: monthOf(todayKey), selectedDateKey: todayKey } : null);
+  const appointmentTypeId = schedule?.appointmentType.id ?? null;
+  // Pulled out as primitives so the slot-fetch effect below can depend on
+  // them directly: `effectiveNav` is a fresh object every render, and
+  // depending on it would refetch on every same-month day selection too.
+  const visibleMonthKey = effectiveNav
+    ? `${effectiveNav.visibleMonth.year}-${effectiveNav.visibleMonth.month}`
+    : null;
 
   useEffect(() => {
     triggerElementRef.current = triggerElement;
@@ -162,19 +202,23 @@ export function RescheduleDialog({
 
   useEffect(() => {
     let cancelled = false;
-    authFetch<AppointmentType[]>(`${PROVIDERS_PATH}/${booking.provider_id}/appointment-types`)
-      .then((types) => {
+    Promise.all([
+      authFetch<AppointmentType[]>(`${PROVIDERS_PATH}/${booking.provider_id}/appointment-types`),
+      authFetch<Provider[]>(PROVIDERS_PATH),
+    ])
+      .then(([types, providers]) => {
         if (cancelled) {
           return;
         }
         const match = types.find((type) => type.name === booking.appointment_type_name);
-        if (!match) {
+        const provider = providers.find(({ id }) => id === booking.provider_id);
+        if (!match || !provider) {
           setResolveError(
             "Couldn't find this appointment's service — it may have changed. Please try again."
           );
           return;
         }
-        setAppointmentType(match);
+        setSchedule({ appointmentType: match, timeZone: provider.timezone });
       })
       .catch((error) => {
         if (cancelled) {
@@ -190,16 +234,17 @@ export function RescheduleDialog({
   }, [authFetch, booking.provider_id, booking.appointment_type_name, resolveReloadKey]);
 
   useEffect(() => {
-    if (!appointmentType) {
+    if (!appointmentTypeId || !visibleMonthKey) {
       return;
     }
     let cancelled = false;
-    const grid = monthGrid(visibleMonth);
+    const [year, month] = visibleMonthKey.split("-").map(Number);
+    const grid = monthGrid({ year, month });
     const dateFrom = grid[0].dateKey;
     const dateTo = grid[grid.length - 1].dateKey;
 
     authFetch<SlotsResponse>(
-      `${SLOTS_PATH}?provider_id=${booking.provider_id}&appointment_type_id=${appointmentType.id}&date_from=${dateFrom}&date_to=${dateTo}`
+      `${SLOTS_PATH}?provider_id=${booking.provider_id}&appointment_type_id=${appointmentTypeId}&date_from=${dateFrom}&date_to=${dateTo}`
     )
       .then((result) => {
         if (!cancelled) {
@@ -217,7 +262,7 @@ export function RescheduleDialog({
     return () => {
       cancelled = true;
     };
-  }, [authFetch, booking.provider_id, appointmentType, visibleMonth, slotsReloadKey]);
+  }, [authFetch, booking.provider_id, appointmentTypeId, visibleMonthKey, slotsReloadKey]);
 
   function retryResolve() {
     setResolveError(null);
@@ -240,16 +285,30 @@ export function RescheduleDialog({
   function goToMonth(nextMonth: YearMonth) {
     setSlotsResponse(null);
     setSlotsError(null);
-    setVisibleMonth(nextMonth);
-    setSelectedDateKey(dateKey(nextMonth.year, nextMonth.month, 1));
+    setNav({
+      visibleMonth: nextMonth,
+      selectedDateKey: dateKey(nextMonth.year, nextMonth.month, 1),
+    });
   }
 
   function handlePrevMonth() {
-    goToMonth(addMonths(visibleMonth, -1));
+    if (effectiveNav) {
+      goToMonth(addMonths(effectiveNav.visibleMonth, -1));
+    }
   }
 
   function handleNextMonth() {
-    goToMonth(addMonths(visibleMonth, 1));
+    if (effectiveNav) {
+      goToMonth(addMonths(effectiveNav.visibleMonth, 1));
+    }
+  }
+
+  /** Selecting a different day within the already-loaded month: only the
+   * filter changes, so this deliberately doesn't clear or refetch slots. */
+  function handleSelectDate(nextDateKey: string) {
+    if (effectiveNav) {
+      setNav({ visibleMonth: effectiveNav.visibleMonth, selectedDateKey: nextDateKey });
+    }
   }
 
   function handleSelectSlot(slot: Slot) {
@@ -373,18 +432,18 @@ export function RescheduleDialog({
       <div role="alert" className="flex flex-col gap-4">
         <h2
           id={HEADING_ID}
-          className="flex items-center gap-2 text-lg font-semibold text-red-700"
+          className="flex items-center gap-2 text-lg font-semibold text-danger-text"
         >
           <span aria-hidden="true">⚠</span> This time is no longer available
         </h2>
-        <p className="text-sm text-red-800">
+        <p className="text-sm text-danger-soft-foreground">
           Someone else just booked it. Nothing about this appointment changed. Pick
           another time.
         </p>
         <button
           type="button"
           onClick={handleSlotUnavailable}
-          className="self-start rounded bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+          className="self-start rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
         >
           Choose another time
         </button>
@@ -393,10 +452,10 @@ export function RescheduleDialog({
   } else if (selectedSlot && confirmStatus === "success" && newBooking) {
     content = (
       <div role="status" aria-live="polite" className="flex flex-col gap-4">
-        <h2 id={HEADING_ID} className="text-lg font-semibold text-green-700">
+        <h2 id={HEADING_ID} className="text-lg font-semibold text-success-text">
           {"✓ Appointment rescheduled"}
         </h2>
-        <div className="rounded border border-green-200 bg-green-50 p-4 text-sm text-green-900">
+        <div className="rounded border border-success-border bg-success-soft p-4 text-sm text-success-soft-foreground">
           <p className="font-medium">
             {booking.appointment_type_name} with {booking.provider_name}
           </p>
@@ -408,7 +467,7 @@ export function RescheduleDialog({
         <button
           type="button"
           onClick={handleDone}
-          className="self-start rounded bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800"
+          className="self-start rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
         >
           Done
         </button>
@@ -427,7 +486,7 @@ export function RescheduleDialog({
             onClick={onClose}
             disabled={submitting}
             aria-label="Close"
-            className="rounded px-1 text-lg leading-none text-gray-500 hover:text-black disabled:opacity-50"
+            className="rounded px-1 text-lg leading-none text-muted-foreground hover:text-foreground disabled:opacity-50"
           >
             ×
           </button>
@@ -437,15 +496,15 @@ export function RescheduleDialog({
           <p className="font-medium">
             {booking.appointment_type_name} with {booking.provider_name}
           </p>
-          <p className="text-gray-600">From: {currentRange}</p>
+          <p className="text-muted-foreground">From: {currentRange}</p>
           <p>
             To: {formatAppointmentDateTime(selectedSlot.start, selectedSlot.end, patientTimeZone)}
           </p>
-          <p className="text-xs text-gray-500">Your time ({patientTimeZone})</p>
+          <p className="text-xs text-muted-foreground">Your time ({patientTimeZone})</p>
         </div>
 
         {submitErrorMessage ? (
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-danger-text">
             {submitErrorMessage}
           </p>
         ) : null}
@@ -455,7 +514,7 @@ export function RescheduleDialog({
             type="button"
             onClick={handleConfirmReschedule}
             disabled={submitting}
-            className="rounded bg-black px-4 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+            className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover disabled:opacity-50"
           >
             {submitting ? "Rescheduling…" : "Confirm new time"}
           </button>
@@ -463,7 +522,7 @@ export function RescheduleDialog({
             type="button"
             onClick={handleBackToBrowse}
             disabled={submitting}
-            className="rounded border border-gray-300 px-4 py-2 text-sm font-medium hover:bg-gray-50 disabled:opacity-50"
+            className="rounded border border-border-strong px-4 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
           >
             Choose a different time
           </button>
@@ -476,73 +535,81 @@ export function RescheduleDialog({
     if (resolveError) {
       body = (
         <div className="flex flex-col items-start gap-2">
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-danger-text">
             {resolveError}
           </p>
           <button
             type="button"
             onClick={retryResolve}
-            className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50"
+            className="rounded border border-border-strong px-3 py-1.5 text-sm font-medium hover:bg-accent"
           >
             Try again
           </button>
         </div>
       );
-    } else if (!appointmentType) {
-      body = <p className="text-sm text-gray-600">Loading rescheduling options…</p>;
+    } else if (!schedule || !effectiveNav) {
+      body = <p className="text-sm text-muted-foreground">Loading rescheduling options…</p>;
     } else if (slotsError) {
       body = (
         <div className="flex flex-col items-start gap-2">
-          <p role="alert" className="text-sm text-red-600">
+          <p role="alert" className="text-sm text-danger-text">
             {slotsError}
           </p>
           <button
             type="button"
             onClick={retrySlots}
-            className="rounded border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-50"
+            className="rounded border border-border-strong px-3 py-1.5 text-sm font-medium hover:bg-accent"
           >
             Try again
           </button>
         </div>
       );
     } else if (slotsResponse === null) {
-      body = <p className="text-sm text-gray-600">Loading open slots…</p>;
+      body = <p className="text-sm text-muted-foreground">Loading open slots…</p>;
     } else if (!slotsResponse.bookable) {
       body = (
         <p
           role="status"
-          className="rounded border border-dashed border-gray-300 p-4 text-sm text-gray-600"
+          className="rounded border border-dashed border-border-strong p-4 text-sm text-muted-foreground"
         >
           {slotsResponse.reason ?? "This provider doesn't have any open availability right now."}
         </p>
       );
     } else {
-      const slotsByDate = groupSlotsByLocalDate(slotsResponse.slots, patientTimeZone);
+      // Same clock as `SlotBrowser` and as the provider's own calendar --
+      // the provider's, never the patient's browser zone (see
+      // `SlotBrowser`'s docstring).
+      const slotsByDate = groupSlotsByLocalDate(slotsResponse.slots, schedule.timeZone);
       const datesWithSlots = new Set(slotsByDate.keys());
-      const selectedDaySlots = slotsByDate.get(selectedDateKey) ?? [];
-      const { year, month, day } = parseDateKey(selectedDateKey);
+      const selectedDaySlots = slotsByDate.get(effectiveNav.selectedDateKey) ?? [];
+      const { year, month, day } = parseDateKey(effectiveNav.selectedDateKey);
       const selectedDateLabel = formatFullDate(year, month, day);
 
       body = (
         <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
           <Calendar
-            visibleMonth={visibleMonth}
-            selectedDateKey={selectedDateKey}
-            todayKey={todayKey}
+            visibleMonth={effectiveNav.visibleMonth}
+            selectedDateKey={effectiveNav.selectedDateKey}
+            todayKey={todayKey ?? effectiveNav.selectedDateKey}
             datesWithSlots={datesWithSlots}
-            onSelectDate={setSelectedDateKey}
+            onSelectDate={handleSelectDate}
             onPrevMonth={handlePrevMonth}
             onNextMonth={handleNextMonth}
           />
           <div className="flex flex-col gap-3">
-            <p className="text-sm text-gray-600">
-              Shown in your timezone: <strong>{patientTimeZone}</strong>
+            <p className="text-sm text-muted-foreground">
+              Dates and times shown in {booking.provider_name}&apos;s timezone:{" "}
+              <strong>{schedule.timeZone}</strong>
+              {patientTimeZone === schedule.timeZone
+                ? " (your timezone too)"
+                : ` — yours is ${patientTimeZone}`}
             </p>
             <TimeSlotGrid
               slots={selectedDaySlots}
-              patientTimeZone={patientTimeZone}
+              scheduleTimeZone={schedule.timeZone}
+              viewerTimeZone={patientTimeZone}
               selectedDateLabel={selectedDateLabel}
-              isToday={selectedDateKey === todayKey}
+              isToday={effectiveNav.selectedDateKey === todayKey}
               onSelectSlot={handleSelectSlot}
             />
           </div>
@@ -560,14 +627,16 @@ export function RescheduleDialog({
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="rounded px-1 text-lg leading-none text-gray-500 hover:text-black"
+            className="rounded px-1 text-lg leading-none text-muted-foreground hover:text-foreground"
           >
             ×
           </button>
         </div>
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-muted-foreground">
           {booking.appointment_type_name} with {booking.provider_name}
-          {appointmentType ? ` (${formatDurationShort(appointmentType.duration_minutes)})` : ""}
+          {schedule
+            ? ` (${formatDurationShort(schedule.appointmentType.duration_minutes)})`
+            : ""}
           {" — currently "}
           {currentRange}
         </p>
@@ -585,7 +654,7 @@ export function RescheduleDialog({
         aria-labelledby={HEADING_ID}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
-        className="flex max-h-[90vh] w-full max-w-2xl flex-col gap-4 overflow-y-auto rounded bg-white p-6 shadow-lg focus:outline-none"
+        className="flex max-h-[90vh] w-full max-w-2xl flex-col gap-4 overflow-y-auto rounded bg-card p-6 text-card-foreground shadow-lg focus:outline-none"
       >
         {content}
       </div>

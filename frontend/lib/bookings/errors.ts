@@ -19,3 +19,23 @@ export function extractBookingErrorDetail(body: unknown): string | null {
   }
   return null;
 }
+
+/**
+ * Extracts the first `cancellation_reason` field error from a
+ * `PATCH /bookings/:id/status` 400 response body, e.g.
+ * `{"cancellation_reason": ["This field is required."]}` — DRF's standard
+ * field-error shape, distinct from the `{"detail": ...}` domain-error
+ * shape `extractBookingErrorDetail` handles. Returns `null` when the body
+ * doesn't match, so `AgendaRow` can fall through to the detail/generic
+ * error path instead of misfiling other 400s under the textarea.
+ */
+export function extractCancellationReasonError(body: unknown): string | null {
+  if (typeof body !== "object" || body === null || !("cancellation_reason" in body)) {
+    return null;
+  }
+  const errors = (body as { cancellation_reason: unknown }).cancellation_reason;
+  if (Array.isArray(errors) && typeof errors[0] === "string") {
+    return errors[0];
+  }
+  return null;
+}

@@ -12,7 +12,7 @@ Decision date: 2026-08-10. This document turns the findings in `tech-stack-resea
 | Database | **Postgres** (Supabase-compatible connection string, plain `DATABASE_URL` in this build — see §6) | `select_for_update()` needs real row locks; SQLite is a silent no-op there. Auth is a custom JWT-cookie system rather than Supabase Auth, which took RLS off the table — see §6 for the full reasoning and what still enforces row-ownership instead. |
 | Backend hosting | **Railway** | Render's free tier explicitly forbids background worker/cron service types — a hard blocker for the reminder job (§6). |
 | Frontend hosting | **Vercel** | First-party Next.js integration; self-serve BAA path if this ever needs to be real. |
-| Email | **Resend** | Only real free-tier option; reminder bodies stay PHI-free by design (no BAA available). |
+| Email | **Resend** | Only real free-tier option; reminder bodies stay PHI-free by design (no BAA available). Cancellation notices are a scoped, deliberate exception to that — see §7. |
 | AI (optional stretch) | **Groq** | Free, documented rate limits, has an (excludes-free-tier) BAA program. Only needed if building the NL-booking stretch feature. |
 
 ---
@@ -140,6 +140,21 @@ class ReminderLog(models.Model):
         ]
 ```
 A Railway cron job runs every 15–30 min: select confirmed bookings due for a reminder, left-join against `ReminderLog` to exclude already-sent, send via Resend, insert the log row. If the insert violates the unique constraint (a concurrent/retried run), catch and skip — the constraint is the actual guarantee, the query filter is just an optimization to avoid redundant sends in the common case.
+
+### 7a. Outbound content: PHI-free, with one approved exception
+
+The **reminder** path above is PHI-free and stays that way: its bodies carry an appointment time and a link into the authenticated portal, nothing about who the patient is, who the provider is, or what the appointment is for. That is what §1's "reminder bodies stay PHI-free by design (no BAA available)" means, and this feature did not change it.
+
+The **cancellation-notification** path (`bookings/notifications.py`, the doctor-cancellation feature) is a deliberate, approved exception to that blanket claim, and the claim is scoped accordingly — it no longer covers every outbound message, only the reminder path.
+
+What that path sends, over transports with no BAA behind either of them:
+
+- **Content:** the appointment's date and time rendered in the patient's own timezone, plus **the provider's free-text cancellation reason** — written by a clinician, in a clinical context, about a specific patient's appointment. It is not sanitised and cannot be: the whole value of the message is that it says *why*. It deliberately still omits the patient's name, the provider's name, and the appointment type, so the payload is minimal — but "minimal" is not "PHI-free," and calling it PHI-free would be false.
+- **Transports:** Resend (email), same as the reminder path; and, when the patient has supplied a phone number and carrier, the carrier's **email-to-SMS gateway** — which means the same message is handed to a third party (the mobile carrier) and delivered as an unencrypted SMS. No BAA covers either hop.
+
+**Why this was accepted, explicitly.** It was weighed as a product decision, not missed: a patient whose appointment vanishes with no explanation calls the clinic, rebooks blind, or simply shows up. Telling them *why*, on the channels they actually read, is the entire point of the feature, and a reason-free "your appointment was cancelled" notice was judged to fail the patient in exchange for a posture claim. The mitigations are the minimal payload above, the fact that the notification never carries anything beyond the reason and the time, and that everything else stays behind portal login. The patient opts into the SMS half themselves by saving a phone number and carrier in their profile; the email half follows the account they already registered.
+
+If a BAA-covered transport ever comes into scope, this is the path to move first.
 
 ---
 

@@ -1,26 +1,401 @@
 @import "tailwindcss";
 
+/* Tailwind's `dark:` variant must key off the `.dark` class on <html> — the
+   single source of truth for the resolved theme. The OS preference is
+   consulted only by the pre-paint script and the ThemeProvider (JS), never
+   by CSS media queries. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------------------------------------------------------------------------
+   Layer A — raw color ramps.
+
+   Fixed OKLCH inputs, copied verbatim from Tailwind v4's named scales
+   (slate → neutral, blue → brand, emerald/amber/red/cyan → status). They are
+   mode-independent raw material: components never reference them directly —
+   only the semantic tokens in Layer B below do.
+   ------------------------------------------------------------------------- */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Neutral (slate) */
+  --neutral-0: oklch(100% 0 0);
+  --neutral-50: oklch(98.4% 0.003 247.858);
+  --neutral-100: oklch(96.8% 0.007 247.896);
+  --neutral-200: oklch(92.9% 0.013 255.508);
+  --neutral-300: oklch(86.9% 0.022 252.894);
+  --neutral-400: oklch(70.4% 0.04 256.788);
+  --neutral-500: oklch(55.4% 0.046 257.417);
+  --neutral-600: oklch(44.6% 0.043 257.281);
+  --neutral-700: oklch(37.2% 0.044 257.287);
+  --neutral-800: oklch(27.9% 0.041 260.031);
+  --neutral-900: oklch(20.8% 0.042 265.755);
+  --neutral-950: oklch(12.9% 0.042 264.695);
+
+  /* Brand (blue) */
+  --brand-50: oklch(97% 0.014 254.604);
+  --brand-100: oklch(93.2% 0.032 255.585);
+  --brand-200: oklch(88.2% 0.059 254.128);
+  --brand-300: oklch(80.9% 0.105 251.813);
+  --brand-400: oklch(70.7% 0.165 254.624);
+  --brand-500: oklch(62.3% 0.214 259.815);
+  --brand-600: oklch(54.6% 0.245 262.881);
+  --brand-700: oklch(48.8% 0.243 264.376);
+  --brand-800: oklch(42.4% 0.199 265.638);
+  --brand-900: oklch(37.9% 0.146 265.522);
+  --brand-950: oklch(28.2% 0.091 267.935);
+
+  /* Success (emerald) */
+  --success-50: oklch(97.9% 0.021 166.113);
+  --success-100: oklch(95% 0.052 163.051);
+  --success-300: oklch(84.5% 0.143 164.978);
+  --success-400: oklch(76.5% 0.177 163.223);
+  --success-600: oklch(59.6% 0.145 163.225);
+  --success-700: oklch(50.8% 0.118 165.612);
+  --success-900: oklch(37.8% 0.077 168.94);
+  --success-950: oklch(26.2% 0.051 172.552);
+
+  /* Warning (amber) */
+  --warning-50: oklch(98.7% 0.022 95.277);
+  --warning-100: oklch(96.2% 0.059 95.617);
+  --warning-300: oklch(87.9% 0.169 91.605);
+  --warning-400: oklch(82.8% 0.189 84.429);
+  --warning-600: oklch(66.6% 0.179 58.318);
+  --warning-700: oklch(55.5% 0.163 48.998);
+  --warning-900: oklch(41.4% 0.112 45.904);
+  --warning-950: oklch(27.9% 0.077 45.635);
+
+  /* Danger (red) */
+  --danger-50: oklch(97.1% 0.013 17.38);
+  --danger-100: oklch(93.6% 0.032 17.717);
+  --danger-300: oklch(80.8% 0.114 19.571);
+  --danger-400: oklch(70.4% 0.191 22.216);
+  --danger-600: oklch(57.7% 0.245 27.325);
+  --danger-700: oklch(50.5% 0.213 27.518);
+  --danger-900: oklch(39.6% 0.141 25.723);
+  --danger-950: oklch(25.8% 0.092 26.042);
+
+  /* Info (cyan) */
+  --info-50: oklch(98.4% 0.019 200.873);
+  --info-100: oklch(95.6% 0.045 203.388);
+  --info-300: oklch(86.5% 0.127 207.078);
+  --info-400: oklch(78.9% 0.154 211.53);
+  --info-600: oklch(60.9% 0.126 221.723);
+  --info-700: oklch(52% 0.105 223.128);
+  --info-900: oklch(39.8% 0.07 227.392);
+  --info-950: oklch(30.2% 0.056 229.695);
 }
 
+/* Tag ramp — 8 hues for future appointment-type coloring. Unlike the ramps
+   above, bg/border/foreground assignment differs by mode (light: 100/300/900;
+   dark: 950/800/200 of the same hue), so these carry both blocks.
+   Hues: 1 violet, 2 rose, 3 orange, 4 teal, 5 indigo, 6 fuchsia, 7 lime,
+   8 sky (Tailwind v4 values). */
+:root {
+  --tag-1-bg: oklch(94.3% 0.029 294.588);
+  --tag-1-border: oklch(81.1% 0.111 293.571);
+  --tag-1-foreground: oklch(38% 0.189 293.745);
+  --tag-2-bg: oklch(94.1% 0.03 12.58);
+  --tag-2-border: oklch(81% 0.117 11.638);
+  --tag-2-foreground: oklch(41% 0.159 10.272);
+  --tag-3-bg: oklch(95.4% 0.038 75.164);
+  --tag-3-border: oklch(83.7% 0.128 66.29);
+  --tag-3-foreground: oklch(40.8% 0.123 38.172);
+  --tag-4-bg: oklch(95.3% 0.051 180.801);
+  --tag-4-border: oklch(85.5% 0.138 181.071);
+  --tag-4-foreground: oklch(38.6% 0.063 188.416);
+  --tag-5-bg: oklch(93% 0.034 272.788);
+  --tag-5-border: oklch(78.5% 0.115 274.713);
+  --tag-5-foreground: oklch(35.9% 0.144 278.697);
+  --tag-6-bg: oklch(95.2% 0.037 318.852);
+  --tag-6-border: oklch(83.3% 0.145 321.434);
+  --tag-6-foreground: oklch(40.1% 0.17 325.612);
+  --tag-7-bg: oklch(96.7% 0.067 122.328);
+  --tag-7-border: oklch(89.7% 0.196 126.665);
+  --tag-7-foreground: oklch(40.5% 0.101 131.063);
+  --tag-8-bg: oklch(95.1% 0.026 236.824);
+  --tag-8-border: oklch(82.8% 0.111 230.318);
+  --tag-8-foreground: oklch(39.1% 0.09 240.876);
+}
+
+.dark {
+  --tag-1-bg: oklch(28.3% 0.141 291.089);
+  --tag-1-border: oklch(43.2% 0.232 292.759);
+  --tag-1-foreground: oklch(89.4% 0.057 293.283);
+  --tag-2-bg: oklch(27.1% 0.105 12.094);
+  --tag-2-border: oklch(45.5% 0.188 13.697);
+  --tag-2-foreground: oklch(89.2% 0.058 10.001);
+  --tag-3-bg: oklch(26.6% 0.079 36.259);
+  --tag-3-border: oklch(47% 0.157 37.304);
+  --tag-3-foreground: oklch(90.1% 0.076 70.697);
+  --tag-4-bg: oklch(27.7% 0.046 192.524);
+  --tag-4-border: oklch(43.7% 0.078 188.216);
+  --tag-4-foreground: oklch(91% 0.096 180.426);
+  --tag-5-bg: oklch(25.7% 0.09 281.288);
+  --tag-5-border: oklch(39.8% 0.195 277.366);
+  --tag-5-foreground: oklch(87% 0.065 274.039);
+  --tag-6-bg: oklch(29.3% 0.136 325.661);
+  --tag-6-border: oklch(45.2% 0.211 324.591);
+  --tag-6-foreground: oklch(90.3% 0.076 319.62);
+  --tag-7-bg: oklch(27.4% 0.072 132.109);
+  --tag-7-border: oklch(45.3% 0.124 130.933);
+  --tag-7-foreground: oklch(93.8% 0.127 124.321);
+  --tag-8-bg: oklch(29.3% 0.066 243.157);
+  --tag-8-border: oklch(44.3% 0.11 240.79);
+  --tag-8-foreground: oklch(90.1% 0.058 230.902);
+}
+
+/* ---------------------------------------------------------------------------
+   Layer B — semantic tokens.
+
+   Every token here is declared in BOTH :root (light) and .dark, and is a
+   var() reference onto Layer A — never a raw color literal. Components and
+   Tailwind utilities consume only this layer.
+
+   `color-scheme` tells the browser which palette to use for the widgets it
+   draws itself (pickers, scrollbars, autofill), keyed off the same `.dark`
+   class as everything else.
+   ------------------------------------------------------------------------- */
+:root {
+  color-scheme: light;
+
+  /* Surfaces & text */
+  --background: var(--neutral-50);
+  --foreground: var(--neutral-900);
+  --card: var(--neutral-0);
+  --card-foreground: var(--neutral-900);
+  --popover: var(--neutral-0);
+  --popover-foreground: var(--neutral-900);
+  --muted: var(--neutral-100);
+  --muted-foreground: var(--neutral-500);
+  --secondary: var(--neutral-100);
+  --secondary-foreground: var(--neutral-900);
+  --accent: var(--neutral-100);
+  --accent-foreground: var(--neutral-900);
+  --border: var(--neutral-200);
+  --border-strong: var(--neutral-300);
+  --input: var(--neutral-300);
+  --ring: var(--brand-600);
+
+  /* Brand */
+  --primary: var(--brand-600);
+  --primary-foreground: var(--neutral-0);
+  --primary-hover: var(--brand-700);
+  --primary-active: var(--brand-800);
+  --primary-subtle: var(--brand-50);
+  --primary-subtle-foreground: var(--brand-700);
+  --link: var(--brand-700);
+
+  /* Status */
+  /* 700, not 600: white text on success-600/info-600 lands ~3.6:1, below
+     WCAG AA's 4.5:1 (verified by theme-contrast.test.ts). */
+  --success: var(--success-700);
+  --success-foreground: var(--neutral-0);
+  --success-soft: var(--success-50);
+  --success-soft-foreground: var(--success-900);
+  --success-border: var(--success-300);
+  --success-text: var(--success-700);
+  --warning: var(--warning-400);
+  --warning-foreground: var(--warning-950);
+  --warning-soft: var(--warning-50);
+  --warning-soft-foreground: var(--warning-900);
+  --warning-border: var(--warning-300);
+  --warning-text: var(--warning-700);
+  --danger: var(--danger-600);
+  --danger-foreground: var(--neutral-0);
+  --danger-soft: var(--danger-50);
+  --danger-soft-foreground: var(--danger-900);
+  --danger-border: var(--danger-300);
+  --danger-text: var(--danger-700);
+  --info: var(--info-700);
+  --info-foreground: var(--neutral-0);
+  --info-soft: var(--info-50);
+  --info-soft-foreground: var(--info-900);
+  --info-border: var(--info-300);
+  --info-text: var(--info-700);
+
+  /* shadcn/ui compatibility: aliases of danger, not a separate palette. */
+  --destructive: var(--danger);
+  --destructive-foreground: var(--danger-foreground);
+
+  /* Calendar */
+  --grid-line: var(--neutral-200);
+  --grid-line-strong: var(--neutral-300);
+  --grid-hour-label: var(--neutral-500);
+  --grid-today-bg: var(--brand-50);
+  --slot-open-bg: var(--neutral-0);
+  --slot-open-border: var(--neutral-300);
+  --slot-busy-bg: var(--neutral-100);
+  --slot-selected-bg: var(--brand-600);
+  --slot-selected-foreground: var(--neutral-0);
+  --status-confirmed-border: var(--brand-600);
+  --status-completed-bg: var(--success-50);
+  --status-completed-foreground: var(--success-900);
+  --status-cancelled-bg: var(--neutral-100);
+  /* 600, not 500: neutral-500 on neutral-100 is 4.35:1, just under AA. */
+  --status-cancelled-foreground: var(--neutral-600);
+  --blocked-hatch-fg: var(--neutral-300);
+  --blocked-hatch-bg: var(--neutral-100);
+}
+
+.dark {
+  color-scheme: dark;
+
+  /* Surfaces & text */
+  --background: var(--neutral-950);
+  --foreground: var(--neutral-100);
+  --card: var(--neutral-900);
+  --card-foreground: var(--neutral-100);
+  --popover: var(--neutral-900);
+  --popover-foreground: var(--neutral-100);
+  --muted: var(--neutral-800);
+  --muted-foreground: var(--neutral-400);
+  --secondary: var(--neutral-800);
+  --secondary-foreground: var(--neutral-100);
+  --accent: var(--neutral-800);
+  --accent-foreground: var(--neutral-100);
+  --border: var(--neutral-800);
+  --border-strong: var(--neutral-700);
+  --input: var(--neutral-700);
+  --ring: var(--brand-400);
+
+  /* Brand */
+  /* brand-600, not the lighter brand-500: white text on brand-500 is only
+     ~3.8:1, below WCAG AA (verified by theme-contrast.test.ts). */
+  --primary: var(--brand-600);
+  --primary-foreground: var(--neutral-0);
+  --primary-hover: var(--brand-400);
+  --primary-active: var(--brand-300);
+  --primary-subtle: var(--brand-950);
+  --primary-subtle-foreground: var(--brand-200);
+  --link: var(--brand-400);
+
+  /* Status */
+  /* 700, not 600, for the same AA reason as the light block. */
+  --success: var(--success-700);
+  --success-foreground: var(--neutral-0);
+  --success-soft: var(--success-950);
+  --success-soft-foreground: var(--success-100);
+  --success-border: var(--success-700);
+  --success-text: var(--success-400);
+  --warning: var(--warning-400);
+  --warning-foreground: var(--warning-950);
+  --warning-soft: var(--warning-950);
+  --warning-soft-foreground: var(--warning-100);
+  --warning-border: var(--warning-700);
+  --warning-text: var(--warning-400);
+  --danger: var(--danger-600);
+  --danger-foreground: var(--neutral-0);
+  --danger-soft: var(--danger-950);
+  --danger-soft-foreground: var(--danger-100);
+  --danger-border: var(--danger-700);
+  --danger-text: var(--danger-400);
+  --info: var(--info-700);
+  --info-foreground: var(--neutral-0);
+  --info-soft: var(--info-950);
+  --info-soft-foreground: var(--info-100);
+  --info-border: var(--info-700);
+  --info-text: var(--info-400);
+
+  /* shadcn/ui compatibility: aliases of danger, not a separate palette. */
+  --destructive: var(--danger);
+  --destructive-foreground: var(--danger-foreground);
+
+  /* Calendar */
+  --grid-line: var(--neutral-800);
+  --grid-line-strong: var(--neutral-700);
+  --grid-hour-label: var(--neutral-400);
+  --grid-today-bg: var(--brand-950);
+  --slot-open-bg: var(--neutral-900);
+  --slot-open-border: var(--neutral-700);
+  --slot-busy-bg: var(--neutral-800);
+  /* brand-600 like --primary above: white on brand-500 fails AA. */
+  --slot-selected-bg: var(--brand-600);
+  --slot-selected-foreground: var(--neutral-0);
+  --status-confirmed-border: var(--brand-400);
+  --status-completed-bg: var(--success-950);
+  --status-completed-foreground: var(--success-100);
+  --status-cancelled-bg: var(--neutral-800);
+  --status-cancelled-foreground: var(--neutral-400);
+  --blocked-hatch-fg: var(--neutral-700);
+  --blocked-hatch-bg: var(--neutral-900);
+}
+
+/* Map semantic tokens into Tailwind so `bg-background`, `text-foreground`,
+   `border-border`, `bg-primary`, `text-danger-text`, … resolve through the
+   two-layer system above. Calendar and tag tokens are consumed directly via
+   var() / arbitrary values by the calendar tickets. */
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-active: var(--primary-active);
+  --color-primary-subtle: var(--primary-subtle);
+  --color-primary-subtle-foreground: var(--primary-subtle-foreground);
+  --color-link: var(--link);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-success-soft: var(--success-soft);
+  --color-success-soft-foreground: var(--success-soft-foreground);
+  --color-success-border: var(--success-border);
+  --color-success-text: var(--success-text);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-warning-soft: var(--warning-soft);
+  --color-warning-soft-foreground: var(--warning-soft-foreground);
+  --color-warning-border: var(--warning-border);
+  --color-warning-text: var(--warning-text);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  --color-danger-soft: var(--danger-soft);
+  --color-danger-soft-foreground: var(--danger-soft-foreground);
+  --color-danger-border: var(--danger-border);
+  --color-danger-text: var(--danger-text);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-info-soft: var(--info-soft);
+  --color-info-soft-foreground: var(--info-soft-foreground);
+  --color-info-border: var(--info-border);
+  --color-info-text: var(--info-text);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+/* No font-family here: Tailwind's preflight applies `--font-sans` (mapped to
+   the Geist variable above) to the document; an explicit Arial stack would
+   override it. */
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Diagonal hatch for blocked/unavailable time on the calendar grids: a
+   pure background texture (no border-radius, no shadow, no status color).
+   Shared by the provider calendar's blocked-time regions and — deliberately
+   the SAME class, so the two can't drift — the patient booking wizard's
+   unavailable-slot regions. */
+.hatch-unavailable {
+  background-color: var(--blocked-hatch-bg);
+  background-image: repeating-linear-gradient(
+    -45deg,
+    var(--blocked-hatch-fg) 0,
+    var(--blocked-hatch-fg) 1px,
+    transparent 1px,
+    transparent 7px
+  );
 }
