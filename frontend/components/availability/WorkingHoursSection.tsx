@@ -3,9 +3,8 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { useAuthenticatedRequest } from "@/hooks/use-authenticated-request";
 import { ApiError } from "@/lib/api/client";
-import { isFieldErrorBody, splitFieldErrors } from "@/lib/api/field-errors";
 import {
-  isCollisionResponseBody,
+  isScheduleConflictBody,
   type AvailabilityCollision,
   type AvailabilityWindowInput,
 } from "@/lib/availability/collisions";
@@ -16,126 +15,125 @@ import {
   type DayOfWeek,
 } from "@/lib/availability/days";
 import {
+  normalizeTime,
+  toMinutes,
   validateWorkingHours,
-  type WorkingHoursRow,
+  type WorkingHoursBlock,
+  type WorkingHoursDay,
 } from "@/lib/availability/validation";
-import type { AvailabilityDay } from "@/lib/availability/types";
+import type {
+  ProviderSchedule,
+  ScheduleGeneration,
+  ScheduleWindow,
+} from "@/lib/availability/types";
 import { CollisionWarningModal } from "./CollisionWarningModal";
+import { PendingScheduleBanner } from "./PendingScheduleBanner";
 
 const DEFAULT_START_TIME = "09:00";
 const DEFAULT_END_TIME = "17:00";
-const AVAILABILITY_PATH = "/scheduling/availability";
-const CHECK_COLLISIONS_PATH = "/scheduling/availability/check-collisions";
+const SCHEDULE_PATH = "/scheduling/schedule";
+/** A new block starts this long after the previous block's end (also the
+ * minimum gap the validator enforces) and spans this long by default. */
+const NEW_BLOCK_OFFSET_MINUTES = 60;
 
-interface SavedState {
-  rows: WorkingHoursRow[];
-  /** Every currently-saved row id for a day, keyed by `DayOfWeek`. The
-   * backend's model permits more than one `Availability` row per day (for
-   * per-day breaks/sub-ranges, a nice-to-have this UI skips); this UI only
-   * ever shows/edits one range per day, so saving a change deletes *every*
-   * existing row for that day before creating the replacement, keeping
-   * the two in sync. */
-  idsByDay: Record<DayOfWeek, number[]>;
+const GENERIC_SAVE_ERROR = "Couldn't save your working hours — please try again.";
+
+/** Client-only React keys for block rows; monotonic so removing a block
+ * never re-keys its neighbours. */
+let blockKeyCounter = 0;
+function newBlockKey(): string {
+  blockKeyCounter += 1;
+  return `block-${blockKeyCounter}`;
+}
+
+function defaultBlock(): WorkingHoursBlock {
+  return { key: newBlockKey(), startTime: DEFAULT_START_TIME, endTime: DEFAULT_END_TIME };
 }
 
 /** One open collision-warning modal's worth of state: the proposed windows
- * it was raised against (resent verbatim on "Keep new hours"), the
- * affected appointments to list, and the change description to show. */
+ * it was raised against (resent verbatim with an `effective_from` on
+ * "Apply from"), the affected appointments to list, the server's earliest
+ * safe deferral date (`null` = the change can't be deferred at all), and
+ * the change description to show. */
 interface CollisionState {
   windows: AvailabilityWindowInput[];
   collisions: AvailabilityCollision[];
+  earliestSafeDate: string | null;
   description: string;
 }
 
-/** Tolerates "HH:MM:SS" (DRF's default `TimeField` serialization) as well
- * as "HH:MM" (what `<input type="time">` uses). */
-function normalizeTime(value: string): string {
-  return value.length > 5 ? value.slice(0, 5) : value;
+function toTime(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  return `${String(hours).padStart(2, "0")}:${String(rest).padStart(2, "0")}`;
 }
 
-function rowsFromApi(days: readonly AvailabilityDay[]): WorkingHoursRow[] {
-  const byDayIndex = new Map<number, AvailabilityDay>();
-  for (const day of days) {
-    // If a day somehow has more than one saved row, this UI only surfaces
-    // one range per day. Keep the earliest (the API orders by
-    // `day_of_week, start_time`, so the first match wins deterministically).
-    if (!byDayIndex.has(day.day_of_week)) {
-      byDayIndex.set(day.day_of_week, day);
-    }
+function byStartTime(a: WorkingHoursBlock, b: WorkingHoursBlock): number {
+  return toMinutes(a.startTime) - toMinutes(b.startTime);
+}
+
+/** The live generation's windows -> the form's per-day block stacks. A day
+ * with no window gets a single default block so checking it reveals
+ * 09:00–17:00, same as before. */
+function daysFromWindows(windows: readonly ScheduleWindow[]): WorkingHoursDay[] {
+  const blocksByDay = new Map<number, WorkingHoursBlock[]>();
+  for (const window of windows) {
+    const blocks = blocksByDay.get(window.day_of_week) ?? [];
+    blocks.push({
+      key: newBlockKey(),
+      startTime: normalizeTime(window.start_time),
+      endTime: normalizeTime(window.end_time),
+    });
+    blocksByDay.set(window.day_of_week, blocks);
   }
   return WEEKDAYS.map(({ value }, index) => {
-    const match = byDayIndex.get(index);
-    return match
-      ? {
-          day: value,
-          enabled: true,
-          startTime: normalizeTime(match.start_time),
-          endTime: normalizeTime(match.end_time),
-        }
-      : {
-          day: value,
-          enabled: false,
-          startTime: DEFAULT_START_TIME,
-          endTime: DEFAULT_END_TIME,
-        };
+    const blocks = blocksByDay.get(index);
+    return blocks
+      ? { day: value, enabled: true, blocks }
+      : { day: value, enabled: false, blocks: [defaultBlock()] };
   });
 }
 
-function groupIdsByDay(
-  days: readonly AvailabilityDay[]
-): Record<DayOfWeek, number[]> {
-  const grouped = Object.fromEntries(
-    WEEKDAYS.map(({ value }) => [value, [] as number[]])
-  ) as Record<DayOfWeek, number[]>;
-  for (const day of days) {
-    const weekday = dayOfWeekFromIndex(day.day_of_week);
-    if (weekday) {
-      grouped[weekday].push(day.id);
-    }
-  }
-  return grouped;
+/** The complete proposed weekly picture: every enabled day's blocks in
+ * start-time order, in the shape `PUT /scheduling/schedule`'s `windows`
+ * expects. A day toggled off (or never enabled) is simply absent, which
+ * the backend takes to mean "no hours that day". */
+function buildProposedWindows(days: readonly WorkingHoursDay[]): AvailabilityWindowInput[] {
+  return days
+    .filter((day) => day.enabled)
+    .flatMap((day) =>
+      [...day.blocks].sort(byStartTime).map((block) => ({
+        day_of_week: dayOfWeekToIndex(day.day),
+        start_time: block.startTime,
+        end_time: block.endTime,
+      }))
+    );
 }
 
-function buildSavedState(days: readonly AvailabilityDay[]): SavedState {
-  return { rows: rowsFromApi(days), idsByDay: groupIdsByDay(days) };
+/** e.g. "09:00–12:00 and 14:00–17:00", or "unavailable" for a disabled
+ * day. */
+function formatDayBlocks(day: WorkingHoursDay): string {
+  return day.enabled
+    ? [...day.blocks]
+        .sort(byStartTime)
+        .map((block) => `${block.startTime}–${block.endTime}`)
+        .join(" and ")
+    : "unavailable";
 }
 
-/** The complete proposed weekly picture: every currently-enabled row's
- * day/start/end, in the shape `check-collisions`'s `windows` expects. A
- * day toggled off (or never enabled) is simply absent, which the backend
- * takes to mean "no hours that day", covering a day being deleted
- * entirely, not just shortened. */
-function buildProposedWindows(rows: readonly WorkingHoursRow[]): AvailabilityWindowInput[] {
-  return rows
-    .filter((row) => row.enabled)
-    .map((row) => ({
-      day_of_week: dayOfWeekToIndex(row.day),
-      start_time: row.startTime,
-      end_time: row.endTime,
-    }));
-}
-
-function formatRange(row: WorkingHoursRow): string {
-  return row.enabled ? `${row.startTime}–${row.endTime}` : "unavailable";
-}
-
-/** e.g. "You're changing Friday's hours from 09:00–17:00 to 09:00–13:00."
- * The collision modal's framing sentence, built from a diff between what
- * was last saved and what's about to be submitted. Falls back to a
- * generic sentence in the (unusual) case a collision is raised without any
- * row actually differing. */
+/** e.g. "You're changing Monday's hours from 09:00–17:00 to 09:00–12:00
+ * and 14:00–17:00." The collision modal's framing sentence, built from a
+ * diff between what was last saved and what's about to be submitted.
+ * Falls back to a generic sentence in the (unusual) case a collision is
+ * raised without any day actually differing. */
 function describeWorkingHoursChange(
-  previous: readonly WorkingHoursRow[],
-  next: readonly WorkingHoursRow[]
+  previous: readonly WorkingHoursDay[],
+  next: readonly WorkingHoursDay[]
 ): string {
   const changes = WEEKDAYS.map(({ label }, index) => {
-    const before = previous[index];
-    const after = next[index];
-    const changed =
-      before.enabled !== after.enabled ||
-      (after.enabled &&
-        (before.startTime !== after.startTime || before.endTime !== after.endTime));
-    return changed ? `${label}'s hours from ${formatRange(before)} to ${formatRange(after)}` : null;
+    const before = formatDayBlocks(previous[index]);
+    const after = formatDayBlocks(next[index]);
+    return before !== after ? `${label}'s hours from ${before} to ${after}` : null;
   }).filter((line): line is string => line !== null);
 
   return changes.length > 0
@@ -143,41 +141,96 @@ function describeWorkingHoursChange(
     : "This change affects existing bookings.";
 }
 
+/** "2026-08-25" -> "Aug 25, 2026" for the deferred-save confirmation.
+ * Pinned to UTC so the browser's timezone can't shift the calendar date. */
+function formatEffectiveDate(date: string): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(`${date}T00:00:00Z`));
+}
+
 /**
- * Weekly working hours: a checkbox + start/end time per weekday inside a
- * `<fieldset>`. A single start/end range per day, with no per-day
- * break/sub-range support, a deliberate simplification.
+ * `PUT /scheduling/schedule`'s 400 keys schedule-rule violations by
+ * weekday index (`{"windows": {"0": ["Blocks on the same day can't
+ * overlap."]}}`) so they can render as per-day inline errors. Malformed
+ * payloads fall through to DRF's default errors (nested objects rather
+ * than string lists), which this returns nothing for — the caller shows a
+ * form-level message instead.
+ */
+function scheduleDayErrors(body: unknown): Partial<Record<DayOfWeek, string>> {
+  const errors: Partial<Record<DayOfWeek, string>> = {};
+  if (typeof body !== "object" || body === null) {
+    return errors;
+  }
+  const windows = (body as { windows?: unknown }).windows;
+  if (typeof windows !== "object" || windows === null || Array.isArray(windows)) {
+    return errors;
+  }
+  for (const [key, value] of Object.entries(windows)) {
+    const day = dayOfWeekFromIndex(Number(key));
+    if (!day) {
+      continue;
+    }
+    if (typeof value === "string") {
+      errors[day] = value;
+    } else if (Array.isArray(value) && value.every((item) => typeof item === "string")) {
+      errors[day] = value.join(" ");
+    }
+  }
+  return errors;
+}
+
+/**
+ * Weekly working hours: a checkbox per weekday inside a `<fieldset>`,
+ * each enabled day holding a stack of start/end time blocks with a
+ * per-block "✕ Remove" and one "+ Add block". The form always shows the
+ * **live** generation (`GET /scheduling/schedule`'s `current`), loaded on
+ * mount.
  *
- * `GET /scheduling/availability` on mount. There is no bulk save endpoint
- * and no `PATCH` for an existing row, only `GET`/`POST` on the collection
- * and `DELETE` on a row, so "Save working hours" reconciles day-by-day: a
- * day whose enabled/start/end state hasn't changed since the last load is
- * left alone; a day that changed has its previous row(s) deleted and, if
- * still enabled, a new one created. This keeps the single "Save" button
- * despite the backend being row-oriented.
+ * "Save working hours" client-validates every enabled day (end after
+ * start, no overlaps, ≥1 hour between blocks) and then sends the whole
+ * weekly picture in one `PUT /scheduling/schedule` with
+ * `effective_from: null`. A `400` maps the server's weekday-keyed
+ * `windows` errors onto the same per-day inline alerts the client
+ * validator uses. A `409` means the change would strand existing
+ * bookings: `CollisionWarningModal` opens with the deferral option —
+ * "Apply from <date>" re-sends the same windows with the chosen
+ * `effective_from`, scheduling a pending change while the live hours (and
+ * this form) stay as they were, while "Cancel this change" (also
+ * Esc/Go back) reverts the form to what's saved. When the server reports
+ * `earliest_safe_date: null`, no deferral date can help and the modal is
+ * cancel-only.
  *
- * Before that per-day save sequence ever runs, the complete proposed
- * weekly picture is sent to `POST /scheduling/availability/check-collisions`.
- * No collision (`200`) proceeds exactly as before, zero behavior change.
- * A collision (`409`) opens `CollisionWarningModal` instead of saving
- * anything; "Keep new hours" re-calls the same endpoint with
- * `resolution: "keep_new_hours"` and then runs the real save sequence,
- * while "Cancel this change" (also Esc/Go back) discards the proposed
- * edit client-side only, since a second round-trip buys nothing when
- * nothing needs to change server-side.
+ * When the response carries a non-null `pending` generation, a
+ * `PendingScheduleBanner` sits above the form. "Edit pending change"
+ * hydrates the form with the pending windows and flips `editingPending`,
+ * so the next save `PUT`s with `effective_from: pending.effective_from` —
+ * replacing the pending generation while the live hours stay untouched
+ * (a 409 there goes through the same collision modal). A successful
+ * cancel in the banner (`DELETE /scheduling/schedule/pending`) drops the
+ * banner immediately and re-`GET`s the schedule in place, without
+ * bouncing through the loading state.
  */
 export function WorkingHoursSection() {
   const authFetch = useAuthenticatedRequest();
-  const [rows, setRows] = useState<WorkingHoursRow[] | null>(null); // null = loading
-  const [savedState, setSavedState] = useState<SavedState | null>(null);
+  const [days, setDays] = useState<WorkingHoursDay[] | null>(null); // null = loading
+  const [savedDays, setSavedDays] = useState<WorkingHoursDay[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [hasSavedAnyDay, setHasSavedAnyDay] = useState(false);
-  const [rowErrors, setRowErrors] = useState<Partial<Record<DayOfWeek, string>>>({});
+  const [dayErrors, setDayErrors] = useState<Partial<Record<DayOfWeek, string>>>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [savedMessage, setSavedMessage] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [timezone, setTimezone] = useState<string | null>(null);
+  const [currentWindows, setCurrentWindows] = useState<ScheduleWindow[]>([]);
+  const [pending, setPending] = useState<ScheduleGeneration | null>(null);
+  /** True while the form holds the pending generation's windows (via "Edit
+   * pending change"), which redirects the next save's `effective_from`. */
+  const [editingPending, setEditingPending] = useState(false);
 
   const [collisionState, setCollisionState] = useState<CollisionState | null>(null);
   const [collisionTrigger, setCollisionTrigger] = useState<HTMLElement | null>(null);
@@ -185,19 +238,27 @@ export function WorkingHoursSection() {
   const [collisionError, setCollisionError] = useState<string | null>(null);
 
   const checkboxRefs = useRef<Partial<Record<DayOfWeek, HTMLInputElement | null>>>({});
-  const startRefs = useRef<Partial<Record<DayOfWeek, HTMLInputElement | null>>>({});
+  /** Each day's first block's start input, the focus target for that
+   * day's inline error. */
+  const firstStartRefs = useRef<Partial<Record<DayOfWeek, HTMLInputElement | null>>>({});
 
-  function applyLoaded(days: readonly AvailabilityDay[]) {
-    const state = buildSavedState(days);
-    setRows(state.rows);
-    setSavedState(state);
-    setHasSavedAnyDay(days.length > 0);
+  function applyLoaded(schedule: ProviderSchedule) {
+    const loaded = daysFromWindows(schedule.current.windows);
+    setDays(loaded);
+    setSavedDays(loaded);
+    setHasSavedAnyDay(schedule.current.windows.length > 0);
+    setTimezone(schedule.timezone);
+    setCurrentWindows(schedule.current.windows);
+    setPending(schedule.pending);
+    // Any full reload puts the live hours back in the form, ending a
+    // pending edit in progress.
+    setEditingPending(false);
   }
 
   useEffect(() => {
     let cancelled = false;
 
-    authFetch<AvailabilityDay[]>(AVAILABILITY_PATH)
+    authFetch<ProviderSchedule>(SCHEDULE_PATH)
       .then((result) => {
         if (!cancelled) {
           applyLoaded(result);
@@ -217,37 +278,14 @@ export function WorkingHoursSection() {
     };
   }, [authFetch, reloadKey]);
 
-  useEffect(() => {
-    // Same "no shared hook for this yet" pattern as `BlockedTimeSection`.
-    // Only needed to render a collision's time in the provider's own
-    // timezone, display-only, so a failure here just falls back to UTC
-    // rather than breaking this section's main load state.
-    let cancelled = false;
-
-    authFetch<{ timezone: string }>("/profile")
-      .then((result) => {
-        if (!cancelled) {
-          setTimezone(result.timezone);
-        }
-      })
-      .catch(() => {});
-
-    return () => {
-      cancelled = true;
-    };
-  }, [authFetch]);
-
   function retry() {
     setLoadError(null);
-    setRows(null);
+    setDays(null);
     setReloadKey((key) => key + 1);
   }
 
-  function updateRow(day: DayOfWeek, patch: Partial<WorkingHoursRow>) {
-    setRows((current) =>
-      (current ?? []).map((row) => (row.day === day ? { ...row, ...patch } : row))
-    );
-    setRowErrors((current) => {
+  function clearDayError(day: DayOfWeek) {
+    setDayErrors((current) => {
       if (!current[day]) {
         return current;
       }
@@ -257,10 +295,67 @@ export function WorkingHoursSection() {
     });
   }
 
+  function updateDay(day: DayOfWeek, update: (current: WorkingHoursDay) => WorkingHoursDay) {
+    setDays((current) =>
+      (current ?? []).map((entry) => (entry.day === day ? update(entry) : entry))
+    );
+    clearDayError(day);
+  }
+
+  function setDayEnabled(day: DayOfWeek, enabled: boolean) {
+    updateDay(day, (entry) => ({ ...entry, enabled }));
+  }
+
+  function updateBlock(
+    day: DayOfWeek,
+    key: string,
+    patch: Partial<Omit<WorkingHoursBlock, "key">>
+  ) {
+    updateDay(day, (entry) => ({
+      ...entry,
+      blocks: entry.blocks.map((block) =>
+        block.key === key ? { ...block, ...patch } : block
+      ),
+    }));
+  }
+
+  function addBlock(day: DayOfWeek) {
+    updateDay(day, (entry) => {
+      const latest = [...entry.blocks].sort(byStartTime).at(-1);
+      if (!latest) {
+        return { ...entry, blocks: [defaultBlock()] };
+      }
+      // One hour after the previous block's end (the minimum valid gap),
+      // clamped so a late-evening block still yields editable times.
+      const start = Math.min(
+        toMinutes(latest.endTime) + NEW_BLOCK_OFFSET_MINUTES,
+        23 * 60 + 58
+      );
+      const end = Math.min(start + NEW_BLOCK_OFFSET_MINUTES, 23 * 60 + 59);
+      return {
+        ...entry,
+        blocks: [
+          ...entry.blocks,
+          { key: newBlockKey(), startTime: toTime(start), endTime: toTime(end) },
+        ],
+      };
+    });
+  }
+
+  function removeBlock(day: DayOfWeek, key: string) {
+    updateDay(day, (entry) =>
+      entry.blocks.length <= 1
+        ? // Removing the last block means "no hours that day": uncheck the
+          // day and stage a fresh default so re-checking starts clean.
+          { ...entry, enabled: false, blocks: [defaultBlock()] }
+        : { ...entry, blocks: entry.blocks.filter((block) => block.key !== key) }
+    );
+  }
+
   function focusFirstInvalid(errors: Partial<Record<DayOfWeek, string>>) {
     for (const { value } of WEEKDAYS) {
       if (errors[value]) {
-        startRefs.current[value]?.focus();
+        firstStartRefs.current[value]?.focus();
         return;
       }
     }
@@ -270,181 +365,143 @@ export function WorkingHoursSection() {
     checkboxRefs.current.monday?.focus();
   }
 
-  /** The actual per-day delete/recreate save sequence, extracted so both
-   * the no-collision path and "Keep new hours" (after its own resolution
-   * round-trip) can run it. */
-  async function runSaveSequence() {
-    if (!rows || !savedState) {
-      return;
-    }
-    setSaving(true);
-
-    const serverErrors: Partial<Record<DayOfWeek, string>> = {};
-    let hadUnexpectedError = false;
-    let sessionExpired = false;
-
-    for (let index = 0; index < rows.length; index += 1) {
-      if (sessionExpired) {
-        break;
-      }
-      const row = rows[index];
-      const previous = savedState.rows[index];
-      const existingIds = savedState.idsByDay[row.day] ?? [];
-      const changed =
-        previous.enabled !== row.enabled ||
-        (row.enabled &&
-          (previous.startTime !== row.startTime || previous.endTime !== row.endTime));
-      if (!changed) {
-        continue;
-      }
-
-      try {
-        for (const id of existingIds) {
-          await authFetch(`${AVAILABILITY_PATH}/${id}`, { method: "DELETE" });
-        }
-        if (row.enabled) {
-          await authFetch(AVAILABILITY_PATH, {
-            method: "POST",
-            body: {
-              day_of_week: dayOfWeekToIndex(row.day),
-              start_time: row.startTime,
-              end_time: row.endTime,
-            },
-          });
-        }
-      } catch (error) {
-        if (error instanceof ApiError && error.status === 401) {
-          sessionExpired = true;
-        } else if (
-          error instanceof ApiError &&
-          error.status === 400 &&
-          isFieldErrorBody(error.body)
-        ) {
-          const { fieldErrors } = splitFieldErrors(
-            error.body,
-            new Set(["start_time", "end_time", "day_of_week"])
-          );
-          serverErrors[row.day] =
-            fieldErrors.end_time ??
-            fieldErrors.start_time ??
-            "Couldn't save this day — please try again.";
-        } else {
-          hadUnexpectedError = true;
-        }
-      }
-    }
-
-    if (sessionExpired) {
-      setSaving(false);
-      return;
-    }
-
-    try {
-      const refreshed = await authFetch<AvailabilityDay[]>(AVAILABILITY_PATH);
-      applyLoaded(refreshed);
-    } catch {
-      // Best-effort refresh; if it fails too, keep the last-known local
-      // state rather than losing the provider's in-progress edits.
-    }
-
-    if (Object.keys(serverErrors).length > 0) {
-      setRowErrors(serverErrors);
-      focusFirstInvalid(serverErrors);
-    } else if (hadUnexpectedError) {
-      setFormError("Couldn't save all of your working hours — please try again.");
-    } else {
-      setSaved(true);
-    }
-    setSaving(false);
-  }
-
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!rows || !savedState) {
+    if (!days || !savedDays || saving) {
       return;
     }
 
-    setSaved(false);
+    setSavedMessage(null);
     setFormError(null);
-    const clientErrors = validateWorkingHours(rows);
+    const clientErrors = validateWorkingHours(days);
     if (Object.keys(clientErrors).length > 0) {
-      setRowErrors(clientErrors);
+      setDayErrors(clientErrors);
       focusFirstInvalid(clientErrors);
       return;
     }
-    setRowErrors({});
+    setDayErrors({});
     setSaving(true);
 
     // Captured before any awaits (and before `disabled` on the Save button
     // can take effect on the next render) so it's still the real triggering
     // element, same technique `BookingConfirmPanel`'s caller uses.
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const windows = buildProposedWindows(rows);
+    const windows = buildProposedWindows(days);
+    // Editing the pending generation replaces it (same effective date)
+    // rather than overwriting the live hours.
+    const effectiveFrom = editingPending ? (pending?.effective_from ?? null) : null;
 
     try {
-      await authFetch(CHECK_COLLISIONS_PATH, {
-        method: "POST",
-        body: { windows },
+      const schedule = await authFetch<ProviderSchedule>(SCHEDULE_PATH, {
+        method: "PUT",
+        body: { windows, effective_from: effectiveFrom },
       });
+      applyLoaded(schedule);
+      setSavedMessage(
+        effectiveFrom !== null
+          ? `New working hours scheduled to take effect ${formatEffectiveDate(effectiveFrom)}.`
+          : "Working hours saved."
+      );
     } catch (error) {
-      if (error instanceof ApiError && error.status === 409 && isCollisionResponseBody(error.body)) {
+      if (error instanceof ApiError && error.status === 409 && isScheduleConflictBody(error.body)) {
         setCollisionState({
           windows,
           collisions: error.body.collisions,
-          description: describeWorkingHoursChange(savedState.rows, rows),
+          earliestSafeDate: error.body.earliest_safe_date,
+          description: describeWorkingHoursChange(savedDays, days),
         });
         setCollisionTrigger(trigger);
-        setSaving(false);
-        return;
+      } else if (error instanceof ApiError && error.status === 400) {
+        const serverErrors = scheduleDayErrors(error.body);
+        if (Object.keys(serverErrors).length > 0) {
+          setDayErrors(serverErrors);
+          focusFirstInvalid(serverErrors);
+        } else {
+          setFormError(GENERIC_SAVE_ERROR);
+        }
+      } else if (!(error instanceof ApiError && error.status === 401)) {
+        setFormError(GENERIC_SAVE_ERROR);
       }
-      if (error instanceof ApiError && error.status === 401) {
-        setSaving(false);
-        return;
-      }
-      setFormError("Couldn't save your working hours — please try again.");
-      setSaving(false);
-      return;
     }
-
-    // No collision: proceed with the normal save.
-    await runSaveSequence();
+    setSaving(false);
   }
 
-  async function handleKeepNewHours() {
+  /** "Apply from <date>" in the collision modal: re-send the exact same
+   * windows with the chosen `effective_from`, scheduling a pending change.
+   * On success the response's `current` is unchanged, so the form snaps
+   * back to the live hours it always shows. */
+  async function handleApplyFrom(date: string) {
     if (!collisionState) {
       return;
     }
     setConfirmingCollision(true);
     setCollisionError(null);
     try {
-      await authFetch(CHECK_COLLISIONS_PATH, {
-        method: "POST",
-        body: { windows: collisionState.windows, resolution: "keep_new_hours" },
+      const schedule = await authFetch<ProviderSchedule>(SCHEDULE_PATH, {
+        method: "PUT",
+        body: { windows: collisionState.windows, effective_from: date },
       });
+      applyLoaded(schedule);
+      setCollisionState(null);
+      setSavedMessage(
+        `New working hours scheduled to take effect ${formatEffectiveDate(date)}.`
+      );
     } catch (error) {
-      setConfirmingCollision(false);
       if (!(error instanceof ApiError && error.status === 401)) {
-        setCollisionError("Couldn't save your working hours — please try again.");
+        setCollisionError(GENERIC_SAVE_ERROR);
       }
-      return;
     }
-    setCollisionState(null);
     setConfirmingCollision(false);
-    await runSaveSequence();
   }
 
   function handleCancelCollisionChange() {
     setCollisionState(null);
     setConfirmingCollision(false);
     setCollisionError(null);
-    setSaving(false);
-    setRowErrors({});
+    setDayErrors({});
     setFormError(null);
-    if (savedState) {
+    setEditingPending(false);
+    if (savedDays) {
       // "Cancel this change" keeps the provider's current hours: revert
       // the form back to what's actually saved rather than leaving it
       // showing the discarded edit.
-      setRows(savedState.rows);
+      setDays(savedDays);
+    }
+  }
+
+  /** "Edit pending change" in the banner: hydrate the form with the
+   * pending generation's windows. Saving then replaces the pending change
+   * (see `handleSubmit`'s `effectiveFrom`). */
+  function handleEditPending() {
+    if (!pending) {
+      return;
+    }
+    setDays(daysFromWindows(pending.windows));
+    setEditingPending(true);
+    setSavedMessage(null);
+    setFormError(null);
+    setDayErrors({});
+    focusMonday();
+  }
+
+  /** The banner's DELETE succeeded: drop the banner (and a pending edit in
+   * progress) right away, then re-sync with the server in place — no
+   * loading state, so the form stays put. */
+  async function handlePendingCancelled() {
+    setPending(null);
+    if (editingPending) {
+      setEditingPending(false);
+      if (savedDays) {
+        setDays(savedDays);
+      }
+    }
+    try {
+      const schedule = await authFetch<ProviderSchedule>(SCHEDULE_PATH);
+      applyLoaded(schedule);
+    } catch {
+      // The cancel itself succeeded and the local state already matches
+      // the server (live hours unchanged, pending gone), so a failed
+      // refresh is non-fatal.
     }
   }
 
@@ -471,7 +528,7 @@ export function WorkingHoursSection() {
     );
   }
 
-  if (!rows) {
+  if (!days) {
     return (
       <section
         aria-labelledby="working-hours-heading"
@@ -494,6 +551,17 @@ export function WorkingHoursSection() {
         Weekly working hours
       </h2>
 
+      {pending && pending.effective_from !== null ? (
+        <PendingScheduleBanner
+          effectiveFrom={pending.effective_from}
+          pendingWindows={pending.windows}
+          currentWindows={currentWindows}
+          editingPending={editingPending}
+          onEditPending={handleEditPending}
+          onCancelled={handlePendingCancelled}
+        />
+      ) : null}
+
       {!hasSavedAnyDay ? (
         <div className="flex flex-col items-start gap-3 rounded border border-dashed border-border-strong p-4">
           <p className="text-sm text-muted-foreground">
@@ -513,72 +581,95 @@ export function WorkingHoursSection() {
         <fieldset className="flex flex-col gap-3">
           <legend className="text-sm font-medium">Days available</legend>
           {WEEKDAYS.map(({ value, label }, index) => {
-            const row = rows[index];
-            const error = rowErrors[value];
-            const startId = `${value}-start`;
-            const endId = `${value}-end`;
+            const day = days[index];
+            const error = dayErrors[value];
             const errorId = `${value}-error`;
 
             return (
-              <div key={value} className="flex flex-col gap-1">
-                <div className="flex flex-wrap items-center gap-3">
-                  <label className="flex w-32 shrink-0 items-center gap-2 text-sm font-medium">
-                    <input
-                      type="checkbox"
-                      ref={(element) => {
-                        checkboxRefs.current[value] = element;
-                      }}
-                      checked={row.enabled}
-                      onChange={(event) =>
-                        updateRow(value, { enabled: event.target.checked })
-                      }
-                    />
-                    {label}
-                  </label>
-                  {row.enabled ? (
-                    <>
-                      <label htmlFor={startId} className="sr-only">
-                        {label} start time
-                      </label>
-                      <input
-                        type="time"
-                        id={startId}
-                        ref={(element) => {
-                          startRefs.current[value] = element;
-                        }}
-                        value={row.startTime}
-                        onChange={(event) =>
-                          updateRow(value, { startTime: event.target.value })
-                        }
-                        aria-invalid={error ? true : undefined}
-                        aria-describedby={error ? errorId : undefined}
-                        className="rounded border border-input px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
-                      />
-                      <span className="text-sm text-muted-foreground">to</span>
-                      <label htmlFor={endId} className="sr-only">
-                        {label} end time
-                      </label>
-                      <input
-                        type="time"
-                        id={endId}
-                        value={row.endTime}
-                        onChange={(event) =>
-                          updateRow(value, { endTime: event.target.value })
-                        }
-                        aria-invalid={error ? true : undefined}
-                        aria-describedby={error ? errorId : undefined}
-                        className="rounded border border-input px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
-                      />
-                    </>
-                  ) : (
-                    <span className="text-sm text-muted-foreground">Unavailable</span>
-                  )}
-                </div>
-                {error ? (
-                  <p id={errorId} role="alert" className="text-sm text-danger-text">
-                    {error}
-                  </p>
-                ) : null}
+              <div key={value} className="flex flex-wrap items-start gap-3">
+                <label className="flex w-32 shrink-0 items-center gap-2 pt-2 text-sm font-medium">
+                  <input
+                    type="checkbox"
+                    ref={(element) => {
+                      checkboxRefs.current[value] = element;
+                    }}
+                    checked={day.enabled}
+                    onChange={(event) => setDayEnabled(value, event.target.checked)}
+                  />
+                  {label}
+                </label>
+                {day.enabled ? (
+                  <div className="flex flex-1 flex-col gap-2">
+                    {day.blocks.map((block, blockIndex) => {
+                      const startId = `${value}-block-${blockIndex}-start`;
+                      const endId = `${value}-block-${blockIndex}-end`;
+
+                      return (
+                        <div key={block.key} className="flex flex-wrap items-center gap-3">
+                          <label htmlFor={startId} className="sr-only">
+                            {label} block {blockIndex + 1} start time
+                          </label>
+                          <input
+                            type="time"
+                            id={startId}
+                            ref={
+                              blockIndex === 0
+                                ? (element) => {
+                                    firstStartRefs.current[value] = element;
+                                  }
+                                : undefined
+                            }
+                            value={block.startTime}
+                            onChange={(event) =>
+                              updateBlock(value, block.key, { startTime: event.target.value })
+                            }
+                            aria-invalid={error ? true : undefined}
+                            aria-describedby={error ? errorId : undefined}
+                            className="rounded border border-input px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                          />
+                          <span className="text-sm text-muted-foreground">to</span>
+                          <label htmlFor={endId} className="sr-only">
+                            {label} block {blockIndex + 1} end time
+                          </label>
+                          <input
+                            type="time"
+                            id={endId}
+                            value={block.endTime}
+                            onChange={(event) =>
+                              updateBlock(value, block.key, { endTime: event.target.value })
+                            }
+                            aria-invalid={error ? true : undefined}
+                            aria-describedby={error ? errorId : undefined}
+                            className="rounded border border-input px-3 py-2 text-sm focus:border-ring focus:outline-none focus:ring-1 focus:ring-ring"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeBlock(value, block.key)}
+                            aria-label={`Remove ${label} block ${blockIndex + 1}`}
+                            className="rounded border border-border-strong px-2 py-1.5 text-xs font-medium hover:bg-accent"
+                          >
+                            ✕ Remove
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {error ? (
+                      <p id={errorId} role="alert" className="text-sm text-danger-text">
+                        {error}
+                      </p>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => addBlock(value)}
+                      aria-label={`Add block to ${label}`}
+                      className="self-start text-sm font-medium underline-offset-2 hover:underline"
+                    >
+                      + Add block
+                    </button>
+                  </div>
+                ) : (
+                  <span className="pt-2 text-sm text-muted-foreground">Unavailable</span>
+                )}
               </div>
             );
           })}
@@ -589,9 +680,9 @@ export function WorkingHoursSection() {
             {formError}
           </p>
         ) : null}
-        {saved ? (
+        {savedMessage ? (
           <p role="status" aria-live="polite" className="text-sm text-success-text">
-            Working hours saved.
+            {savedMessage}
           </p>
         ) : null}
 
@@ -611,7 +702,15 @@ export function WorkingHoursSection() {
           timezone={timezone ?? "UTC"}
           confirming={confirmingCollision}
           error={collisionError}
-          onKeepNewHours={handleKeepNewHours}
+          deferral={
+            collisionState.earliestSafeDate !== null
+              ? {
+                  earliestSafeDate: collisionState.earliestSafeDate,
+                  timezone: timezone ?? "UTC",
+                  onApplyFrom: handleApplyFrom,
+                }
+              : { earliestSafeDate: null }
+          }
           onCancelChange={handleCancelCollisionChange}
           triggerElement={collisionTrigger}
         />

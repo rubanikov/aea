@@ -63,6 +63,7 @@ vi.mock("next/navigation", () => ({
     forward: vi.fn(),
     refresh: vi.fn(),
   }),
+  usePathname: () => "/",
 }));
 
 describe("UIRedesign acceptance tests", () => {

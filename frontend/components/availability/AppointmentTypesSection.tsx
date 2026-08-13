@@ -11,12 +11,13 @@ import type { AppointmentType, AppointmentTypeInput } from "@/lib/availability/t
 import { AppointmentTypeForm } from "./AppointmentTypeForm";
 import { AppointmentTypeRow } from "./AppointmentTypeRow";
 
-const DEFAULT_DURATION = 15;
-const KNOWN_SERVER_FIELDS = new Set(["name", "duration_minutes"]);
+const KNOWN_SERVER_FIELDS = new Set(["name"]);
 
 /**
- * Appointment types: list with inline edit, confirm-before-delete, and an
- * add-new form, plus a read-only timezone line. Uses
+ * Appointment types (name-only categories — every appointment is a fixed
+ * 60-minute slot, set server-side): list with inline edit,
+ * confirm-before-delete, and an add-new form, plus a read-only timezone
+ * line. Uses
  * `GET`/`POST`/`PATCH`/`DELETE /scheduling/appointment-types`. The
  * timezone display reuses the existing `GET /profile` rather than a new
  * scheduling-specific field; it's read-only here (edit it from Account
@@ -31,7 +32,6 @@ export function AppointmentTypesSection() {
 
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
-  const [newDuration, setNewDuration] = useState(DEFAULT_DURATION);
   const [newNameError, setNewNameError] = useState<string | undefined>();
   const [addFormError, setAddFormError] = useState<string | null>(null);
   const [addSaving, setAddSaving] = useState(false);
@@ -93,17 +93,13 @@ export function AppointmentTypesSection() {
 
   function startAdding() {
     setNewName("");
-    setNewDuration(DEFAULT_DURATION);
     setNewNameError(undefined);
     setAddFormError(null);
     setAdding(true);
   }
 
   async function handleAddSubmit() {
-    const errors = validateAppointmentType({
-      name: newName,
-      duration_minutes: newDuration,
-    });
+    const errors = validateAppointmentType({ name: newName });
     if (errors.name) {
       setNewNameError(errors.name);
       newNameRef.current?.focus();
@@ -116,7 +112,7 @@ export function AppointmentTypesSection() {
     try {
       const created = await authFetch<AppointmentType>(
         "/scheduling/appointment-types",
-        { method: "POST", body: { name: newName.trim(), duration_minutes: newDuration } }
+        { method: "POST", body: { name: newName.trim() } }
       );
       setTypes((current) => [...(current ?? []), created]);
       setAdding(false);
@@ -228,8 +224,6 @@ export function AppointmentTypesSection() {
           idPrefix="new-appointment-type"
           name={newName}
           onNameChange={setNewName}
-          durationMinutes={newDuration}
-          onDurationChange={setNewDuration}
           nameError={newNameError}
           formError={addFormError}
           saving={addSaving}

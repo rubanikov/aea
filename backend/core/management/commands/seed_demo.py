@@ -6,8 +6,9 @@ dataset shaped for the k6 load test in `k6/` (see `k6/README.md`):
 
   - ~10 providers, each with a distinct timezone, a Mon-Fri recurring
     `Availability` (varying hours -- some with a lunch-break split), and
-    2-4 `AppointmentType`s with durations in the 10-60 minute range
-    architecture.md §2 calls out as realistic.
+    2-4 name-only `AppointmentType`s. Every appointment is a fixed
+    60-minute slot (the model's `appointment_type_duration_is_60`
+    constraint), so types differ only by name.
   - A handful of patient accounts + one admin, all logging in with
     `DEMO_PASSWORD`.
   - A modest, deterministic sample of pre-existing `Booking` rows (a few
@@ -66,109 +67,80 @@ PATIENT_ACCOUNTS = [
 ]
 
 # Mon-Fri (day_of_week 0-4) recurring hours per provider, deliberately not
-# uniform: window count/length and appointment-type durations both vary.
-# `appointment_types` order matters -- the first entry is the "primary"
-# type `_seed_bookings_for_provider` samples pre-existing bookings from
-# (see that function's docstring for why only one type per provider is used
-# for booking seeding).
+# uniform: window count/length varies. `appointment_types` is a list of
+# names only -- every type is a fixed 60-minute slot (the model default),
+# so types differ only by name. Order still matters: the first entry is
+# the "primary" type `_seed_bookings_for_provider` samples pre-existing
+# bookings from (see that function's docstring for why only one type per
+# provider is used for booking seeding).
 #
-# See this ticket's handoff notes for the arithmetic that sizes this list
-# to ~16,000 computed slots over the 56-day horizon below (`HORIZON_*`).
+# With hourly slots, this list works out to exactly 6,800 computed slots
+# over the 56-day horizon below (`HORIZON_*`): 40 working days x the sum
+# over providers of (window hours x type count) = 40 x 170. See
+# `core/tests/test_seed_demo.py::EXPECTED_GROSS_SLOT_TOTAL`.
 PROVIDER_CONFIGS = [
     {
         "email": "provider1@demo.aea.test",
         "name": "Dr. Ana Rossi",
         "timezone": "America/New_York",
         "windows": [("08:00", "15:00")],
-        "appointment_types": [
-            ("Follow-up", 15),
-            ("New Patient Visit", 30),
-            ("Annual Physical", 60),
-        ],
+        "appointment_types": ["Follow-up", "New Patient Visit", "Annual Physical"],
     },
     {
         "email": "provider2@demo.aea.test",
         "name": "Dr. Brian Chen",
         "timezone": "America/Chicago",
         "windows": [("09:00", "12:00"), ("13:00", "17:00")],  # lunch break
-        "appointment_types": [
-            ("Consultation", 20),
-            ("New Patient Visit", 40),
-        ],
+        "appointment_types": ["Consultation", "New Patient Visit"],
     },
     {
         "email": "provider3@demo.aea.test",
         "name": "Dr. Carla Gomez",
         "timezone": "America/Los_Angeles",
         "windows": [("07:00", "13:00")],
-        "appointment_types": [
-            ("Follow-up", 15),
-            ("Consultation", 25),
-            ("Annual Physical", 50),
-        ],
+        "appointment_types": ["Follow-up", "Consultation", "Annual Physical"],
     },
     {
         "email": "provider4@demo.aea.test",
         "name": "Dr. Deepak Rao",
         "timezone": "America/Denver",
         "windows": [("09:00", "16:00")],
-        "appointment_types": [
-            ("Follow-up", 15),
-            ("New Patient Visit", 30),
-        ],
+        "appointment_types": ["Follow-up", "New Patient Visit"],
     },
     {
         "email": "provider5@demo.aea.test",
         "name": "Dr. Elena Petrova",
         "timezone": "UTC",
         "windows": [("10:00", "15:00")],
-        "appointment_types": [
-            ("Consultation", 20),
-            ("New Patient Visit", 35),
-            ("Annual Physical", 55),
-        ],
+        "appointment_types": ["Consultation", "New Patient Visit", "Annual Physical"],
     },
     {
         "email": "provider6@demo.aea.test",
         "name": "Dr. Farid Haidari",
         "timezone": "America/New_York",
         "windows": [("08:00", "12:00"), ("13:00", "16:00")],  # lunch break
-        "appointment_types": [
-            ("Follow-up", 20),
-            ("New Patient Visit", 30),
-        ],
+        "appointment_types": ["Follow-up", "New Patient Visit"],
     },
     {
         "email": "provider7@demo.aea.test",
         "name": "Dr. Grace Kim",
         "timezone": "America/Chicago",
         "windows": [("09:00", "14:00")],
-        "appointment_types": [
-            ("Follow-up", 15),
-            ("New Patient Visit", 30),
-            ("Annual Physical", 45),
-        ],
+        "appointment_types": ["Follow-up", "New Patient Visit", "Annual Physical"],
     },
     {
         "email": "provider8@demo.aea.test",
         "name": "Dr. Hassan Ali",
         "timezone": "America/Los_Angeles",
         "windows": [("08:00", "13:00")],
-        "appointment_types": [
-            ("Consultation", 20),
-            ("New Patient Visit", 40),
-        ],
+        "appointment_types": ["Consultation", "New Patient Visit"],
     },
     {
         "email": "provider9@demo.aea.test",
         "name": "Dr. Ines Fischer",
         "timezone": "America/Denver",
         "windows": [("07:30", "14:30")],
-        "appointment_types": [
-            ("Follow-up", 20),
-            ("Consultation", 25),
-            ("Annual Physical", 50),
-        ],
+        "appointment_types": ["Follow-up", "Consultation", "Annual Physical"],
     },
     {
         "email": "provider10@demo.aea.test",
@@ -176,10 +148,10 @@ PROVIDER_CONFIGS = [
         "timezone": "UTC",
         "windows": [("09:00", "16:00")],
         "appointment_types": [
-            ("Follow-up", 15),
-            ("Consultation", 20),
-            ("New Patient Visit", 40),
-            ("Annual Physical", 60),
+            "Follow-up",
+            "Consultation",
+            "New Patient Visit",
+            "Annual Physical",
         ],
     },
 ]
@@ -211,59 +183,45 @@ WEEKLY_PATIENT_ACCOUNTS = [
 ]
 
 # 5 more doctors for the weekly-recurring cohort, same shape as
-# PROVIDER_CONFIGS above but each given a single generous window so the
-# primary appointment type comfortably clears 4 slots/day (the minimum
-# `_seed_weekly_recurring_bookings` needs -- 20 patients / 5 weekdays).
+# PROVIDER_CONFIGS above but each given a single generous window: an
+# 8-hour day of fixed 60-minute slots is 8 slots/day, comfortably above
+# the 4 `_seed_weekly_recurring_bookings` needs (20 patients / 5
+# weekdays).
 WEEKLY_PROVIDER_CONFIGS = [
     {
         "email": "provider11@demo.aea.test",
         "name": "Dr. Miriam Osei",
         "timezone": "America/New_York",
         "windows": [("09:00", "17:00")],
-        "appointment_types": [
-            ("Follow-up", 30),
-            ("New Patient Visit", 45),
-        ],
+        "appointment_types": ["Follow-up", "New Patient Visit"],
     },
     {
         "email": "provider12@demo.aea.test",
         "name": "Dr. Lucas Almeida",
         "timezone": "America/Chicago",
         "windows": [("08:00", "16:00")],
-        "appointment_types": [
-            ("Consultation", 30),
-            ("Annual Physical", 60),
-        ],
+        "appointment_types": ["Consultation", "Annual Physical"],
     },
     {
         "email": "provider13@demo.aea.test",
         "name": "Dr. Naomi Choi",
         "timezone": "America/Denver",
         "windows": [("09:00", "17:00")],
-        "appointment_types": [
-            ("Follow-up", 30),
-            ("Consultation", 20),
-        ],
+        "appointment_types": ["Follow-up", "Consultation"],
     },
     {
         "email": "provider14@demo.aea.test",
         "name": "Dr. Tariq Farouk",
         "timezone": "America/Los_Angeles",
         "windows": [("08:00", "16:00")],
-        "appointment_types": [
-            ("New Patient Visit", 30),
-            ("Annual Physical", 45),
-        ],
+        "appointment_types": ["New Patient Visit", "Annual Physical"],
     },
     {
         "email": "provider15@demo.aea.test",
         "name": "Dr. Sophie Lindgren",
         "timezone": "UTC",
         "windows": [("09:00", "17:00")],
-        "appointment_types": [
-            ("Follow-up", 30),
-            ("Consultation", 20),
-        ],
+        "appointment_types": ["Follow-up", "Consultation"],
     },
 ]
 
@@ -421,9 +379,12 @@ class Command(BaseCommand):
                 )
 
         appointment_types = []
-        for name, duration in config["appointment_types"]:
+        for name in config["appointment_types"]:
+            # `duration_minutes` relies on the model default (60) -- the
+            # only value the `appointment_type_duration_is_60` constraint
+            # admits.
             appointment_type, _ = AppointmentType.objects.get_or_create(
-                provider=provider, name=name, defaults={"duration_minutes": duration}
+                provider=provider, name=name
             )
             appointment_types.append(appointment_type)
 
@@ -487,13 +448,12 @@ class Command(BaseCommand):
     ):
         """Books every `BOOKING_SAMPLE_STEP`th open slot of `provider`'s
         *primary* (first-configured) appointment type -- deliberately only
-        one type per provider, not one pass per type: booking two
-        differently-discretized types independently risks scheduling two
-        overlapping active bookings for the same provider back-to-back in
-        this loop (e.g. a 15-min slot and a 30-min slot that both start at
-        09:00), which `create_booking`'s own guard would then correctly
-        reject as a conflict -- fine in production, just wasted work in a
-        seed script that can trivially avoid it by sampling one type.
+        one type per provider, not one pass per type: all types now share
+        the same fixed 60-minute grid, so booking a second type
+        independently would just try the exact same start times again and
+        have every attempt rejected by `create_booking`'s conflict guard
+        -- fine in production, just wasted work in a seed script that can
+        trivially avoid it by sampling one type.
 
         Deterministic and idempotent: candidates are computed with
         `busy_intervals=()` (the same fixed, structural list every run),

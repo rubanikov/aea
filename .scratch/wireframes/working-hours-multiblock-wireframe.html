@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wireframe — Multi-block working hours + deferred apply (low-fi)</title>
+<style>
+  :root {
+    --ink: #333;
+    --line: #999;
+    --line-soft: #ccc;
+    --fill: #f2f2f2;
+    --fill-dark: #ddd;
+    --note: #666;
+    --err: #8a1f1f;
+    --err-bg: #f6e9e9;
+    --warn-bg: #fff6dd;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 24px 80px;
+    font-family: "Comic Sans MS", "Segoe Print", cursive, sans-serif;
+    background: #fafafa;
+    color: var(--ink);
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .meta { font-size: 13px; color: var(--note); margin: 0 0 32px; }
+  .panel {
+    max-width: 940px;
+    margin: 0 auto 48px;
+    border: 2px solid var(--line);
+    background: #fff;
+  }
+  .panel-title {
+    background: var(--fill-dark);
+    border-bottom: 2px solid var(--line);
+    padding: 8px 14px;
+    font-size: 14px;
+    font-weight: bold;
+  }
+  .annot {
+    margin: 14px 20px;
+    border: 1.5px solid var(--ink);
+    background: #fffbe8;
+    padding: 8px 12px;
+    font-size: 12.5px;
+  }
+  .annot::before { content: "✎ "; }
+
+  .section {
+    margin: 20px;
+    border: 1.5px dashed var(--line);
+    padding: 16px;
+  }
+  .section h3 { margin: 0 0 14px; font-size: 16px; }
+
+  /* day rows */
+  .day {
+    display: flex;
+    gap: 14px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--line-soft);
+    align-items: flex-start;
+  }
+  .day:last-child { border-bottom: none; }
+  .day-label { width: 120px; flex-shrink: 0; font-size: 13.5px; padding-top: 3px; }
+  .day-label input { transform: scale(1.1); margin-right: 6px; }
+  .blocks { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+  .block-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .time {
+    border: 1.5px solid var(--line);
+    background: var(--fill);
+    padding: 4px 8px;
+    font-size: 13px;
+    min-width: 72px;
+    text-align: center;
+  }
+  .time.bad { border-color: var(--err); background: var(--err-bg); }
+  .to { font-size: 12px; color: var(--note); }
+  .icon-btn {
+    border: 1.5px solid var(--line);
+    background: #fff;
+    font-size: 12px;
+    padding: 3px 9px;
+    cursor: default;
+  }
+  .add-block { font-size: 12.5px; text-decoration: underline; color: var(--ink); }
+  .unavail { font-size: 12.5px; color: var(--note); padding-top: 4px; }
+  .row-err {
+    font-size: 12.5px;
+    color: var(--err);
+    background: var(--err-bg);
+    border-left: 3px solid var(--err);
+    padding: 4px 8px;
+  }
+  .btn {
+    display: inline-block;
+    border: 1.5px solid var(--ink);
+    background: var(--fill-dark);
+    padding: 6px 16px;
+    font-size: 13px;
+    margin-top: 14px;
+  }
+  .btn.primary { background: #bbb; font-weight: bold; }
+  .btn[disabled], .btn.disabled { opacity: 0.45; }
+
+  /* pending banner */
+  .pending {
+    border: 2px solid var(--ink);
+    background: var(--warn-bg);
+    padding: 10px 14px;
+    font-size: 13px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    margin-bottom: 14px;
+  }
+  .pending .actions { margin-left: auto; display: flex; gap: 8px; flex-shrink: 0; }
+  .pending .actions span {
+    border: 1.5px solid var(--ink);
+    background: #fff;
+    padding: 3px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  /* dialog */
+  .overlay {
+    background: repeating-linear-gradient(45deg, #e8e8e8, #e8e8e8 10px, #f2f2f2 10px, #f2f2f2 20px);
+    padding: 36px 20px;
+  }
+  .dialog {
+    max-width: 560px;
+    margin: 0 auto;
+    background: #fff;
+    border: 2.5px solid var(--ink);
+    padding: 18px 20px;
+    font-size: 13.5px;
+  }
+  .dialog .dlg-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .dialog h3 { margin: 0 0 10px; font-size: 16px; }
+  .dialog .x { font-size: 16px; border: 1.5px solid var(--line); padding: 0 7px; }
+  .clist { border: 1.5px solid var(--line); margin: 10px 0; max-height: 150px; overflow: hidden; }
+  .clist .crow {
+    display: flex;
+    gap: 10px;
+    padding: 7px 10px;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: 12.5px;
+    align-items: baseline;
+    flex-wrap: wrap;
+  }
+  .clist .crow:last-child { border-bottom: none; }
+  .badge {
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    font-size: 10.5px;
+    padding: 1px 8px;
+    background: var(--fill);
+    flex-shrink: 0;
+  }
+  .radio-opt { display: flex; gap: 8px; margin: 8px 0; align-items: flex-start; font-size: 13px; }
+  .radio-opt .sub { margin: 6px 0 0 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12.5px; }
+  .datefield {
+    border: 1.5px solid var(--line);
+    background: var(--fill);
+    padding: 4px 10px;
+    font-size: 12.5px;
+  }
+  .hint { font-size: 11.5px; color: var(--note); }
+  .dlg-actions { display: flex; gap: 10px; margin-top: 14px; }
+  .strip { display: flex; gap: 16px; flex-wrap: wrap; padding: 18px 20px; }
+  .strip .cell { flex: 1 1 220px; border: 1.5px solid var(--line-soft); padding: 12px; font-size: 12.5px; }
+  .strip .cell b { display: block; margin-bottom: 6px; }
+  .status-ok { font-size: 12.5px; color: #1f6b2a; background: #e7f2e9; border-left: 3px solid #1f6b2a; padding: 4px 8px; display: inline-block; margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<h1>Wireframe: Multi-block working hours + deferred apply</h1>
+<p class="meta">Low-fi whiteboard sketch. Story 2, on the existing <b>/provider → Weekly working hours</b> section (AppShell chrome above it is unchanged and omitted here). Extends the current Mon–Sun checkbox rows; does NOT redesign the page.</p>
+
+<!-- ============ PANEL 1 ============ -->
+<div class="panel">
+  <div class="panel-title">1. Weekly working hours — multi-block rows (default / happy)</div>
+  <div class="section">
+    <h3>Weekly working hours</h3>
+
+    <div class="day">
+      <label class="day-label"><input type="checkbox" checked> Monday</label>
+      <div class="blocks">
+        <div class="block-row">
+          <span class="time">09:00</span><span class="to">to</span><span class="time">12:00</span>
+          <span class="icon-btn">✕ Remove</span>
+        </div>
+        <div class="block-row">
+          <span class="time">14:00</span><span class="to">to</span><span class="time">17:00</span>
+          <span class="icon-btn">✕ Remove</span>
+        </div>
+        <span class="add-block">+ Add block</span>
+      </div>
+    </div>
+
+    <div class="day">
+      <label class="day-label"><input type="checkbox" checked> Tuesday</label>
+      <div class="blocks">
+        <div class="block-row">
+          <span class="time">09:00</span><span class="to">to</span><span class="time">17:00</span>
+          <span class="icon-btn">✕ Remove</span>
+        </div>
+        <span class="add-block">+ Add block</span>
+      </div>
+    </div>
+
+    <div class="day">
+      <label class="day-label"><input type="checkbox"> Wednesday</label>
+      <div class="blocks"><span class="unavail">Unavailable</span></div>
+    </div>
+
+    <div class="day">
+      <label class="day-label"><input type="checkbox" checked> Thursday</label>
+      <div class="blocks">
+        <div class="block-row">
+          <span class="time">08:00</span><span class="to">to</span><span class="time">11:00</span>
+          <span class="icon-btn">✕ Remove</span>
+        </div>
+        <div class="block-row">
+          <span class="time">12:30</span><span class="to">to</span><span class="time">15:00</span>
+          <span class="icon-btn">✕ Remove</span>
+        </div>
+        <div class="block-row">
+          <span class="time">16:00</span><span class="to">to</span><span class="time">19:00</span>
+          <span class="icon-btn">✕ Remove</span>
+        </div>
+        <span class="add-block">+ Add block</span>
+      </div>
+    </div>
+
+    <div class="day" style="border-bottom:none; color: var(--note); font-size: 12px;">
+      <span class="day-label">Fri / Sat / Sun</span>
+      <span>… same pattern …</span>
+    </div>
+
+    <span class="btn primary">Save working hours</span>
+    <div class="status-ok" style="display:block; max-width: 220px;">✓ Working hours saved.</div>
+  </div>
+  <div class="annot">Each enabled day = a stack of block rows (start / end time inputs, same <code>&lt;input type="time"&gt;</code> as today) + a per-block "✕ Remove" + one "+ Add block" per day. Unlimited blocks. Unchecking the day keeps today's behaviour ("Unavailable"). Removing the LAST block ≙ unchecking the day. New block defaults: 1h after the previous block's end (or 09:00–17:00 if first). Success message = existing "Working hours saved." line.</div>
+</div>
+
+<!-- ============ PANEL 2 ============ -->
+<div class="panel">
+  <div class="panel-title">2. Validation errors (client-side, on Save) — three cases</div>
+  <div class="section">
+    <h3>Weekly working hours</h3>
+
+    <div class="day">
+      <label class="day-label"><input type="checkbox" checked> Monday</label>
+      <div class="blocks">
+        <div class="block-row">
+          <span class="time bad">09:00</span><span class="to">to</span><span class="time bad">13:00</span>
+          <span class="icon-btn">✕ Remove</span>
+        </div>
+        <div class="block-row">
+          <span class="time bad">12:00</span><span class="to">to</span><span class="time bad">17:00</span>
+          <span class="icon-btn">✕ Remove</span>
+        </div>
+        <span class="row-err">These blocks overlap. Blocks on the same day can't share any time.</span>
+        <span class="add-block">+ Add block</span>
+      </div>
+    </div>
+
+    <div class="day">
+      <label class="day-label"><input type="checkbox" checked> Tuesday</label>
+      <div class="blocks">
+        <div class="block-row">
+          <span class="time bad">09:00</span><span class="to">to</span><span class="time bad">12:00</span>
+          <span class="icon-btn">✕ Remove</span>
+        </div>
+        <div class="block-row">
+          <span class="time bad">12:30</span><span class="to">to</span><span class="time bad">17:00</span>
+          <span class="icon-btn">✕ Remove</span>
+        </div>
+        <span class="row-err">Blocks must be at least 1 hour apart. There are only 30 minutes between 12:00 and 12:30.</span>
+        <span class="add-block">+ Add block</span>
+      </div>
+    </div>
+
+    <div class="day">
+      <label class="day-label"><input type="checkbox" checked> Thursday</label>
+      <div class="blocks">
+        <div class="block-row">
+          <span class="time bad">15:00</span><span class="to">to</span><span class="time bad">14:00</span>
+          <span class="icon-btn">✕ Remove</span>
+        </div>
+        <span class="row-err">End time must be after start time.</span>
+        <span class="add-block">+ Add block</span>
+      </div>
+    </div>
+
+    <span class="btn primary">Save working hours</span>
+  </div>
+  <div class="annot">Errors are per-day, inline under the offending blocks (extends today's per-row <code>role="alert"</code> pattern); the offending time inputs are highlighted. Save is blocked; focus jumps to the first invalid input. Note: a 12:00 end + 13:00 start IS valid (exactly 1h gap); 12:00 end + 12:00 start (touching) is NOT. No auto-merge, no auto-fix — the provider edits the times themselves.</div>
+</div>
+
+<!-- ============ PANEL 3 ============ -->
+<div class="panel">
+  <div class="panel-title">3. Collision warning dialog — bookings stranded → deferred apply</div>
+  <div class="overlay">
+    <div class="dialog">
+      <div class="dlg-head">
+        <h3>⚠ This change affects existing bookings</h3>
+        <span class="x">×</span>
+      </div>
+      <p style="margin: 0 0 4px;">You're changing Monday's hours from 09:00–17:00 to 09:00–12:00 and 14:00–17:00.</p>
+      <p style="margin: 0; font-weight: bold;">2 confirmed appointments fall outside the new hours:</p>
+
+      <div class="clist">
+        <div class="crow">
+          <span class="badge">Confirmed</span>
+          <span>Mon, Aug 17, 1:00–2:00pm — Patient: Pat Patient (Initial consultation)</span>
+        </div>
+        <div class="crow">
+          <span class="badge">Confirmed</span>
+          <span>Mon, Aug 24, 12:30–1:30pm — Patient: Sam Smith (Follow-up)</span>
+        </div>
+      </div>
+
+      <p style="margin: 4px 0;">These appointments will NOT be cancelled. Your new hours can start after the last affected booking instead.</p>
+
+      <div class="radio-opt">
+        <input type="radio" name="res" checked>
+        <div>
+          <b>Apply the new hours from a future date</b>
+          <div class="sub">
+            Start date: <span class="datefield">2026-08-25 ▾</span>
+            <span class="hint">earliest safe date (default) — any later date OK, nothing earlier</span>
+          </div>
+          <div class="hint" style="margin-top:4px;">Earliest safe date: Tue, Aug 25 2026 — the first day after the last affected booking, in your clinic timezone (America/New_York).</div>
+        </div>
+      </div>
+      <div class="radio-opt">
+        <input type="radio" name="res">
+        <div><b>Cancel this change</b> — keep my current hours</div>
+      </div>
+
+      <div class="dlg-actions">
+        <span class="btn">Go back</span>
+        <span class="btn primary">Apply from Aug 25</span>
+      </div>
+    </div>
+  </div>
+  <div class="annot">Same shared alertdialog shell as today's <code>CollisionWarningModal</code> (focus trap, ×/Esc/"Go back" = cancel, radio resolutions) — the "keep new hours as flagged exceptions" radio is REPLACED by "Apply from a future date" with an embedded <code>&lt;input type="date"&gt;</code> (same date pattern BlockedTimeSection uses). Date defaults to the earliest safe date; <code>min</code> = earliest safe date so earlier dates can't be picked; any later date is allowed. Confirm button label echoes the chosen date. Choosing "Apply from…" saves NOTHING immediately — it schedules a pending change (Panel 4).</div>
+</div>
+
+<!-- ============ PANEL 4 ============ -->
+<div class="panel">
+  <div class="panel-title">4. Pending-change banner on Weekly working hours</div>
+  <div class="section">
+    <h3>Weekly working hours</h3>
+
+    <div class="pending">
+      <span>⏳</span>
+      <div>
+        <b>Scheduled change: new hours take effect Tue, Aug 25 2026</b> (clinic time)<br>
+        <span class="hint">Until then, your current hours below stay live for booking.
+        Pending: Mon 09:00–12:00 &amp; 14:00–17:00 (currently Mon 09:00–17:00). <u>Show full pending schedule ▾</u></span>
+      </div>
+      <div class="actions">
+        <span>Edit pending change</span>
+        <span>Cancel pending change</span>
+      </div>
+    </div>
+
+    <div class="day">
+      <label class="day-label"><input type="checkbox" checked> Monday</label>
+      <div class="blocks">
+        <div class="block-row">
+          <span class="time">09:00</span><span class="to">to</span><span class="time">17:00</span>
+          <span class="icon-btn">✕ Remove</span>
+        </div>
+        <span class="add-block">+ Add block</span>
+      </div>
+    </div>
+    <div class="day" style="border-bottom:none; color: var(--note); font-size: 12px;">
+      <span class="day-label">Tue … Sun</span>
+      <span>… current (live) hours, still editable …</span>
+    </div>
+
+    <span class="btn primary">Save working hours</span>
+  </div>
+  <div class="annot">Banner sits at the top of the section, above the CURRENT (live) hours — the form always shows what is live today. "Show full pending schedule" expands a read-only Mon–Sun summary of the pending hours inline. <b>Edit pending change</b> loads the pending hours into the form for editing; saving re-runs the same collision check → dialog flow and REPLACES the pending change (one pending change at a time). <b>Cancel pending change</b> asks a one-line confirm, then discards it; current hours stay untouched. On the effective date the switch happens server-side; banner disappears and the form shows the new hours.</div>
+</div>
+
+<!-- ============ PANEL 5 ============ -->
+<div class="panel">
+  <div class="panel-title">5. Section states (existing patterns, kept as-is)</div>
+  <div class="strip">
+    <div class="cell">
+      <b>Loading</b>
+      Heading + "Loading working hours…" text (unchanged from today).
+    </div>
+    <div class="cell">
+      <b>Empty</b>
+      Dashed box: "You haven't set your working hours yet." + [Set up working hours] button focusing Monday (unchanged).
+    </div>
+    <div class="cell">
+      <b>Load error</b>
+      "Couldn't load your working hours — please try again." + [Try again] (unchanged). Pending-change fetch failure: banner shows a one-line retry, form still usable.
+    </div>
+    <div class="cell">
+      <b>Saving / save error</b>
+      Save button → "Saving…" disabled; per-day server errors inline; form-level "Couldn't save all of your working hours" (unchanged).
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

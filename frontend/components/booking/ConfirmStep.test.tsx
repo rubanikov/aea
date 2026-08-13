@@ -13,9 +13,11 @@ vi.mock("next/navigation", () => ({
 const BOOKINGS_PATH = "/bookings";
 
 const PROVIDER = { id: 1, name: "Dr. Amara Osei", timezone: "America/New_York" };
-const APPOINTMENT_TYPE = { id: 10, name: "Annual Physical", duration_minutes: 30 };
-// 15:00 UTC = 10:00am America/Chicago (CDT) = 11:00am America/New_York (EDT).
-const SLOT = { start: "2026-08-18T15:00:00.000Z", end: "2026-08-18T15:30:00.000Z" };
+// `duration_minutes` is server-fixed at 60: every appointment is a
+// one-hour slot.
+const APPOINTMENT_TYPE = { id: 10, name: "Annual Physical", duration_minutes: 60 };
+// 14:00 UTC = 9:00am America/Chicago (CDT) = 10:00am America/New_York (EDT).
+const SLOT = { start: "2026-08-18T14:00:00.000Z", end: "2026-08-18T15:00:00.000Z" };
 const PATIENT_TIME_ZONE = "America/Chicago";
 
 const BOOKING_RESPONSE = {
@@ -86,19 +88,19 @@ describe("ConfirmStep", () => {
       screen.getByRole("heading", { name: "Confirm your appointment" })
     ).toBeInTheDocument();
     expect(
-      screen.getByText("Annual Physical (30 min) with Dr. Amara Osei")
+      screen.getByText("Annual Physical (60 min) with Dr. Amara Osei")
     ).toBeInTheDocument();
     // The provider's clock leads, matching the slot button that opened this
     // step; the patient's own local time follows it. Zones are shown via
     // `formatTimezone`, never as raw IANA ids.
     expect(
       screen.getByText(
-        "Tuesday, August 18, 2026, 11:00–11:30am — provider's local time (Eastern Time (New York))"
+        "Tuesday, August 18, 2026, 10:00–11:00am — provider's local time (Eastern Time (New York))"
       )
     ).toBeInTheDocument();
     expect(
       screen.getByText(
-        "Your local time: Tuesday, August 18, 2026, 10:00–10:30am (Central Time (Chicago))"
+        "Your local time: Tuesday, August 18, 2026, 9:00–10:00am (Central Time (Chicago))"
       )
     ).toBeInTheDocument();
     expect(screen.queryByText(/America\/New_York/)).not.toBeInTheDocument();

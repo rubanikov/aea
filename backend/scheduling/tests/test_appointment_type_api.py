@@ -14,7 +14,22 @@ class AppointmentTypeListCreateTests(SchedulingAPITestCase):
         self.other_provider = self.create_provider(email="other-provider@example.com")
         self.patient = self.create_patient()
 
-    def test_provider_creates_an_appointment_type(self):
+    def test_provider_creates_an_appointment_type_by_sending_only_a_name(self):
+        self.login_as(self.provider)
+
+        response = self.post_json("/scheduling/appointment-types", {"name": "Follow-up"})
+
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertEqual(body["name"], "Follow-up")
+        # Every appointment is a fixed 60-minute slot -- the server always
+        # produces 60; the field stays in the output for display.
+        self.assertEqual(body["duration_minutes"], 60)
+        appointment_type = AppointmentType.objects.get(pk=body["id"])
+        self.assertEqual(appointment_type.provider_id, self.provider.id)
+        self.assertEqual(appointment_type.duration_minutes, 60)
+
+    def test_client_supplied_duration_is_ignored_on_create(self):
         self.login_as(self.provider)
 
         response = self.post_json(
@@ -22,60 +37,41 @@ class AppointmentTypeListCreateTests(SchedulingAPITestCase):
         )
 
         self.assertEqual(response.status_code, 201)
-        body = response.json()
-        self.assertEqual(body["name"], "Follow-up")
-        self.assertEqual(body["duration_minutes"], 15)
-        appointment_type = AppointmentType.objects.get(pk=body["id"])
-        self.assertEqual(appointment_type.provider_id, self.provider.id)
+        self.assertEqual(response.json()["duration_minutes"], 60)
+        self.assertEqual(AppointmentType.objects.get().duration_minutes, 60)
 
-    def test_patient_cannot_create_an_appointment_type(self):
-        self.login_as(self.patient)
-
-        response = self.post_json(
-            "/scheduling/appointment-types", {"name": "Follow-up", "duration_minutes": 15}
-        )
-
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(AppointmentType.objects.count(), 0)
-
-    def test_rejects_zero_duration(self):
-        self.login_as(self.provider)
-
-        response = self.post_json(
-            "/scheduling/appointment-types", {"name": "Follow-up", "duration_minutes": 0}
-        )
-
-        self.assertEqual(response.status_code, 400)
-
-    def test_rejects_negative_duration(self):
+    def test_even_an_invalid_duration_value_is_ignored_not_rejected(self):
+        # `duration_minutes` is read-only, so DRF never validates it -- a
+        # garbage value is dropped on the floor, not a 400.
         self.login_as(self.provider)
 
         response = self.post_json(
             "/scheduling/appointment-types", {"name": "Follow-up", "duration_minutes": -15}
         )
 
-        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["duration_minutes"], 60)
+
+    def test_patient_cannot_create_an_appointment_type(self):
+        self.login_as(self.patient)
+
+        response = self.post_json("/scheduling/appointment-types", {"name": "Follow-up"})
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(AppointmentType.objects.count(), 0)
 
     def test_rejects_duplicate_name_for_the_same_provider(self):
         self.login_as(self.provider)
-        self.post_json(
-            "/scheduling/appointment-types", {"name": "Follow-up", "duration_minutes": 15}
-        )
+        self.post_json("/scheduling/appointment-types", {"name": "Follow-up"})
 
-        response = self.post_json(
-            "/scheduling/appointment-types", {"name": "Follow-up", "duration_minutes": 30}
-        )
+        response = self.post_json("/scheduling/appointment-types", {"name": "Follow-up"})
 
         self.assertEqual(response.status_code, 400)
         self.assertIn("name", response.json())
 
     def test_list_only_returns_the_requesting_providers_own_types(self):
-        AppointmentType.objects.create(
-            provider=self.provider, name="Follow-up", duration_minutes=15
-        )
-        AppointmentType.objects.create(
-            provider=self.other_provider, name="Physical", duration_minutes=45
-        )
+        AppointmentType.objects.create(provider=self.provider, name="Follow-up")
+        AppointmentType.objects.create(provider=self.other_provider, name="Physical")
         self.login_as(self.provider)
 
         response = self.client.get("/scheduling/appointment-types")
@@ -99,11 +95,11 @@ class AppointmentTypeDetailTests(SchedulingAPITestCase):
         self.provider = self.create_provider()
         self.other_provider = self.create_provider(email="other-provider@example.com")
         self.appointment_type = AppointmentType.objects.create(
-            provider=self.provider, name="Follow-up", duration_minutes=15
+            provider=self.provider, name="Follow-up"
         )
 
     def test_rejects_a_rename_that_collides_with_another_of_the_providers_own_types(self):
-        AppointmentType.objects.create(provider=self.provider, name="Physical", duration_minutes=45)
+        AppointmentType.objects.create(provider=self.provider, name="Physical")
         self.login_as(self.provider)
 
         response = self.patch_json(
@@ -113,7 +109,19 @@ class AppointmentTypeDetailTests(SchedulingAPITestCase):
         self.assertEqual(response.status_code, 400)
         self.assertIn("name", response.json())
 
-    def test_provider_updates_their_own_appointment_type(self):
+    def test_provider_renames_their_own_appointment_type(self):
+        self.login_as(self.provider)
+
+        response = self.patch_json(
+            f"/scheduling/appointment-types/{self.appointment_type.id}",
+            {"name": "Extended Follow-up"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.appointment_type.refresh_from_db()
+        self.assertEqual(self.appointment_type.name, "Extended Follow-up")
+
+    def test_client_supplied_duration_is_ignored_on_update(self):
         self.login_as(self.provider)
 
         response = self.patch_json(
@@ -122,8 +130,9 @@ class AppointmentTypeDetailTests(SchedulingAPITestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["duration_minutes"], 60)
         self.appointment_type.refresh_from_db()
-        self.assertEqual(self.appointment_type.duration_minutes, 20)
+        self.assertEqual(self.appointment_type.duration_minutes, 60)
 
     def test_cannot_update_another_providers_appointment_type(self):
         # See test_availability_api.py's equivalent test for why this is
@@ -132,12 +141,12 @@ class AppointmentTypeDetailTests(SchedulingAPITestCase):
 
         response = self.patch_json(
             f"/scheduling/appointment-types/{self.appointment_type.id}",
-            {"duration_minutes": 20},
+            {"name": "Hijacked"},
         )
 
         self.assertEqual(response.status_code, 403)
         self.appointment_type.refresh_from_db()
-        self.assertEqual(self.appointment_type.duration_minutes, 15)
+        self.assertEqual(self.appointment_type.name, "Follow-up")
 
     def test_provider_deletes_their_own_appointment_type(self):
         self.login_as(self.provider)
@@ -158,7 +167,7 @@ class AppointmentTypeDetailTests(SchedulingAPITestCase):
     def test_updating_a_nonexistent_type_returns_404(self):
         self.login_as(self.provider)
 
-        response = self.patch_json("/scheduling/appointment-types/999999", {"duration_minutes": 20})
+        response = self.patch_json("/scheduling/appointment-types/999999", {"name": "Ghost"})
 
         self.assertEqual(response.status_code, 404)
 

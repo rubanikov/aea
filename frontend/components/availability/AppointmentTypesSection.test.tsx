@@ -11,9 +11,11 @@ vi.mock("next/navigation", () => ({
 
 const TYPES_PATH = "/scheduling/appointment-types";
 
+// `duration_minutes` is server-fixed at 60 for every type (appointments
+// are one-hour slots); it's display-only on this screen.
 const SAMPLE_TYPES = [
-  { id: 1, name: "New Patient Visit", duration_minutes: 45 },
-  { id: 2, name: "Follow-up", duration_minutes: 15 },
+  { id: 1, name: "New Patient Visit", duration_minutes: 60 },
+  { id: 2, name: "Follow-up", duration_minutes: 60 },
 ];
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -94,13 +96,12 @@ describe("AppointmentTypesSection", () => {
     expect(screen.getByRole("button", { name: "Add type" })).toBeInTheDocument();
   });
 
-  it("renders each appointment type with a clearly labeled duration and disambiguating row actions", async () => {
+  it("renders each appointment type with the fixed 60-minute duration and disambiguating row actions", async () => {
     mockFetchRouter({ [TYPES_PATH]: () => jsonResponse(SAMPLE_TYPES) });
     render(<AppointmentTypesSection />);
 
     expect(await screen.findByText("New Patient Visit")).toBeInTheDocument();
-    expect(screen.getByText("45 minutes")).toBeInTheDocument();
-    expect(screen.getByText("15 minutes")).toBeInTheDocument();
+    expect(screen.getAllByText("60 minutes")).toHaveLength(2);
     expect(
       screen.getByRole("button", { name: "Remove New Patient Visit appointment type" })
     ).toBeInTheDocument();
@@ -122,7 +123,7 @@ describe("AppointmentTypesSection", () => {
     expect(screen.queryByText(/america\/new_york/i)).not.toBeInTheDocument();
   });
 
-  it("adds a new appointment type: opens the form focused, validates the name inline, then POSTs and shows the new row", async () => {
+  it("adds a new appointment type: opens the name-only form focused, validates the name inline, then POSTs and shows the new row", async () => {
     const fetchMock = mockFetchRouter({
       [TYPES_PATH]: (init) => {
         if (!init || (init.method ?? "GET") === "GET") {
@@ -130,7 +131,9 @@ describe("AppointmentTypesSection", () => {
         }
         if (init.method === "POST") {
           const body = JSON.parse(init.body as string);
-          return jsonResponse({ id: 3, ...body }, 201);
+          // The server sets the fixed duration itself; the client sends
+          // only the name.
+          return jsonResponse({ id: 3, duration_minutes: 60, ...body }, 201);
         }
         throw new Error("unexpected call");
       },
@@ -140,26 +143,27 @@ describe("AppointmentTypesSection", () => {
 
     await user.click(await screen.findByRole("button", { name: "+ Add type" }));
     expect(screen.getByLabelText("Name")).toHaveFocus();
+    // No duration field anymore: every appointment is a fixed 60-minute slot.
+    expect(screen.queryByLabelText("Duration")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Add type" }));
     expect(screen.getByText("Name is required")).toBeInTheDocument();
 
     await user.type(screen.getByLabelText("Name"), "Lab Review");
-    await user.selectOptions(screen.getByLabelText("Duration"), "10");
     await user.click(screen.getByRole("button", { name: "Add type" }));
 
     expect(await screen.findByText("Lab Review")).toBeInTheDocument();
-    expect(screen.getByText("10 minutes")).toBeInTheDocument();
+    expect(screen.getAllByText("60 minutes")).toHaveLength(3);
 
     const postCall = fetchMock.mock.calls.find(
       ([, init]) => (init as RequestInit | undefined)?.method === "POST"
     );
     expect(
       JSON.parse((postCall?.[1] as RequestInit).body as string)
-    ).toEqual({ name: "Lab Review", duration_minutes: 10 });
+    ).toEqual({ name: "Lab Review" });
   });
 
-  it("edits an appointment type inline: prefilled fields, PATCHes on save, and updates the row", async () => {
+  it("edits an appointment type inline: prefilled name, PATCHes on save, and updates the row", async () => {
     const fetchMock = mockFetchRouter({
       [TYPES_PATH]: (init) => {
         if (!init || (init.method ?? "GET") === "GET") {
@@ -170,7 +174,7 @@ describe("AppointmentTypesSection", () => {
       [`${TYPES_PATH}/2`]: (init) => {
         if (init?.method === "PATCH") {
           const body = JSON.parse(init.body as string);
-          return jsonResponse({ id: 2, ...body });
+          return jsonResponse({ id: 2, duration_minutes: 60, ...body });
         }
         throw new Error("unexpected call");
       },
@@ -184,20 +188,20 @@ describe("AppointmentTypesSection", () => {
 
     const nameInput = screen.getByLabelText("Name");
     expect(nameInput).toHaveValue("Follow-up");
+    // No duration field anymore: every appointment is a fixed 60-minute slot.
+    expect(screen.queryByLabelText("Duration")).not.toBeInTheDocument();
     await user.clear(nameInput);
     await user.type(nameInput, "Quick Follow-up");
-    await user.selectOptions(screen.getByLabelText("Duration"), "20");
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByText("Quick Follow-up")).toBeInTheDocument();
-    expect(screen.getByText("20 minutes")).toBeInTheDocument();
 
     const patchCall = fetchMock.mock.calls.find(([url]) =>
       (url as string).endsWith("/2")
     );
     expect(
       JSON.parse((patchCall?.[1] as RequestInit).body as string)
-    ).toEqual({ name: "Quick Follow-up", duration_minutes: 20 });
+    ).toEqual({ name: "Quick Follow-up" });
   });
 
   it("requires confirmation before removing an appointment type, and only DELETEs after confirming", async () => {

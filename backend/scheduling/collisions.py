@@ -1,19 +1,14 @@
-"""Collision detection for provider availability/blocked-time edits against
-existing confirmed bookings -- TICKET-11, project.md edge case 3 ("Provider
-edits availability that collides with an already-booked slot ... the booked
-appointment is protected -- it is never silently deleted or double-booked")
-and architecture.md §2 ("A provider-availability edit that would collide
-with an existing confirmed Booking should be flagged ... rather than
-silently applied").
+"""Collision detection for provider schedule/blocked-time edits against
+existing confirmed bookings (architecture.md §2: a provider-availability
+edit that would strand a confirmed booking is flagged rather than silently
+applied).
 
-`find_availability_collisions` and `find_blocked_time_collisions` are pure
-read functions: given a provider and a *proposed* change that has not been
-applied yet, they return which currently-active `Booking` rows within a
-forward horizon would no longer be covered by the new availability, or
-would newly overlap the proposed blocked range. Neither function writes
-anything -- see `scheduling/views.py`'s `AvailabilityCollisionCheckView`
-and `BlockedTimeListCreateView.post` for where the result becomes a `409`
-or an accepted-with-audit response.
+`find_schedule_collisions` and `find_blocked_time_collisions` are pure read
+functions: given a provider and a *proposed* change not yet written, they
+return which currently-active `Booking` rows within a forward horizon would
+no longer fit. Neither function writes anything — see
+`ProviderScheduleView.put` and `BlockedTimeListCreateView.post` for where
+the result becomes a `409` or an accepted-with-audit response.
 """
 
 from __future__ import annotations
@@ -25,12 +20,12 @@ from django.utils import timezone as django_timezone
 
 from bookings.models import Booking
 
-# "next 90 days" -- the ticket's own suggested cap, so a collision check
-# against a provider with years of future bookings never scans unbounded
-# history. Matches the spirit of `scheduling.slots.MAX_SLOT_QUERY_RANGE_DAYS`
-# without reusing that exact constant -- that one bounds a single patient
-# -facing slot query, this one bounds how far ahead a provider's own edit
-# is checked, and there's no reason the two should be forced to match.
+from .schedule import effective_generation_key, window_field
+
+# How far ahead to check for collisions. Intentionally separate from
+# `scheduling.slots.MAX_SLOT_QUERY_RANGE_DAYS` — that caps a single
+# patient-facing slot query; this caps how far ahead a provider edit is
+# checked, and the two don't need to be equal.
 DEFAULT_HORIZON_DAYS = 90
 
 
@@ -64,60 +59,65 @@ def _active_bookings_in_horizon(provider, *, horizon_days, now):
     )
 
 
-def _window_field(window, name):
-    """`proposed_windows` entries may be plain dicts (the shape
-    `AvailabilityCollisionCheckSerializer.validated_data` produces) or
-    `Availability` model instances -- callers shouldn't have to care which."""
-    return window[name] if isinstance(window, dict) else getattr(window, name)
-
-
-def find_availability_collisions(
-    provider, proposed_windows, *, horizon_days=DEFAULT_HORIZON_DAYS, now=None
-):
-    """Given the *complete* proposed weekly `Availability` picture (every
-    window that would exist once the edit is saved -- a day simply absent
-    from `proposed_windows` means "no working hours that day"), return every
-    active booking in the next `horizon_days` whose local day-of-week + time
-    span no longer falls fully inside one of those windows.
-
-    `proposed_windows` is a plain iterable of `{day_of_week, start_time,
-    end_time}` dicts (`day_of_week` matching `Availability.DayOfWeek`,
-    `start_time`/`end_time` plain `datetime.time`s) -- exactly the shape
-    `AvailabilityCollisionCheckSerializer` validates into. Passing the full
-    set, not a diff, is deliberate: see `scheduling/views.py`'s
-    `AvailabilityCollisionCheckView` docstring for why a single changed row
-    can't be checked in isolation.
-
-    A booking whose local start/end fall on two different calendar dates
-    (crossing local midnight) can never be "inside" a same-day
-    `Availability` window and always collides -- consistent with
+def _is_covered(local_start, local_end, windows) -> bool:
+    """Whether a booking's provider-local span falls entirely inside one of
+    `windows`. A booking whose local start/end fall on two different
+    calendar dates (crossing local midnight) can never be "inside" a
+    same-day `Availability` window and always collides -- consistent with
     `scheduling.slots.get_open_slots`, which never generates a slot that
-    spans midnight either.
+    spans midnight either."""
+    if local_start.date() != local_end.date():
+        return False
+    for window in windows:
+        start_time = window_field(window, "start_time")
+        end_time = window_field(window, "end_time")
+        if start_time <= local_start.time() and local_end.time() <= end_time:
+            return True
+    return False
+
+
+def find_schedule_collisions(
+    provider, generations, *, horizon_days=DEFAULT_HORIZON_DAYS, now=None
+):
+    """Given a *complete* proposed schedule timeline -- an iterable of
+    `(effective_from, windows)` generation pairs, exactly what
+    `scheduling.schedule.proposed_timeline` builds -- return every active
+    booking in the next `horizon_days` whose local day-of-week + time span
+    no longer falls fully inside a window of the generation governing its
+    date.
+
+    Each booking is checked against the generation effective on *its own*
+    provider-local start date (`effective_generation_key`), so editing the
+    live hours while a pending change exists never falsely flags a booking
+    that the pending generation still covers, and vice versa.
+
+    `windows` entries are `{day_of_week, start_time, end_time}` dicts
+    (`ScheduleWindowSerializer.validated_data`) or `Availability` rows.
+    Passing the full weekly picture per generation, not a diff, is
+    deliberate: a day simply absent from a generation's windows means "no
+    working hours that day".
     """
     if now is None:
         now = django_timezone.now()
 
-    windows_by_weekday: dict[int, list] = {}
-    for window in proposed_windows:
-        windows_by_weekday.setdefault(_window_field(window, "day_of_week"), []).append(window)
+    generation_keys = []
+    windows_by_generation: dict = {}
+    for key, windows in generations:
+        generation_keys.append(key)
+        by_weekday: dict[int, list] = {}
+        for window in windows:
+            by_weekday.setdefault(window_field(window, "day_of_week"), []).append(window)
+        windows_by_generation[key] = by_weekday
 
     tz = ZoneInfo(provider.timezone)
-
-    def _is_covered(local_start, local_end) -> bool:
-        if local_start.date() != local_end.date():
-            return False
-        for window in windows_by_weekday.get(local_start.weekday(), []):
-            start_time = _window_field(window, "start_time")
-            end_time = _window_field(window, "end_time")
-            if start_time <= local_start.time() and local_end.time() <= end_time:
-                return True
-        return False
 
     collisions = []
     for booking in _active_bookings_in_horizon(provider, horizon_days=horizon_days, now=now):
         local_start = booking.start_time.astimezone(tz)
         local_end = booking.end_time.astimezone(tz)
-        if not _is_covered(local_start, local_end):
+        key = effective_generation_key(generation_keys, local_start.date())
+        windows = windows_by_generation.get(key, {}).get(local_start.weekday(), [])
+        if not _is_covered(local_start, local_end, windows):
             collisions.append(_as_collision(booking))
     return collisions
 

@@ -28,7 +28,6 @@ const MIGRATED_FILES = [
   "components/availability/BlockedTimeRow.tsx",
   "components/availability/BlockedTimeSection.tsx",
   "components/availability/CollisionWarningModal.tsx",
-  "components/availability/DurationSelect.tsx",
   "components/availability/WorkingHoursSection.tsx",
   "components/bookings/RescheduleDialog.tsx",
   "components/bookings/AppointmentCard.tsx",

@@ -9,7 +9,7 @@ function window(
   start_time: string,
   end_time: string
 ): AvailabilityDay {
-  return { id: day_of_week + 1, day_of_week, start_time, end_time };
+  return { id: day_of_week + 1, day_of_week, start_time, end_time, effective_from: null };
 }
 
 function booking(startIso: string, endIso: string) {

@@ -21,19 +21,24 @@ from scheduling.slots import get_open_slots
 
 User = get_user_model()
 
-# Independently worked out from `PROVIDER_CONFIGS`' windows/durations and the
-# 56-day (8-full-week) horizon -- see this ticket's handoff notes for the
-# per-provider arithmetic. Not derived by calling the code under test, so
-# this is a real assertion, not a tautology: if `seed_demo`'s config ever
-# drifts from this number, this test is what catches it.
-EXPECTED_GROSS_SLOT_TOTAL = 15960
+# Independently worked out from `PROVIDER_CONFIGS`' windows and the 56-day
+# (8-full-week) horizon, with every type a fixed 60-minute slot: 40 working
+# days x sum over providers of (window hours x type count)
+# = 40 x (7x3 + 7x2 + 6x3 + 7x2 + 5x3 + 7x2 + 5x3 + 5x2 + 7x3 + 7x4)
+# = 40 x 170. Not derived by calling the code under test, so this is a real
+# assertion, not a tautology: if `seed_demo`'s config ever drifts from this
+# number, this test is what catches it.
+EXPECTED_GROSS_SLOT_TOTAL = 6800
 # 12 windows across the original 10 providers x 5 weekdays (60), plus the
 # weekly cohort's 5 providers x 1 window each x 5 weekdays (25).
 EXPECTED_AVAILABILITY_ROW_COUNT = 60 + 25
 # sum of len(appointment_types) per provider: 27 for the original 10, plus
 # 2 each for the weekly cohort's 5 (10).
 EXPECTED_APPOINTMENT_TYPE_COUNT = 27 + 10
-EXPECTED_BOOKING_COUNT = 442  # sum of floor(primary_type_slots / BOOKING_SAMPLE_STEP)
+# Sum over providers of ceil(primary_type_slots / BOOKING_SAMPLE_STEP),
+# where primary_type_slots = window hours x 40 working days (hourly slots):
+# 280,280,240,280,200,280,200,200,280,280 -> 14+14+12+14+10+14+10+10+14+14.
+EXPECTED_BOOKING_COUNT = 126
 # Every weekday in WEEKLY_HORIZON_LENGTH_DAYS occurs this many times --
 # exact, not a sample, since 35 (5 weeks) is a multiple of 7.
 EXPECTED_WEEKLY_OCCURRENCES_PER_PATIENT_PER_DOCTOR = WEEKLY_HORIZON_LENGTH_DAYS // 7
@@ -45,7 +50,7 @@ EXPECTED_WEEKLY_BOOKING_COUNT = (
 
 
 class SeedDemoCommandTests(TestCase):
-    """Seeding a full ~16,000-slot dataset (10 providers, ~450 pre-existing
+    """Seeding a full ~7,000-slot dataset (10 providers, ~130 pre-existing
     bookings) is the slowest thing this command does, so it's run once in
     `setUpTestData` -- Django's per-class fixture, wrapped in its own
     transaction and rolled back to a savepoint between test methods -- and
@@ -89,10 +94,9 @@ class SeedDemoCommandTests(TestCase):
             self.assertGreaterEqual(type_count, 2)
             self.assertLessEqual(type_count, 4)
 
-    def test_appointment_type_durations_are_in_the_realistic_10_to_60_minute_range(self):
-        for duration in AppointmentType.objects.values_list("duration_minutes", flat=True):
-            self.assertGreaterEqual(duration, 10)
-            self.assertLessEqual(duration, 60)
+    def test_every_appointment_type_has_the_fixed_60_minute_duration(self):
+        durations = set(AppointmentType.objects.values_list("duration_minutes", flat=True))
+        self.assertEqual(durations, {60})
 
     def test_creates_the_expected_number_of_availability_and_appointment_type_rows(self):
         self.assertEqual(Availability.objects.count(), EXPECTED_AVAILABILITY_ROW_COUNT)

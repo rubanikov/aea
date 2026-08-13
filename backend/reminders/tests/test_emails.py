@@ -32,7 +32,7 @@ class ReminderEmailBodyContentTests(RemindersTestCase):
         self.provider = self.create_provider()
         self.patient = self.create_patient(name="Alex Confidential Patient")
         self.appointment_type = AppointmentType.objects.create(
-            provider=self.provider, name="Sensitive Diagnosis Follow-up", duration_minutes=30
+            provider=self.provider, name="Sensitive Diagnosis Follow-up"
         )
         self.booking = self.create_booking(
             provider=self.provider,
@@ -80,7 +80,7 @@ class SendReminderEmailNoApiKeyTests(RemindersTestCase):
         self.provider = self.create_provider()
         self.patient = self.create_patient()
         self.appointment_type = AppointmentType.objects.create(
-            provider=self.provider, name="Follow-up", duration_minutes=30
+            provider=self.provider, name="Follow-up"
         )
         self.booking = self.create_booking(
             provider=self.provider,
@@ -123,7 +123,7 @@ class SendReminderEmailHttpCallTests(TestCase):
             email="patient-email@example.com", password="x", role=User.Role.PATIENT
         )
         appointment_type = AppointmentType.objects.create(
-            provider=provider, name="Follow-up", duration_minutes=30
+            provider=provider, name="Follow-up"
         )
         return Booking.objects.create(
             provider=provider,

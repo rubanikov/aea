@@ -84,12 +84,8 @@ class ProviderAppointmentTypesTests(SchedulingAPITestCase):
         self.patient = self.create_patient()
 
     def test_lists_only_that_providers_own_appointment_types(self):
-        AppointmentType.objects.create(
-            provider=self.provider, name="Follow-up", duration_minutes=15
-        )
-        AppointmentType.objects.create(
-            provider=self.other_provider, name="Physical", duration_minutes=45
-        )
+        AppointmentType.objects.create(provider=self.provider, name="Follow-up")
+        AppointmentType.objects.create(provider=self.other_provider, name="Physical")
         self.login_as(self.patient)
 
         response = self.client.get(f"/scheduling/providers/{self.provider.id}/appointment-types")
@@ -98,7 +94,8 @@ class ProviderAppointmentTypesTests(SchedulingAPITestCase):
         body = response.json()
         self.assertEqual(len(body), 1)
         self.assertEqual(body[0]["name"], "Follow-up")
-        self.assertEqual(body[0]["duration_minutes"], 15)
+        # Fixed 60-minute slots: still surfaced in the output for display.
+        self.assertEqual(body[0]["duration_minutes"], 60)
         self.assertEqual(set(body[0].keys()), {"id", "name", "duration_minutes"})
 
     def test_empty_list_for_a_provider_with_no_appointment_types_configured(self):

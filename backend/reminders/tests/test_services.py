@@ -27,7 +27,7 @@ class DispatchDueRemindersTestCase(RemindersTestCase):
         self.provider = self.create_provider()
         self.patient = self.create_patient()
         self.appointment_type = AppointmentType.objects.create(
-            provider=self.provider, name="Follow-up", duration_minutes=30
+            provider=self.provider, name="Follow-up"
         )
 
     def _booking(self, *, start_time, status=Booking.Status.CONFIRMED, patient=None):

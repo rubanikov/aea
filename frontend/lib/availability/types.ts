@@ -1,3 +1,8 @@
+import type {
+  AvailabilityCollision,
+  AvailabilityWindowInput,
+} from "./collisions";
+
 /**
  * `AppointmentType` as `backend/scheduling/serializers.py`'s
  * `AppointmentTypeSerializer` returns it:
@@ -7,39 +12,89 @@
 export interface AppointmentType {
   id: number;
   name: string;
+  /** Read-only: the server always returns 60 (every appointment is a fixed
+   * one-hour slot) and ignores any value a client sends. */
   duration_minutes: number;
 }
 
-/** Body shape for `POST`/`PATCH /scheduling/appointment-types(/:id)`. */
+/** Body shape for `POST`/`PATCH /scheduling/appointment-types(/:id)`.
+ * Name-only: `duration_minutes` is server-fixed at 60 and not accepted. */
 export interface AppointmentTypeInput {
   name: string;
-  duration_minutes: number;
 }
 
 /**
  * One weekly-recurring working-hours block, as returned by
  * `GET /scheduling/availability` (`backend/scheduling/serializers.py`'s
- * `AvailabilitySerializer`). `start_time`/`end_time` serialize as
- * "HH:MM:SS" (DRF's default `TimeField` rendering), normalized to "HH:MM"
- * at the form boundary (see `normalizeTime` in `WorkingHoursSection.tsx`)
- * to match `<input type="time">`'s value format. `day_of_week` is an
- * integer, Monday=0...Sunday=6; see `lib/availability/days.ts`.
+ * `AvailabilitySerializer`), which now returns only the currently-effective
+ * generation's rows. `start_time`/`end_time` serialize as "HH:MM:SS"
+ * (DRF's default `TimeField` rendering), normalized to "HH:MM" at the form
+ * boundary to match `<input type="time">`'s value format. `day_of_week` is
+ * an integer, Monday=0...Sunday=6; see `lib/availability/days.ts`.
+ * `effective_from` is the generation's start date (`null` for the
+ * baseline generation).
  */
 export interface AvailabilityDay {
   id: number;
   day_of_week: number;
   start_time: string;
   end_time: string;
+  effective_from: string | null;
+}
+
+/** One window inside a schedule generation, as `GET /scheduling/schedule`
+ * returns it (`current.windows`/`pending.windows`). Times serialize as
+ * "HH:MM:SS" like `AvailabilityDay`'s. */
+export interface ScheduleWindow {
+  id: number;
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+}
+
+/** One generation of a provider's weekly schedule: the calendar date it
+ * takes effect (`null` = the live baseline) plus its windows, sorted by
+ * `day_of_week` then `start_time`. */
+export interface ScheduleGeneration {
+  effective_from: string | null;
+  windows: ScheduleWindow[];
 }
 
 /**
- * Body shape for `POST /scheduling/availability` (creating one row; there
- * is no bulk endpoint and no `PATCH` for an existing row, only `DELETE`).
- * See `WorkingHoursSection.tsx`'s save flow, which reconciles by deleting
- * the day's previous row(s) and creating a new one whenever a day's hours
- * change.
+ * `GET /scheduling/schedule`'s (and a successful `PUT`'s) response body.
+ * `today` is the provider-local date ("YYYY-MM-DD"), supplied so the
+ * client never derives it from the browser clock. `pending` is `null`
+ * when no generation has `effective_from > today`.
  */
-export type AvailabilityDayInput = Omit<AvailabilityDay, "id">;
+export interface ProviderSchedule {
+  timezone: string;
+  today: string;
+  current: ScheduleGeneration;
+  pending: ScheduleGeneration | null;
+}
+
+/**
+ * Body shape for `PUT /scheduling/schedule`: the complete weekly picture
+ * (a day absent from `windows` means "no hours that day") plus
+ * `effective_from` — `null` to apply immediately, or a future
+ * "YYYY-MM-DD" (provider-local) to create/replace the pending generation.
+ */
+export interface ScheduleWriteBody {
+  windows: AvailabilityWindowInput[];
+  effective_from: string | null;
+}
+
+/**
+ * `PUT /scheduling/schedule`'s 409 body: the stranded bookings plus the
+ * earliest date the change could safely take effect. `earliest_safe_date`
+ * is `null` when no deferral date can clear every collision, in which
+ * case the only offered resolution is cancelling the change. See
+ * `isScheduleConflictBody` in `lib/availability/collisions.ts`.
+ */
+export interface ScheduleConflictBody {
+  collisions: AvailabilityCollision[];
+  earliest_safe_date: string | null;
+}
 
 /**
  * A provider's one-off blocked-time range, as returned by

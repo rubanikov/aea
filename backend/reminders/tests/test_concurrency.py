@@ -70,7 +70,7 @@ class ConcurrentDispatchTests(TransactionTestCase):
             provider=self.provider, day_of_week=0, start_time="00:00", end_time="23:59"
         )
         self.appointment_type = AppointmentType.objects.create(
-            provider=self.provider, name="Follow-up", duration_minutes=30
+            provider=self.provider, name="Follow-up"
         )
         self.booking = Booking.objects.create(
             provider=self.provider,

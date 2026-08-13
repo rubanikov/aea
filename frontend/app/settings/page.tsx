@@ -8,7 +8,7 @@ import { DeleteAccountSection } from "@/components/settings/DeleteAccountSection
 
 const ROLE_HOME: Record<string, string> = {
   patient: "/patient",
-  provider: "/provider",
+  provider: "/provider/calendar",
   admin: "/admin",
 };
 

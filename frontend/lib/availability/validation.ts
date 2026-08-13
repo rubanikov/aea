@@ -17,33 +17,90 @@ export function validateAppointmentType(
   return errors;
 }
 
-/** One weekday row of the working-hours form's local UI state. */
-export interface WorkingHoursRow {
-  day: DayOfWeek;
-  enabled: boolean;
+/** One time block within a day of the working-hours form. `key` is a
+ * client-only React key (never sent to the API), so removing a block in
+ * the middle of a day's stack doesn't re-key its neighbours' inputs. */
+export interface WorkingHoursBlock {
+  key: string;
   startTime: string;
   endTime: string;
 }
 
+/** One weekday of the working-hours form's local UI state: a checkbox
+ * plus a stack of one or more time blocks. */
+export interface WorkingHoursDay {
+  day: DayOfWeek;
+  enabled: boolean;
+  blocks: WorkingHoursBlock[];
+}
+
+/** Minimum minutes between the end of one block and the start of the
+ * next on the same day. Exactly 60 is valid; 59 or touching is not. */
+const MIN_BLOCK_GAP_MINUTES = 60;
+
+/** "HH:MM" -> minutes since midnight. Also handles "HH:MM:SS" (DRF's
+ * default `TimeField` serialization) by ignoring the seconds portion. */
+export function toMinutes(time: string): number {
+  const [hours, minutes] = time.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+/** Tolerates "HH:MM:SS" (DRF's default `TimeField` serialization) as well
+ * as "HH:MM" (what `<input type="time">` uses). */
+export function normalizeTime(value: string): string {
+  return value.length > 5 ? value.slice(0, 5) : value;
+}
+
+function validateDayBlocks(blocks: readonly WorkingHoursBlock[]): string | null {
+  for (const block of blocks) {
+    if (toMinutes(block.endTime) <= toMinutes(block.startTime)) {
+      return "End time must be after start time.";
+    }
+  }
+
+  const sorted = [...blocks].sort(
+    (a, b) => toMinutes(a.startTime) - toMinutes(b.startTime)
+  );
+  for (let index = 1; index < sorted.length; index += 1) {
+    const previous = sorted[index - 1];
+    const next = sorted[index];
+    const gap = toMinutes(next.startTime) - toMinutes(previous.endTime);
+    if (gap < 0) {
+      return "These blocks overlap. Blocks on the same day can't share any time.";
+    }
+    if (gap < MIN_BLOCK_GAP_MINUTES) {
+      return `Blocks must be at least 1 hour apart. There are only ${gap} minutes between ${previous.endTime} and ${next.startTime}.`;
+    }
+  }
+
+  return null;
+}
+
 /**
- * Validates every *enabled* row's time range, returning a specific message
- * per invalid day (never a single form-level error) so each row can show
- * its own inline error next to the fields that are actually wrong.
+ * Validates every *enabled* day's blocks, returning one specific message
+ * per invalid day (never a single form-level error) so each day can show
+ * its own inline error under the blocks that are actually wrong.
  * Disabled days aren't validated, since an unavailable day has no time
- * range to be wrong about. "HH:MM" 24-hour strings compare correctly
- * with `<=`.
+ * range to be wrong about.
+ *
+ * Per day, in order: every block needs `end > start`; then no two blocks
+ * may overlap; then consecutive blocks need at least one hour between
+ * one's end and the next's start (touching blocks — a 0-minute gap — are
+ * invalid, exactly one hour is valid). The gap message interpolates the
+ * real gap and times, per the wireframe copy.
  */
 export function validateWorkingHours(
-  rows: readonly WorkingHoursRow[]
+  days: readonly WorkingHoursDay[]
 ): Partial<Record<DayOfWeek, string>> {
   const errors: Partial<Record<DayOfWeek, string>> = {};
 
-  for (const row of rows) {
-    if (!row.enabled) {
+  for (const day of days) {
+    if (!day.enabled) {
       continue;
     }
-    if (row.endTime <= row.startTime) {
-      errors[row.day] = "End time must be after start time";
+    const error = validateDayBlocks(day.blocks);
+    if (error) {
+      errors[day.day] = error;
     }
   }
 

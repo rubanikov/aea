@@ -1,17 +1,17 @@
 """Unit tests for `scheduling.collisions` -- the core collision-detection
-functions this ticket builds (TICKET-11, project.md edge case 3). Exercised
-directly (not through the HTTP seam), same convention as
+functions (project.md edge case 3). Exercised directly (not through the
+HTTP seam), same convention as
 `test_slots.py`/`scheduling.slots.get_open_slots`; API-level tests live in
-`test_availability_collision_api.py` and the `BlockedTimeListCreateView`
-tests in `test_blocked_time_api.py`.
+`test_schedule_api.py` and the `BlockedTimeListCreateView` tests in
+`test_blocked_time_api.py`.
 """
 
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
 
 from bookings.models import Booking
-from scheduling.collisions import find_availability_collisions, find_blocked_time_collisions
-from scheduling.models import AppointmentType
+from scheduling.collisions import find_blocked_time_collisions, find_schedule_collisions
+from scheduling.models import AppointmentType, Availability
 
 from .helpers import SchedulingAPITestCase
 
@@ -25,11 +25,17 @@ def _t(value: str) -> time:
 
 
 def _window(day_of_week, start_time, end_time):
-    # `datetime.time` objects -- what `ProposedAvailabilityWindowSerializer`
-    # actually hands `find_availability_collisions` once a request has gone
-    # through DRF's `TimeField`; this unit-test seam calls the function
-    # directly, so it has to build the same shape by hand.
+    # `datetime.time` objects -- what `ScheduleWindowSerializer` actually
+    # hands `find_schedule_collisions` once a request has gone through
+    # DRF's `TimeField`; this unit-test seam calls the function directly,
+    # so it has to build the same shape by hand.
     return {"day_of_week": day_of_week, "start_time": _t(start_time), "end_time": _t(end_time)}
+
+
+def _single_generation(windows):
+    # A timeline with only the baseline generation -- the shape a plain
+    # "replace my live hours, no pending change exists" write produces.
+    return [(None, windows)]
 
 
 # Monday 2026-08-17 09:00-10:00 UTC -- the one active booking most tests in
@@ -37,7 +43,7 @@ def _window(day_of_week, start_time, end_time):
 MONDAY_BOOKING_START = _utc(2026, 8, 17, 9, 0)
 
 
-class FindAvailabilityCollisionsTests(SchedulingAPITestCase):
+class FindScheduleCollisionsTests(SchedulingAPITestCase):
     def setUp(self):
         self.provider = self.create_provider(timezone="UTC")
         self.appointment_type = AppointmentType.objects.create(
@@ -54,8 +60,8 @@ class FindAvailabilityCollisionsTests(SchedulingAPITestCase):
         # 09:00-10:00 -- the booking survives the edit untouched.
         windows = [_window(0, "08:00", "12:00")]
 
-        collisions = find_availability_collisions(
-            self.provider, windows, now=_utc(2026, 8, 1)
+        collisions = find_schedule_collisions(
+            self.provider, _single_generation(windows), now=_utc(2026, 8, 1)
         )
 
         self.assertEqual(collisions, [])
@@ -65,8 +71,8 @@ class FindAvailabilityCollisionsTests(SchedulingAPITestCase):
         # the window opens.
         windows = [_window(0, "10:00", "17:00")]
 
-        collisions = find_availability_collisions(
-            self.provider, windows, now=_utc(2026, 8, 1)
+        collisions = find_schedule_collisions(
+            self.provider, _single_generation(windows), now=_utc(2026, 8, 1)
         )
 
         self.assertEqual(len(collisions), 1)
@@ -83,8 +89,8 @@ class FindAvailabilityCollisionsTests(SchedulingAPITestCase):
         # Monday booking is now unaddressed by any window.
         windows = [_window(1, "09:00", "17:00")]  # Tuesday only
 
-        collisions = find_availability_collisions(
-            self.provider, windows, now=_utc(2026, 8, 1)
+        collisions = find_schedule_collisions(
+            self.provider, _single_generation(windows), now=_utc(2026, 8, 1)
         )
 
         self.assertEqual([entry["id"] for entry in collisions], [self.booking.id])
@@ -100,8 +106,8 @@ class FindAvailabilityCollisionsTests(SchedulingAPITestCase):
         # still covers the Tuesday booking.
         windows = [_window(0, "10:00", "17:00"), _window(1, "09:00", "17:00")]
 
-        collisions = find_availability_collisions(
-            self.provider, windows, now=_utc(2026, 8, 1)
+        collisions = find_schedule_collisions(
+            self.provider, _single_generation(windows), now=_utc(2026, 8, 1)
         )
 
         self.assertEqual([entry["id"] for entry in collisions], [self.booking.id])
@@ -111,8 +117,8 @@ class FindAvailabilityCollisionsTests(SchedulingAPITestCase):
         self.booking.save(update_fields=["status"])
         windows = [_window(0, "10:00", "17:00")]
 
-        collisions = find_availability_collisions(
-            self.provider, windows, now=_utc(2026, 8, 1)
+        collisions = find_schedule_collisions(
+            self.provider, _single_generation(windows), now=_utc(2026, 8, 1)
         )
 
         self.assertEqual(collisions, [])
@@ -126,8 +132,8 @@ class FindAvailabilityCollisionsTests(SchedulingAPITestCase):
         )
         # Empty proposed set: everything within-horizon is a collision, but
         # the far-future booking sits outside the 90-day horizon.
-        collisions = find_availability_collisions(
-            self.provider, [], now=_utc(2026, 8, 1), horizon_days=90
+        collisions = find_schedule_collisions(
+            self.provider, _single_generation([]), now=_utc(2026, 8, 1), horizon_days=90
         )
 
         self.assertEqual([entry["id"] for entry in collisions], [self.booking.id])
@@ -138,8 +144,8 @@ class FindAvailabilityCollisionsTests(SchedulingAPITestCase):
         # not a collision.
         windows = [_window(0, "07:00", "08:30"), _window(0, "08:45", "12:00")]
 
-        collisions = find_availability_collisions(
-            self.provider, windows, now=_utc(2026, 8, 1)
+        collisions = find_schedule_collisions(
+            self.provider, _single_generation(windows), now=_utc(2026, 8, 1)
         )
 
         self.assertEqual(collisions, [])
@@ -148,17 +154,19 @@ class FindAvailabilityCollisionsTests(SchedulingAPITestCase):
         # A pathological same-day window can never "cover" a booking whose
         # local start/end land on two different calendar dates -- mirrors
         # `get_open_slots` never generating a slot that spans midnight.
+        # 23:30-00:30 -- the fixed 60-minute span still crosses local
+        # midnight, which is all this test needs.
         overnight_booking = self.create_booking(
             provider=self.provider,
             appointment_type=AppointmentType.objects.create(
-                provider=self.provider, name="Overnight Watch", duration_minutes=120
+                provider=self.provider, name="Overnight Watch"
             ),
             start_time=_utc(2026, 8, 17, 23, 30),
         )
         windows = [_window(0, "00:00", "23:59"), _window(1, "00:00", "23:59")]
 
-        collisions = find_availability_collisions(
-            self.provider, windows, now=_utc(2026, 8, 1)
+        collisions = find_schedule_collisions(
+            self.provider, _single_generation(windows), now=_utc(2026, 8, 1)
         )
 
         self.assertIn(overnight_booking.id, [entry["id"] for entry in collisions])
@@ -179,15 +187,104 @@ class FindAvailabilityCollisionsTests(SchedulingAPITestCase):
         )
         windows = [_window(0, "08:00", "12:00")]
 
-        collisions = find_availability_collisions(provider, windows, now=_utc(2026, 8, 1))
+        collisions = find_schedule_collisions(
+            provider, _single_generation(windows), now=_utc(2026, 8, 1)
+        )
 
         self.assertEqual(collisions, [])
 
         # Narrowing the local window to start at 10:00 now excludes the
         # 09:00-local booking.
         narrower_windows = [_window(0, "10:00", "12:00")]
-        collisions = find_availability_collisions(provider, narrower_windows, now=_utc(2026, 8, 1))
+        collisions = find_schedule_collisions(
+            provider, _single_generation(narrower_windows), now=_utc(2026, 8, 1)
+        )
         self.assertEqual([entry["id"] for entry in collisions], [booking.id])
+
+
+class FindScheduleCollisionsMultiGenerationTests(SchedulingAPITestCase):
+    """Each booking is checked against the generation effective on *its
+    own* provider-local date -- the seam that makes editing live hours
+    safe while a pending change exists, and vice versa."""
+
+    def setUp(self):
+        self.provider = self.create_provider(timezone="UTC")
+        self.appointment_type = AppointmentType.objects.create(
+            provider=self.provider, name="Follow-up", duration_minutes=60
+        )
+        # Two Monday 09:00 bookings a week apart, straddling a pending
+        # change that takes effect on Thursday 2026-08-20.
+        self.before_boundary = self.create_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=_utc(2026, 8, 17, 9, 0),
+        )
+        self.after_boundary = self.create_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=_utc(2026, 8, 24, 9, 0),
+        )
+        self.boundary = date(2026, 8, 20)
+
+    def test_each_booking_is_checked_against_the_generation_governing_its_date(self):
+        # Live hours cover 09:00 Mondays; the pending generation doesn't.
+        # Only the booking on/after the boundary collides.
+        timeline = [
+            (None, [_window(0, "09:00", "17:00")]),
+            (self.boundary, [_window(0, "10:00", "17:00")]),
+        ]
+
+        collisions = find_schedule_collisions(self.provider, timeline, now=_utc(2026, 8, 1))
+
+        self.assertEqual(
+            [entry["id"] for entry in collisions], [self.after_boundary.id]
+        )
+
+    def test_a_booking_before_the_boundary_is_governed_by_the_live_generation(self):
+        # Mirror image: the live hours shrink but the pending generation
+        # still covers 09:00 -- only the pre-boundary booking collides.
+        timeline = [
+            (None, [_window(0, "10:00", "17:00")]),
+            (self.boundary, [_window(0, "09:00", "17:00")]),
+        ]
+
+        collisions = find_schedule_collisions(self.provider, timeline, now=_utc(2026, 8, 1))
+
+        self.assertEqual(
+            [entry["id"] for entry in collisions], [self.before_boundary.id]
+        )
+
+    def test_a_booking_exactly_on_the_effective_date_uses_the_new_generation(self):
+        # Thursday 2026-08-20 09:00, the boundary date itself -- "on/after"
+        # means the new generation governs it.
+        boundary_booking = self.create_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=_utc(2026, 8, 20, 9, 0),
+        )
+        timeline = [
+            (None, [_window(0, "09:00", "17:00"), _window(3, "09:00", "17:00")]),
+            (self.boundary, [_window(0, "09:00", "17:00"), _window(3, "10:00", "17:00")]),
+        ]
+
+        collisions = find_schedule_collisions(self.provider, timeline, now=_utc(2026, 8, 1))
+
+        self.assertEqual([entry["id"] for entry in collisions], [boundary_booking.id])
+
+    def test_generation_windows_may_be_availability_rows_not_just_dicts(self):
+        # `proposed_timeline` folds the untouched generation in as saved
+        # `Availability` rows -- coverage checks read them identically.
+        # Re-fetched so the row carries real `datetime.time`s, exactly as
+        # a queryset read would hand them over.
+        Availability.objects.create(
+            provider=self.provider, day_of_week=0, start_time="09:00", end_time="17:00"
+        )
+        rows = list(Availability.objects.filter(provider=self.provider))
+        timeline = [(None, rows), (self.boundary, [_window(0, "09:00", "17:00")])]
+
+        collisions = find_schedule_collisions(self.provider, timeline, now=_utc(2026, 8, 1))
+
+        self.assertEqual(collisions, [])
 
 
 class FindBlockedTimeCollisionsTests(SchedulingAPITestCase):

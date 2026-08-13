@@ -2,14 +2,11 @@
 
 import type { Ref } from "react";
 import { TextField } from "@/components/forms/TextField";
-import { DurationSelect } from "./DurationSelect";
 
 interface AppointmentTypeFormProps {
   idPrefix: string;
   name: string;
   onNameChange: (value: string) => void;
-  durationMinutes: number;
-  onDurationChange: (value: number) => void;
   nameError?: string;
   formError?: string | null;
   saving: boolean;
@@ -20,19 +17,19 @@ interface AppointmentTypeFormProps {
 }
 
 /**
- * Name + duration fields shared by "add a new appointment type"
+ * Name-only form shared by "add a new appointment type"
  * (`AppointmentTypesSection`) and "edit this one" (`AppointmentTypeRow`).
- * Fully controlled: the caller owns the field values, saving state, and
- * error state, and does its own client validation before calling
- * `onSubmit` (see both call sites for the identical shape, matching this
- * codebase's existing forms rather than a shared submit-handling hook).
+ * Every appointment is a fixed 60-minute slot, so there is no duration
+ * field — the server sets `duration_minutes: 60` itself. Fully controlled:
+ * the caller owns the field values, saving state, and error state, and
+ * does its own client validation before calling `onSubmit` (see both call
+ * sites for the identical shape, matching this codebase's existing forms
+ * rather than a shared submit-handling hook).
  */
 export function AppointmentTypeForm({
   idPrefix,
   name,
   onNameChange,
-  durationMinutes,
-  onDurationChange,
   nameError,
   formError,
   saving,
@@ -57,11 +54,6 @@ export function AppointmentTypeForm({
         onChange={(event) => onNameChange(event.target.value)}
         error={nameError}
         inputRef={nameInputRef}
-      />
-      <DurationSelect
-        id={`${idPrefix}-duration`}
-        value={durationMinutes}
-        onChange={onDurationChange}
       />
       <div className="flex gap-2">
         <button

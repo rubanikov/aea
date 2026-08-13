@@ -13,10 +13,10 @@ export interface RoleNavConfig {
 
 /**
  * Per-role nav structure for the app shell. The provider role has two
- * screens, `/provider` (availability settings) and `/provider/calendar`
- * (the day-to-day agenda), so its dashboard link is labeled "Availability"
- * rather than a generic "Dashboard", to distinguish it from the more
- * frequently-used calendar screen.
+ * screens: `/provider/calendar` (the day-to-day agenda) is the provider's
+ * home, so its link is labeled "Dashboard" to match the patient and admin
+ * navs, while `/provider` (availability settings) keeps its descriptive
+ * "Availability" label.
  */
 export const ROLE_NAV: Record<Role, RoleNavConfig> = {
   patient: {
@@ -30,7 +30,7 @@ export const ROLE_NAV: Record<Role, RoleNavConfig> = {
   provider: {
     label: "Provider",
     links: [
-      { label: "Calendar", href: "/provider/calendar" },
+      { label: "Dashboard", href: "/provider/calendar" },
       { label: "Availability", href: "/provider" },
       { label: "Settings", href: "/settings" },
     ],

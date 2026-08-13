@@ -1,6 +1,6 @@
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { CollisionWarningModal } from "./CollisionWarningModal";
 
@@ -194,6 +194,93 @@ describe("CollisionWarningModal", () => {
 
     await user.tab({ shift: true });
     expect(confirmButton).toHaveFocus();
+  });
+
+  describe("deferral prop (working-hours caller)", () => {
+    function renderDeferralModal(earliestSafeDate = "2026-08-25") {
+      const onApplyFrom = vi.fn();
+      const callbacks = renderModal({
+        deferral: { earliestSafeDate, timezone: "America/New_York", onApplyFrom },
+      });
+      return { ...callbacks, onApplyFrom };
+    }
+
+    it("replaces 'Keep new hours' with a pre-selected 'Apply from a future date' radio, a date input defaulting to (and floored at) the earliest safe date, and a hint naming it with the clinic timezone", () => {
+      renderDeferralModal();
+
+      expect(
+        screen.getByRole("radio", { name: /apply the new hours from a future date/i })
+      ).toBeChecked();
+      expect(
+        screen.queryByRole("radio", { name: /keep new hours/i })
+      ).not.toBeInTheDocument();
+
+      const dateInput = screen.getByLabelText("Start date");
+      expect(dateInput).toHaveValue("2026-08-25");
+      expect(dateInput).toHaveAttribute("min", "2026-08-25");
+      expect(
+        screen.getByText(/earliest safe date: tue, aug 25, 2026/i)
+      ).toBeInTheDocument();
+      expect(screen.getByText(/america\/new_york/i)).toBeInTheDocument();
+    });
+
+    it("labels the confirm button with the chosen date and calls onApplyFrom with it", async () => {
+      const user = userEvent.setup();
+      const { onApplyFrom, onCancelChange } = renderDeferralModal();
+
+      expect(
+        screen.getByRole("button", { name: "Apply from Aug 25" })
+      ).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText("Start date"), {
+        target: { value: "2026-09-01" },
+      });
+      await user.click(screen.getByRole("button", { name: "Apply from Sep 1" }));
+
+      expect(onApplyFrom).toHaveBeenCalledWith("2026-09-01");
+      expect(onCancelChange).not.toHaveBeenCalled();
+    });
+
+    it("disables confirm while the date is cleared or before the earliest safe date", () => {
+      renderDeferralModal();
+
+      fireEvent.change(screen.getByLabelText("Start date"), {
+        target: { value: "2026-08-20" },
+      });
+      expect(screen.getByRole("button", { name: "Confirm my choice" })).toBeDisabled();
+
+      fireEvent.change(screen.getByLabelText("Start date"), {
+        target: { value: "" },
+      });
+      expect(screen.getByRole("button", { name: "Confirm my choice" })).toBeDisabled();
+    });
+
+    it("'Cancel this change' selected, then confirm, calls onCancelChange instead of onApplyFrom", async () => {
+      const user = userEvent.setup();
+      const { onApplyFrom, onCancelChange } = renderDeferralModal();
+
+      await user.click(screen.getByRole("radio", { name: /cancel this change/i }));
+      await user.click(screen.getByRole("button", { name: "Confirm my choice" }));
+
+      expect(onCancelChange).toHaveBeenCalledTimes(1);
+      expect(onApplyFrom).not.toHaveBeenCalled();
+    });
+
+    it("renders cancel-only when the change can't be deferred (earliestSafeDate null): no radios, no date input, an explanation, and a single Cancel button", async () => {
+      const user = userEvent.setup();
+      const { onCancelChange } = renderModal({ deferral: { earliestSafeDate: null } });
+
+      expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Start date")).not.toBeInTheDocument();
+      expect(
+        screen.getByText(/can't be applied from a later date/i)
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Go back" })).not.toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "Cancel this change" }));
+
+      expect(onCancelChange).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("returns focus to the triggering element when the modal unmounts", () => {

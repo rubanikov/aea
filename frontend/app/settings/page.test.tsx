@@ -44,6 +44,6 @@ describe("SettingsPage", () => {
 
     expect(
       screen.getByRole("link", { name: /back to dashboard/i })
-    ).toHaveAttribute("href", "/provider");
+    ).toHaveAttribute("href", "/provider/calendar");
   });
 });

@@ -7,66 +7,119 @@ import {
 
 describe("validateAppointmentType", () => {
   it("requires a name", () => {
-    expect(
-      validateAppointmentType({ name: "", duration_minutes: 15 })
-    ).toEqual({ name: "Name is required" });
+    expect(validateAppointmentType({ name: "" })).toEqual({
+      name: "Name is required",
+    });
   });
 
   it("rejects a whitespace-only name", () => {
-    expect(
-      validateAppointmentType({ name: "   ", duration_minutes: 15 })
-    ).toEqual({ name: "Name is required" });
+    expect(validateAppointmentType({ name: "   " })).toEqual({
+      name: "Name is required",
+    });
   });
 
   it("passes for a real name", () => {
-    expect(
-      validateAppointmentType({ name: "Follow-up", duration_minutes: 15 })
-    ).toEqual({});
+    expect(validateAppointmentType({ name: "Follow-up" })).toEqual({});
   });
 });
 
 describe("validateWorkingHours", () => {
-  it("flags an enabled day where the end time is before the start time", () => {
-    const rows = [
-      { day: "monday" as const, enabled: true, startTime: "17:00", endTime: "09:00" },
-    ];
-    expect(validateWorkingHours(rows)).toEqual({
-      monday: "End time must be after start time",
+  let keyCounter = 0;
+  function block(startTime: string, endTime: string) {
+    keyCounter += 1;
+    return { key: `k${keyCounter}`, startTime, endTime };
+  }
+  function day(
+    dayName: "monday" | "tuesday" | "wednesday" | "saturday",
+    blocks: ReturnType<typeof block>[],
+    enabled = true
+  ) {
+    return { day: dayName, enabled, blocks };
+  }
+
+  it("flags an enabled day where a block's end time is before its start time", () => {
+    expect(validateWorkingHours([day("monday", [block("17:00", "09:00")])])).toEqual({
+      monday: "End time must be after start time.",
     });
   });
 
-  it("flags an enabled day where start and end are equal", () => {
-    const rows = [
-      { day: "monday" as const, enabled: true, startTime: "09:00", endTime: "09:00" },
-    ];
-    expect(validateWorkingHours(rows)).toEqual({
-      monday: "End time must be after start time",
+  it("flags a single block whose start and end are equal", () => {
+    expect(validateWorkingHours([day("monday", [block("12:00", "12:00")])])).toEqual({
+      monday: "End time must be after start time.",
     });
   });
 
-  it("ignores disabled days regardless of their times", () => {
-    const rows = [
-      { day: "saturday" as const, enabled: false, startTime: "17:00", endTime: "09:00" },
-    ];
-    expect(validateWorkingHours(rows)).toEqual({});
+  it("flags overlapping blocks on the same day", () => {
+    expect(
+      validateWorkingHours([
+        day("monday", [block("09:00", "13:00"), block("12:00", "17:00")]),
+      ])
+    ).toEqual({
+      monday: "These blocks overlap. Blocks on the same day can't share any time.",
+    });
   });
 
-  it("passes for a valid enabled day", () => {
-    const rows = [
-      { day: "monday" as const, enabled: true, startTime: "09:00", endTime: "17:00" },
-    ];
-    expect(validateWorkingHours(rows)).toEqual({});
+  it("flags blocks less than one hour apart, interpolating the real gap and times", () => {
+    expect(
+      validateWorkingHours([
+        day("tuesday", [block("09:00", "12:00"), block("12:30", "17:00")]),
+      ])
+    ).toEqual({
+      tuesday:
+        "Blocks must be at least 1 hour apart. There are only 30 minutes between 12:00 and 12:30.",
+    });
   });
 
-  it("reports an error per invalid row, not just the first one found", () => {
-    const rows = [
-      { day: "monday" as const, enabled: true, startTime: "17:00", endTime: "09:00" },
-      { day: "tuesday" as const, enabled: true, startTime: "20:00", endTime: "10:00" },
-      { day: "wednesday" as const, enabled: true, startTime: "09:00", endTime: "17:00" },
-    ];
-    expect(validateWorkingHours(rows)).toEqual({
-      monday: "End time must be after start time",
-      tuesday: "End time must be after start time",
+  it("flags touching blocks (12:00 end then 12:00 start) as a 0-minute gap", () => {
+    expect(
+      validateWorkingHours([
+        day("monday", [block("09:00", "12:00"), block("12:00", "15:00")]),
+      ])
+    ).toEqual({
+      monday:
+        "Blocks must be at least 1 hour apart. There are only 0 minutes between 12:00 and 12:00.",
+    });
+  });
+
+  it("passes blocks exactly one hour apart (12:00 end then 13:00 start)", () => {
+    expect(
+      validateWorkingHours([
+        day("monday", [block("09:00", "12:00"), block("13:00", "17:00")]),
+      ])
+    ).toEqual({});
+  });
+
+  it("validates blocks by time order, not input order", () => {
+    expect(
+      validateWorkingHours([
+        day("monday", [block("14:00", "17:00"), block("09:00", "13:30")]),
+      ])
+    ).toEqual({
+      monday:
+        "Blocks must be at least 1 hour apart. There are only 30 minutes between 13:30 and 14:00.",
+    });
+  });
+
+  it("ignores disabled days regardless of their blocks", () => {
+    expect(
+      validateWorkingHours([day("saturday", [block("17:00", "09:00")], false)])
+    ).toEqual({});
+  });
+
+  it("passes for a valid enabled day with one block", () => {
+    expect(validateWorkingHours([day("monday", [block("09:00", "17:00")])])).toEqual({});
+  });
+
+  it("reports an error per invalid day, not just the first one found", () => {
+    expect(
+      validateWorkingHours([
+        day("monday", [block("17:00", "09:00")]),
+        day("tuesday", [block("09:00", "12:00"), block("11:00", "17:00")]),
+        day("wednesday", [block("09:00", "17:00")]),
+      ])
+    ).toEqual({
+      monday: "End time must be after start time.",
+      tuesday: "These blocks overlap. Blocks on the same day can't share any time.",
     });
   });
 });

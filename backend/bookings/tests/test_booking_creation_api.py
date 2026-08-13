@@ -196,9 +196,7 @@ class BookingCreationRejectionTests(BookingsAPITestCase):
 
     def test_appointment_type_belonging_to_a_different_provider_returns_400(self):
         other_provider = self.create_provider(email="other@example.com")
-        other_type = AppointmentType.objects.create(
-            provider=other_provider, name="Physical", duration_minutes=45
-        )
+        other_type = AppointmentType.objects.create(provider=other_provider, name="Physical")
         self.login_as(self.patient)
 
         response = self.post_booking(

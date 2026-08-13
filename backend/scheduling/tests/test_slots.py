@@ -86,18 +86,24 @@ class NormalWeekTests(SchedulingAPITestCase):
 
 class AppointmentTypeDurationTests(SchedulingAPITestCase):
     """A 15-minute Follow-up type produces 15-minute slots even though a
-    45-minute New Patient Visit type exists on the same provider/day
-    (ticket acceptance criterion #2)."""
+    45-minute New Patient Visit type exists on the same provider/day.
+
+    The product only ever creates 60-minute types now (the DB's
+    `appointment_type_duration_is_60` constraint), but `get_open_slots`
+    itself stays duration-agnostic -- it reads whatever
+    `appointment_type.duration_minutes` says. These internal unit tests
+    keep exercising that generality with *unsaved* instances, which the
+    DB constraint (a persistence rule) never sees."""
 
     def setUp(self):
         self.provider = self.create_provider(timezone="UTC")
         Availability.objects.create(
             provider=self.provider, day_of_week=0, start_time="09:00", end_time="17:00"
         )
-        self.follow_up = AppointmentType.objects.create(
+        self.follow_up = AppointmentType(
             provider=self.provider, name="Follow-up", duration_minutes=15
         )
-        self.new_patient = AppointmentType.objects.create(
+        self.new_patient = AppointmentType(
             provider=self.provider, name="New Patient Visit", duration_minutes=45
         )
 
@@ -165,7 +171,8 @@ class EmptyStateTests(SchedulingAPITestCase):
 
     def test_no_availability_rows_produces_no_slots(self):
         provider = self.create_provider(timezone="UTC")
-        appointment_type = AppointmentType.objects.create(
+        # Unsaved on purpose -- see AppointmentTypeDurationTests' docstring.
+        appointment_type = AppointmentType(
             provider=provider, name="Follow-up", duration_minutes=30
         )
 
@@ -205,7 +212,7 @@ class MultipleWindowsPerDayTests(SchedulingAPITestCase):
 
 
 class BusyIntervalsSeamTests(SchedulingAPITestCase):
-    """The TICKET-07 integration seam: any slot overlapping a supplied busy
+    """The `busy_intervals` injection seam: any slot overlapping a supplied
     interval is dropped; everything else survives untouched."""
 
     def setUp(self):
@@ -281,7 +288,8 @@ class DstSpringForwardTests(SchedulingAPITestCase):
             start_time="01:00",
             end_time="04:00",
         )
-        self.appointment_type = AppointmentType.objects.create(
+        # Unsaved on purpose -- see AppointmentTypeDurationTests' docstring.
+        self.appointment_type = AppointmentType(
             provider=self.provider, name="Follow-up", duration_minutes=30
         )
 
@@ -327,7 +335,8 @@ class DstFallBackTests(SchedulingAPITestCase):
             start_time="00:30",
             end_time="02:30",
         )
-        self.appointment_type = AppointmentType.objects.create(
+        # Unsaved on purpose -- see AppointmentTypeDurationTests' docstring.
+        self.appointment_type = AppointmentType(
             provider=self.provider, name="Follow-up", duration_minutes=30
         )
 
@@ -355,6 +364,133 @@ class DstFallBackTests(SchedulingAPITestCase):
             _utc(2026, 11, 1, 7, 0),
         ]
         self.assertEqual([slot.start for slot in slots], expected_starts)
+
+
+class ScheduleGenerationTests(SchedulingAPITestCase):
+    """Per calendar date, only the generation effective on that date
+    contributes windows: dates before a pending change's `effective_from`
+    use the live hours, dates on/after it use the pending ones. This
+    read-time selection *is* the deferred schedule switch."""
+
+    def setUp(self):
+        self.provider = self.create_provider(timezone="UTC")
+        # Live baseline: Mon-Fri 09:00-17:00.
+        for day in range(5):
+            Availability.objects.create(
+                provider=self.provider, day_of_week=day, start_time="09:00", end_time="17:00"
+            )
+        # Pending from Wednesday 2026-08-19: Mon-Fri 10:00-12:00 only.
+        for day in range(5):
+            Availability.objects.create(
+                provider=self.provider,
+                day_of_week=day,
+                start_time="10:00",
+                end_time="12:00",
+                effective_from=date(2026, 8, 19),
+            )
+        self.hourly = AppointmentType.objects.create(
+            provider=self.provider, name="Follow-up", duration_minutes=60
+        )
+
+    def test_a_range_spanning_the_boundary_switches_generations_mid_range(self):
+        # Mon 2026-08-17 .. Fri 2026-08-21: Mon/Tue from the live hours
+        # (8 slots each), Wed/Thu/Fri from the pending ones (2 slots each).
+        slots = get_open_slots(
+            self.provider,
+            self.hourly,
+            date(2026, 8, 17),
+            date(2026, 8, 21),
+            now=_utc(2026, 1, 1),
+        )
+
+        self.assertEqual(len(slots), 8 + 8 + 2 + 2 + 2)
+        # Tuesday (the last live day) still runs 09:00-17:00 ...
+        tuesday = [s for s in slots if s.start.date() == date(2026, 8, 18)]
+        self.assertEqual(tuesday[0].start, _utc(2026, 8, 18, 9, 0))
+        self.assertEqual(tuesday[-1].end, _utc(2026, 8, 18, 17, 0))
+        # ... and Wednesday, the effective date itself, already uses the
+        # pending 10:00-12:00 hours.
+        wednesday = [s for s in slots if s.start.date() == date(2026, 8, 19)]
+        self.assertEqual(
+            [(s.start, s.end) for s in wednesday],
+            [
+                (_utc(2026, 8, 19, 10, 0), _utc(2026, 8, 19, 11, 0)),
+                (_utc(2026, 8, 19, 11, 0), _utc(2026, 8, 19, 12, 0)),
+            ],
+        )
+
+    def test_a_generation_whose_date_has_passed_governs_all_later_dates(self):
+        # No write has normalized the table since 2026-08-19 -- the dated
+        # generation simply keeps governing every date on/after it.
+        slots = get_open_slots(
+            self.provider,
+            self.hourly,
+            date(2026, 8, 24),  # the following Monday
+            date(2026, 8, 24),
+            now=_utc(2026, 8, 23),
+        )
+
+        self.assertEqual(
+            [slot.start for slot in slots],
+            [_utc(2026, 8, 24, 10, 0), _utc(2026, 8, 24, 11, 0)],
+        )
+
+
+class ScheduleGenerationDstBoundaryTests(SchedulingAPITestCase):
+    """An `effective_from` landing on a DST transition day: each date still
+    resolves its wall-clock windows in the generation governing *that*
+    date, with the transition math applied -- generation selection and DST
+    conversion compose with no special casing."""
+
+    def setUp(self):
+        self.provider = self.create_provider(timezone="America/New_York")
+        # Live: Sundays 09:00-17:00.
+        Availability.objects.create(
+            provider=self.provider,
+            day_of_week=Availability.DayOfWeek.SUNDAY,
+            start_time="09:00",
+            end_time="17:00",
+        )
+        # Pending from the 2026-03-08 spring-forward Sunday itself:
+        # 01:00-04:00, a window straddling the skipped 02:00 hour.
+        Availability.objects.create(
+            provider=self.provider,
+            day_of_week=Availability.DayOfWeek.SUNDAY,
+            start_time="01:00",
+            end_time="04:00",
+            effective_from=date(2026, 3, 8),
+        )
+        self.hourly = AppointmentType.objects.create(
+            provider=self.provider, name="Follow-up", duration_minutes=60
+        )
+
+    def test_wall_clock_windows_resolve_correctly_on_both_sides_of_the_boundary(self):
+        slots = get_open_slots(
+            self.provider,
+            self.hourly,
+            date(2026, 3, 1),
+            date(2026, 3, 8),
+            now=_utc(2026, 1, 1),
+        )
+
+        # Sunday 03-01 is still EST (UTC-5) and still the live generation:
+        # 09:00-17:00 EST == 14:00-22:00 UTC, 8 hourly slots.
+        before = [s for s in slots if s.start.date() == date(2026, 3, 1)]
+        self.assertEqual(len(before), 8)
+        self.assertEqual(before[0].start, _utc(2026, 3, 1, 14, 0))
+        self.assertEqual(before[-1].end, _utc(2026, 3, 1, 22, 0))
+        # Sunday 03-08 uses the pending window *and* loses the skipped
+        # hour: 01:00 EST == 06:00 UTC, 04:00 EDT == 08:00 UTC -- two
+        # hourly slots, not the naive three.
+        boundary = [s for s in slots if s.start.date() == date(2026, 3, 8)]
+        self.assertEqual(
+            [(s.start, s.end) for s in boundary],
+            [
+                (_utc(2026, 3, 8, 6, 0), _utc(2026, 3, 8, 7, 0)),
+                (_utc(2026, 3, 8, 7, 0), _utc(2026, 3, 8, 8, 0)),
+            ],
+        )
+        self.assertEqual(len(slots), 8 + 2)
 
 
 class TimezoneConversionTests(SchedulingAPITestCase):

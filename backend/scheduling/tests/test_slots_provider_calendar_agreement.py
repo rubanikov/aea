@@ -2,10 +2,11 @@
 slot for slot, about the same working day.
 
 Reported against `seed_demo`'s Dr. Ana Rossi (America/New_York, Mon-Fri
-08:00-15:00, a 15-minute "Follow-up"): a patient was offered 8:00am and
-1:00pm on a day her calendar already had appointments at both, and the
-2:00pm hour she had marked as working was missing from the patient's grid
-entirely.
+08:00-15:00): a patient was offered 8:00am and 1:00pm on a day her
+calendar already had appointments at both, and the 2:00pm hour she had
+marked as working was missing from the patient's grid entirely. (The bug
+predates the fixed-60-minute-slot rule -- the fixtures here now use the
+hourly grid that rule produces.)
 
 The endpoint itself turned out to be right -- the two screens were plotting
 the same UTC instants on two different clocks (fixed in
@@ -48,7 +49,7 @@ class SlotsMatchProviderCalendarTests(SchedulingAPITestCase):
                 end_time="15:00",
             )
         self.follow_up = AppointmentType.objects.create(
-            provider=self.provider, name="Follow-up", duration_minutes=15
+            provider=self.provider, name="Follow-up"
         )
 
     def local(self, hour, minute=0):
@@ -95,41 +96,40 @@ class SlotsMatchProviderCalendarTests(SchedulingAPITestCase):
 
         self.assertNotIn("13:00", open_times)
         self.assertNotIn("08:00", open_times)
-        # A 13:00-13:15 appointment blocks exactly its own 15 minutes, no
-        # more: the slots either side stay bookable.
-        self.assertIn("12:45", open_times)
-        self.assertIn("13:15", open_times)
-        self.assertIn("08:15", open_times)
+        # A 13:00-14:00 appointment blocks exactly its own hour, no more:
+        # the slots either side stay bookable.
+        self.assertIn("12:00", open_times)
+        self.assertIn("14:00", open_times)
+        self.assertIn("09:00", open_times)
 
     def test_every_configured_working_hour_is_offered_when_nothing_is_booked(self):
         self.login_as(self.patient)
 
         open_times = self.open_local_times()
 
-        expected = {
-            f"{8 + (minutes // 60):02d}:{minutes % 60:02d}"
-            for minutes in range(0, (15 - 8) * 60, 15)
-        }
-        # 08:00 through 14:45 inclusive -- the whole configured day, with
-        # nothing before it and nothing running past 15:00.
+        expected = {f"{hour:02d}:00" for hour in range(8, 15)}
+        # 08:00 through 14:00 inclusive -- the whole configured day in
+        # fixed one-hour slots, with nothing before it and nothing running
+        # past 15:00.
         self.assertEqual(open_times, expected)
 
-    def test_a_longer_appointment_type_is_blocked_by_a_shorter_booking_inside_it(self):
-        """The provider's calendar shows one 13:00-13:15 appointment; a
-        60-minute service can't be offered at 13:00 (or at any earlier start
-        that would run through it) just because the booking is shorter than
-        the slot."""
-        physical = AppointmentType.objects.create(
-            provider=self.provider, name="Annual Physical", duration_minutes=60
-        )
-        self.create_booking(
+    def test_a_legacy_short_booking_still_blocks_the_hour_slot_it_sits_inside(self):
+        """Bookings created before the fixed-60-minute rule keep their
+        original shorter spans (the migration deliberately doesn't stretch
+        them -- see scheduling/migrations/0003). A 13:00-13:15 legacy row
+        must still make the 13:00 hour slot unbookable, without bleeding
+        into its neighbours."""
+        Booking.objects.create(
             provider=self.provider,
+            patient=self.create_patient(email="legacy-patient@example.com"),
             appointment_type=self.follow_up,
             start_time=self.local(13, 0),
+            end_time=self.local(13, 15),
+            status=Booking.Status.CONFIRMED,
         )
         self.login_as(self.patient)
 
-        open_times = self.open_local_times(physical)
+        open_times = self.open_local_times()
 
         self.assertNotIn("13:00", open_times)
         # 12:00-13:00 ends exactly where the appointment starts, so it is
@@ -149,8 +149,7 @@ class SlotsMatchProviderCalendarTests(SchedulingAPITestCase):
         open_times = self.open_local_times()
 
         self.assertNotIn("10:00", open_times)
-        self.assertNotIn("10:45", open_times)
-        self.assertIn("09:45", open_times)
+        self.assertIn("09:00", open_times)
         self.assertIn("11:00", open_times)
 
     def test_a_cancelled_appointment_frees_its_time_again(self):
@@ -193,12 +192,9 @@ class SlotsMatchProviderCalendarTests(SchedulingAPITestCase):
 
         self.assertEqual(busy_times, {"08:00", "13:00"})
         self.assertEqual(busy_times & open_times, set())
-        # ...and nothing else went missing: every other 15-minute start in
+        # ...and nothing else went missing: every other hourly start in
         # the working day is still offered.
-        all_starts = {
-            f"{8 + (minutes // 60):02d}:{minutes % 60:02d}"
-            for minutes in range(0, (15 - 8) * 60, 15)
-        }
+        all_starts = {f"{hour:02d}:00" for hour in range(8, 15)}
         self.assertEqual(open_times, all_starts - busy_times)
 
 
@@ -220,7 +216,7 @@ class ProviderCalendarDayBoundsTests(SchedulingAPITestCase):
             provider=self.provider, day_of_week=2, start_time="08:00", end_time="17:00"
         )
         self.appointment_type = AppointmentType.objects.create(
-            provider=self.provider, name="Follow-up", duration_minutes=30
+            provider=self.provider, name="Follow-up"
         )
         self.morning = self.create_booking(
             provider=self.provider,

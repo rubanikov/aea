@@ -3,13 +3,27 @@ from datetime import timedelta
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import TestCase
+from django.utils import timezone as django_timezone
 
 from accounts.tests.helpers import AJAX_HEADERS, TEST_PASSWORD
 from bookings.models import Booking
 
 User = get_user_model()
 
-__all__ = ["AJAX_HEADERS", "TEST_PASSWORD", "SchedulingAPITestCase"]
+__all__ = ["AJAX_HEADERS", "TEST_PASSWORD", "SchedulingAPITestCase", "next_monday"]
+
+
+def next_monday(*, min_days_ahead=7):
+    """The first Monday at least `min_days_ahead` days from the real
+    current date -- far enough out that "tomorrow" never lands past it,
+    near enough that the 90-day collision horizon always includes it.
+    Derived from the real clock because the schedule/slots views resolve
+    "today" from `django_timezone.now()` (never mocked in API tests --
+    the cookie-JWT auth path shares that module)."""
+    day = django_timezone.now().date() + timedelta(days=min_days_ahead)
+    while day.weekday() != 0:  # Monday
+        day += timedelta(days=1)
+    return day
 
 
 class SchedulingAPITestCase(TestCase):
@@ -28,6 +42,11 @@ class SchedulingAPITestCase(TestCase):
 
     def patch_json(self, path, data=None, **extra):
         return self.client.patch(
+            path, data or {}, content_type="application/json", **AJAX_HEADERS, **extra
+        )
+
+    def put_json(self, path, data=None, **extra):
+        return self.client.put(
             path, data or {}, content_type="application/json", **AJAX_HEADERS, **extra
         )
 
@@ -59,19 +78,17 @@ class SchedulingAPITestCase(TestCase):
         patient=None,
         status=Booking.Status.CONFIRMED,
     ):
-        """Creates a `Booking` row directly (bypassing
-        `bookings.services.create_booking`) -- TICKET-11's collision tests
-        only need an existing row of a given status/time to check against,
-        not to exercise the booking-creation flow itself (that's
-        `bookings/tests`' job). `end_time` is derived from
-        `appointment_type.duration_minutes`, same as the real service does.
+        """Creates a `Booking` row directly, bypassing
+        `bookings.services.create_booking`. Collision tests only need an
+        existing row of a given status/time to check against, not to exercise
+        the booking-creation flow (that's `bookings/tests`' job). `end_time`
+        is derived from `appointment_type.duration_minutes`, same as the real
+        service does.
         """
         if patient is None:
-            # A unique default patient per call (keyed off how many bookings
-            # already exist) -- several TICKET-11 collision tests create
-            # more than one booking per test without caring who the patient
-            # is, and `create_patient`'s own default email is a fixed
-            # constant that would otherwise collide on the second call.
+            # Unique email per call, keyed off existing booking count — some
+            # tests create multiple bookings and `create_patient`'s default
+            # email is a fixed constant that would collide on the second call.
             patient = self.create_patient(
                 email=f"patient-{Booking.objects.count()}@example.com"
             )

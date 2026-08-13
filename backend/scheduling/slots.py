@@ -2,22 +2,14 @@
 them") and §5 (UTC storage + a per-actor IANA timezone, DST-safe via
 `zoneinfo`).
 
-`get_open_slots` is the core compute function this ticket builds: given a
-provider, an appointment type, and a calendar-day range, it returns every
-bookable slot, computed fresh from `Availability` on every call. No slot is
-ever a persisted row.
+`get_open_slots` computes every bookable slot fresh from `Availability` on
+every call; no slot is ever a persisted row.
 
-Integration seam for `bookings.Booking` (TICKET-07)
-----------------------------------------------------
-`busy_intervals` is where booked time gets subtracted. It's a plain
-iterable of `(start, end)` tz-aware UTC `datetime` pairs — any candidate
-slot that overlaps one is dropped. `scheduling.views.SlotsView` and
-`bookings.services.create_booking` both fold real `Booking` rows in here
-at their own call sites (querying `status__in=Booking.ACTIVE_STATUSES` so
-a cancelled/completed/no-show booking never blocks a slot) — this module
-still has no import of, or knowledge about, `bookings` at all: the only
-contract is "something reducible to (start, end) UTC instant pairs," which
-is the whole point of the seam.
+`busy_intervals` is the seam for booked time: a plain iterable of `(start,
+end)` tz-aware UTC `datetime` pairs. `SlotsView` and
+`bookings.services.create_booking` fold real `Booking` rows in at their call
+sites — this module has no import of, or knowledge about, `bookings`. The
+only contract is "something reducible to (start, end) UTC instant pairs."
 """
 
 from __future__ import annotations
@@ -28,6 +20,8 @@ from datetime import timezone as dt_timezone
 from zoneinfo import ZoneInfo
 
 from django.utils import timezone as django_timezone
+
+from .schedule import effective_generation_key
 
 # Safety cap for the patient-facing `GET /scheduling/slots` endpoint (see
 # scheduling/serializers.py) -- keeps a query from generating an unbounded
@@ -64,6 +58,12 @@ def get_open_slots(
       wall-clock time-of-day rows) and resolves each one, per calendar date,
       to a UTC instant pair using `provider.timezone` via `zoneinfo` --
       never naive local arithmetic.
+    - Per calendar date, only the schedule *generation* effective on that
+      date contributes windows (`scheduling.schedule.effective_generation_key`
+      -- the greatest `effective_from <= date`, `NULL` as the baseline).
+      Dates before a pending change's `effective_from` use the live hours;
+      dates on/after it use the pending ones -- this read-time selection
+      *is* the deferred switch, there is no promotion job.
     - Discretizes each resolved window into consecutive
       `appointment_type.duration_minutes` slots. The discretization loop
       itself runs entirely on the two already-UTC endpoints: each endpoint
@@ -71,7 +71,7 @@ def get_open_slots(
       so a window whose local wall-clock span crosses a DST transition
       still produces exactly the right number of slots -- UTC has no gaps
       or repeats for the loop to trip over, whatever the local clock did.
-    - Subtracts `busy_intervals` (see module docstring -- the TICKET-07
+    - Subtracts `busy_intervals` (see module docstring for the injection
       seam).
     - Drops any slot starting before `now` (defaults to
       `django.utils.timezone.now()`), so past times are never returned as
@@ -88,14 +88,20 @@ def get_open_slots(
     tz = ZoneInfo(provider.timezone)
     duration = timedelta(minutes=appointment_type.duration_minutes)
 
-    windows_by_weekday: dict[int, list] = {}
+    windows_by_generation: dict[date | None, dict[int, list]] = {}
     for window in provider.availability_windows.all():
-        windows_by_weekday.setdefault(window.day_of_week, []).append(window)
+        windows_by_generation.setdefault(window.effective_from, {}).setdefault(
+            window.day_of_week, []
+        ).append(window)
+    generation_keys = list(windows_by_generation)
 
     slots: list[Slot] = []
     day = date_from
     while day <= date_to:
-        for window in windows_by_weekday.get(day.weekday(), []):
+        generation = windows_by_generation.get(
+            effective_generation_key(generation_keys, day), {}
+        )
+        for window in generation.get(day.weekday(), []):
             window_start_utc = datetime.combine(day, window.start_time, tzinfo=tz).astimezone(
                 dt_timezone.utc
             )

@@ -21,8 +21,8 @@ import { SummaryRail } from "./SummaryRail";
  *
  * - Changing the provider clears BOTH the service and the slot (both were
  *   scoped to that provider).
- * - Changing the service clears the slot only (slot lengths depend on the
- *   service's duration).
+ * - Changing the service clears the slot only (the slot list is fetched
+ *   per service).
  * - Changing the date/time clears nothing else.
  * - Re-selecting the *same* provider/service is not a change and clears
  *   nothing.

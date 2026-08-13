@@ -16,7 +16,7 @@ for a cross-ticket acceptance suite: every journey below terminates in a
 `audit`, so nothing here introduces a new cross-app dependency that isn't
 already present in `bookings/services.py` itself.
 
-Four independent things live in this file, each a genuine gap no single
+Five independent things live in this file, each a genuine gap no single
 ticket's own suite covers (see `bookings/tests/helpers.py`'s
 `BookingsAPITestCase` and `scheduling/tests/helpers.py`'s
 `SchedulingAPITestCase` for the inherited request/login helpers):
@@ -28,11 +28,11 @@ ticket's own suite covers (see `bookings/tests/helpers.py`'s
    scopes its own tests to its own endpoint(s), with fixtures created
    directly against the ORM instead of replaying every prior step over
    HTTP).
-2. `AccountDeletionCancelsUpcomingAppointmentsTests` -- TICKET-14's
-   "upcoming appointments are cancelled as part of the deletion flow"
-   criterion, exercised against a patient who actually has one; every
-   fixture in `accounts/tests/test_account_deletion.py` registers a patient
-   with zero bookings.
+2. `AccountDeletionCancelsUpcomingAppointmentsTests` -- the project.md
+   Core #1 requirement that upcoming appointments are cancelled as part of
+   the deletion flow, exercised against a patient who actually has one;
+   every fixture in `accounts/tests/test_account_deletion.py` registers a
+   patient with zero bookings.
 3. `MalformedRequestBodyTests` -- project.md edge case 7's literal
    "malformed ... requests are rejected with clear errors" against a body
    that isn't valid JSON at all, distinct from every existing "malformed
@@ -45,6 +45,14 @@ ticket's own suite covers (see `bookings/tests/helpers.py`'s
    `reminders/tests/test_emails.py`'s `ReminderEmailBodyContentTests`
    already uses for reminder email bodies, applied here to the
    application's own request logs.
+5. `MultiBlockAndDeferredScheduleJourneyTests` -- end-to-end acceptance
+   criterion for multi-block working hours and the deferred
+   ("effective from") schedule change, observed from the *patient's* side
+   of the fence: `scheduling/tests/test_schedule_api.py` pins down the
+   `PUT /scheduling/schedule` write contract and
+   `scheduling/tests/test_slots.py` the generation-selection math, but
+   nothing drives provider-saves -> patient-queries-slots over HTTP and
+   asserts the boundary flip inside one slot-query response.
 """
 
 from datetime import timedelta
@@ -56,6 +64,8 @@ from django.utils import timezone
 from accounts.tests.helpers import AJAX_HEADERS, TEST_PASSWORD
 from audit.models import AuditLog
 from bookings.models import Booking
+from scheduling.models import AppointmentType
+from scheduling.tests.helpers import next_monday
 
 from .helpers import BookingsAPITestCase
 
@@ -123,19 +133,27 @@ class FullBookingJourneyTests(BookingsAPITestCase):
         )
 
         # -- Core #2: "a provider sets working hours (e.g. Mon-Fri
-        # 09:00-17:00)" --
+        # 09:00-17:00)" -- one whole-week `PUT /scheduling/schedule`
+        # applied immediately (`effective_from: null`), exactly as the
+        # working-hours form saves.
         self.login_as(provider)
-        for day_of_week in range(5):  # Monday(0) .. Friday(4)
-            availability_response = self.post_json(
-                "/scheduling/availability",
-                {"day_of_week": day_of_week, "start_time": "09:00", "end_time": "17:00"},
-            )
-            self.assertEqual(availability_response.status_code, 201, availability_response.content)
+        schedule_response = self.put_json(
+            "/scheduling/schedule",
+            {
+                "windows": [
+                    {"day_of_week": day_of_week, "start_time": "09:00", "end_time": "17:00"}
+                    for day_of_week in range(5)  # Monday(0) .. Friday(4)
+                ],
+                "effective_from": None,
+            },
+        )
+        self.assertEqual(schedule_response.status_code, 200, schedule_response.content)
 
-        # -- Core #2: "a slot length (e.g. 30 min)" -- per-AppointmentType,
-        # architecture.md §2.
+        # -- Core #2: the provider defines a visit type by name only --
+        # every appointment is a fixed 60-minute slot, so the client never
+        # sends a duration.
         appointment_type_response = self.post_json(
-            "/scheduling/appointment-types", {"name": "Follow-up", "duration_minutes": 60}
+            "/scheduling/appointment-types", {"name": "Follow-up"}
         )
         self.assertEqual(
             appointment_type_response.status_code, 201, appointment_type_response.content
@@ -236,14 +254,13 @@ class FullBookingJourneyTests(BookingsAPITestCase):
 
 
 class AccountDeletionCancelsUpcomingAppointmentsTests(BookingsAPITestCase):
-    """TICKET-14 / project.md Core #1's retention companion: "Any upcoming
-    appointments are cancelled as part of the deletion flow." Every fixture
-    in `accounts/tests/test_account_deletion.py`'s `AccountDeletionTests`
+    """project.md Core #1's retention companion: "Any upcoming appointments
+    are cancelled as part of the deletion flow." Every fixture in
+    `accounts/tests/test_account_deletion.py`'s `AccountDeletionTests`
     registers a patient with zero bookings (see e.g. that file's own
     `test_response_reports_zero_cancelled_appointments_for_now`) -- this is
     the one case that actually gives the patient an upcoming confirmed
-    booking before requesting deletion, which is where this specific
-    criterion lives.
+    booking before requesting deletion.
     """
 
     def setUp(self):
@@ -419,3 +436,102 @@ class NoPHIInApplicationLogsTests(BookingsAPITestCase):
         # The log lines are still meaningfully identifying by id -- this
         # isn't a test of "logs nothing," only "logs no PHI."
         self.assertIn(str(booking_id), all_output)
+
+
+class MultiBlockAndDeferredScheduleJourneyTests(BookingsAPITestCase):
+    """E2E acceptance criterion: provider saves multi-block hours -> the
+    patient's bookable slots match those blocks (nothing in the gap) ->
+    provider defers a different weekly picture with a future `effective_from`
+    -> one slot query spanning the boundary returns the old hours strictly
+    before that date and the new hours on/after it.
+
+    The schedule/slots views resolve "today" from the real clock (never
+    mocked here -- `CookieJWTAuthentication` shares
+    `django.utils.timezone`), so every date is derived dynamically:
+    `boundary_monday` is a Monday at least two weeks out, which keeps the
+    old-hours Monday one week before it comfortably in the future too --
+    no slot on either day can be eaten by the "past times are never
+    bookable" rule, whatever wall-clock date the suite runs on.
+    """
+
+    OLD_WINDOWS = [
+        {"day_of_week": 0, "start_time": "08:00", "end_time": "11:00"},
+        {"day_of_week": 0, "start_time": "14:00", "end_time": "17:00"},
+    ]
+    NEW_WINDOWS = [{"day_of_week": 0, "start_time": "10:00", "end_time": "13:00"}]
+
+    def setUp(self):
+        self.provider = self.create_provider(email="dr.blocks@example.com", timezone="UTC")
+        self.appointment_type = AppointmentType.objects.create(
+            provider=self.provider, name="Follow-up", duration_minutes=60
+        )
+        self.patient = self.create_patient(email="blocks.patient@example.com")
+        self.boundary_monday = next_monday(min_days_ahead=14)
+        self.old_monday = self.boundary_monday - timedelta(days=7)
+
+    def _put_schedule(self, windows, effective_from):
+        response = self.put_json(
+            "/scheduling/schedule", {"windows": windows, "effective_from": effective_from}
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()
+
+    def _slot_starts(self, date_from, date_to):
+        response = self.client.get(
+            "/scheduling/slots"
+            f"?provider_id={self.provider.id}"
+            f"&appointment_type_id={self.appointment_type.id}"
+            f"&date_from={date_from.isoformat()}&date_to={date_to.isoformat()}"
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        return [slot["start"] for slot in response.json()["slots"]]
+
+    def _expected_starts(self, day, hours):
+        return [f"{day.isoformat()}T{hour:02d}:00:00Z" for hour in hours]
+
+    def test_multi_block_hours_produce_slots_only_inside_the_blocks(self):
+        self.login_as(self.provider)
+        self._put_schedule(self.OLD_WINDOWS, None)
+
+        self.login_as(self.patient)
+        starts = self._slot_starts(self.old_monday, self.old_monday)
+
+        # Exactly the two blocks' worth of 60-minute slots -- in
+        # particular, nothing in the 11:00-14:00 gap between them (the
+        # 11:00 candidate can't fit before the block ends, and 12:00/13:00
+        # fall in no window at all).
+        self.assertEqual(
+            starts, self._expected_starts(self.old_monday, [8, 9, 10, 14, 15, 16])
+        )
+
+    def test_a_deferred_change_switches_patient_slots_exactly_at_effective_from(self):
+        self.login_as(self.provider)
+        self._put_schedule(self.OLD_WINDOWS, None)
+
+        body = self._put_schedule(self.NEW_WINDOWS, self.boundary_monday.isoformat())
+
+        # The deferred save leaves the live generation untouched (the
+        # multi-block hours stay live for near dates) and parks the new
+        # picture as `pending` -- what the frontend banner renders from.
+        self.assertIsNone(body["current"]["effective_from"])
+        self.assertEqual(
+            [(w["start_time"], w["end_time"]) for w in body["current"]["windows"]],
+            [("08:00:00", "11:00:00"), ("14:00:00", "17:00:00")],
+        )
+        self.assertEqual(
+            body["pending"]["effective_from"], self.boundary_monday.isoformat()
+        )
+
+        # One patient slot query spanning the boundary: the Monday before
+        # `effective_from` still serves the old multi-block hours; the
+        # boundary Monday itself serves only the new 10:00-13:00 hours.
+        # Exact list equality also proves no other day in the range leaks
+        # slots from either generation.
+        self.login_as(self.patient)
+        starts = self._slot_starts(self.old_monday, self.boundary_monday)
+
+        self.assertEqual(
+            starts,
+            self._expected_starts(self.old_monday, [8, 9, 10, 14, 15, 16])
+            + self._expected_starts(self.boundary_monday, [10, 11, 12]),
+        )

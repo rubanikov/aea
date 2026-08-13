@@ -22,7 +22,7 @@ class DispatchRemindersCommandTests(RemindersTestCase):
         self.provider = self.create_provider()
         self.patient = self.create_patient()
         self.appointment_type = AppointmentType.objects.create(
-            provider=self.provider, name="Follow-up", duration_minutes=30
+            provider=self.provider, name="Follow-up"
         )
 
     @patch("reminders.services.send_reminder_email", return_value=True)

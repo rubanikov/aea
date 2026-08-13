@@ -1,10 +1,11 @@
 import type { BookingStatus } from "@/lib/bookings/types";
+import type { ScheduleConflictBody } from "./types";
 
 /**
  * One existing appointment that falls outside a proposed availability
  * change (a working-hours edit or a new blocked-time range). Returned by
- * `POST /scheduling/availability/check-collisions` and by
- * `POST /scheduling/blocked-time` when the block would strand a booking.
+ * `PUT /scheduling/schedule` and by `POST /scheduling/blocked-time` when
+ * the change would strand a booking.
  * Same shape as `ProviderBooking` (`lib/bookings/types.ts`) minus
  * `patient_id`, so this reuses `BookingStatus` and, at render time,
  * `BookingStatusBadge`/`formatBookingTimeRange` rather than inventing a
@@ -21,9 +22,9 @@ export interface AvailabilityCollision {
 
 /**
  * One weekday's proposed hours, the request body shape for the `windows`
- * array `POST /scheduling/availability/check-collisions` expects. A day
- * simply absent from the array means "no hours that day" (this also
- * covers deleting a day's hours entirely).
+ * array `PUT /scheduling/schedule` expects. A day simply absent from the
+ * array means "no hours that day" (this also covers deleting a day's
+ * hours entirely).
  */
 export interface AvailabilityWindowInput {
   day_of_week: number;
@@ -43,7 +44,7 @@ interface CollisionResponseBody {
 }
 
 /**
- * Type guard for a 409 response's body from either collision-checking
+ * Type guard for a 409 response's body from either collision-raising
  * endpoint; both use this same `{collisions: [...]}` shape. Narrows
  * `ApiError.body` (`unknown`) so callers can tell a real collision
  * response apart from an unrelated error body without a type assertion.
@@ -54,4 +55,17 @@ export function isCollisionResponseBody(body: unknown): body is CollisionRespons
     body !== null &&
     Array.isArray((body as { collisions?: unknown }).collisions)
   );
+}
+
+/**
+ * Type guard for `PUT /scheduling/schedule`'s 409 body specifically:
+ * collisions plus `earliest_safe_date` (a "YYYY-MM-DD" string, or `null`
+ * when the change can't be cleared by deferring it).
+ */
+export function isScheduleConflictBody(body: unknown): body is ScheduleConflictBody {
+  if (!isCollisionResponseBody(body)) {
+    return false;
+  }
+  const date = (body as { earliest_safe_date?: unknown }).earliest_safe_date;
+  return typeof date === "string" || date === null;
 }

@@ -70,9 +70,7 @@ class SlotsEndpointTests(SchedulingAPITestCase):
 
     def test_appointment_type_not_belonging_to_provider_returns_404(self):
         other_provider = self.create_provider(email="other@example.com")
-        other_type = AppointmentType.objects.create(
-            provider=other_provider, name="Physical", duration_minutes=45
-        )
+        other_type = AppointmentType.objects.create(provider=other_provider, name="Physical")
         self.login_as(self.patient)
 
         response = self._query(appointment_type_id=other_type.id)
@@ -100,20 +98,22 @@ class SlotsEndpointTests(SchedulingAPITestCase):
 
         self.assertEqual(response.status_code, 400)
 
-    def test_different_duration_types_produce_different_slot_grids_via_the_api(self):
+    def test_every_type_produces_the_same_fixed_hourly_grid_via_the_api(self):
+        # Every appointment is a fixed 60-minute slot now -- a second type
+        # is just another name over the exact same hourly grid.
         Availability.objects.create(
             provider=self.provider, day_of_week=0, start_time="09:00", end_time="17:00"
         )
-        short_type = AppointmentType.objects.create(
-            provider=self.provider, name="Quick Check", duration_minutes=15
+        other_type = AppointmentType.objects.create(
+            provider=self.provider, name="Quick Check"
         )
         self.login_as(self.patient)
 
-        long_response = self._query(date_to="2026-08-17")
-        short_response = self._query(appointment_type_id=short_type.id, date_to="2026-08-17")
+        first_response = self._query(date_to="2026-08-17")
+        second_response = self._query(appointment_type_id=other_type.id, date_to="2026-08-17")
 
-        self.assertEqual(len(long_response.json()["slots"]), 8)
-        self.assertEqual(len(short_response.json()["slots"]), 32)
+        self.assertEqual(len(first_response.json()["slots"]), 8)
+        self.assertEqual(first_response.json()["slots"], second_response.json()["slots"])
 
 
 class BlockedTimeExclusionTests(SchedulingAPITestCase):

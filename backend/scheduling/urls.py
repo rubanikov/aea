@@ -5,18 +5,18 @@ from . import views
 urlpatterns = [
     path(
         "scheduling/availability",
-        views.AvailabilityListCreateView.as_view(),
+        views.AvailabilityListView.as_view(),
         name="availability-list",
     ),
     path(
-        "scheduling/availability/check-collisions",
-        views.AvailabilityCollisionCheckView.as_view(),
-        name="availability-check-collisions",
+        "scheduling/schedule",
+        views.ProviderScheduleView.as_view(),
+        name="provider-schedule",
     ),
     path(
-        "scheduling/availability/<int:pk>",
-        views.AvailabilityDetailView.as_view(),
-        name="availability-detail",
+        "scheduling/schedule/pending",
+        views.PendingScheduleView.as_view(),
+        name="provider-schedule-pending",
     ),
     path(
         "scheduling/appointment-types",

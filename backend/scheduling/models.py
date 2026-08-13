@@ -1,17 +1,13 @@
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models import F, Q
 
-# TICKET-04 scope. Provider timezone deliberately lives on `accounts.User`
-# (see `User.timezone`, already added and validated in TICKET-02) rather than
-# a new `ProviderSettings` model here — the field already exists, is already
-# an IANA-validated `CharField` (accounts/serializers.py's
-# `UserSerializer.validate_timezone`), and reusing it avoids a redundant
-# OneToOne row for something that's a property of every account, not just
-# providers. See `scheduling/slots.py` for where it's read at
-# slot-generation time.
+# Provider timezone lives on `accounts.User` (`User.timezone`, an
+# IANA-validated `CharField`) rather than a new `ProviderSettings` model —
+# the field already exists and reusing it avoids a redundant OneToOne row for
+# something that's a property of every account, not just providers. See
+# `scheduling/slots.py` for where it's read at slot-generation time.
 
 
 class Availability(models.Model):
@@ -49,15 +45,27 @@ class Availability(models.Model):
     day_of_week = models.IntegerField(choices=DayOfWeek.choices)
     start_time = models.TimeField()
     end_time = models.TimeField()
+    # Calendar date (in `provider.timezone`, same wall-clock reasoning as
+    # `start_time`/`end_time` above) on which this row's generation takes
+    # effect. NULL marks the baseline generation — in effect since forever,
+    # before any dated change was saved.
+    effective_from = models.DateField(null=True, blank=True)
 
-    # TICKET-05: lets `audit.ownership.resource_owner` (and, through it,
-    # `audit.permissions.IsOwnerOrAdmin`) resolve who owns a row without a
-    # model-specific branch -- see `scheduling/views.py`'s
-    # `AvailabilityDetailView`.
+    # Lets `audit.permissions.IsOwnerOrAdmin` resolve row ownership without a
+    # model-specific branch (see `scheduling/views.py`).
     owner_field_name = "provider"
 
     class Meta:
-        ordering = ["day_of_week", "start_time"]
+        # `nulls_first` keeps the baseline (NULL) generation ahead of every
+        # dated one regardless of the database's default NULL placement
+        # (Postgres sorts NULLs last on ASC).
+        ordering = [F("effective_from").asc(nulls_first=True), "day_of_week", "start_time"]
+        indexes = [
+            models.Index(
+                fields=["provider", "effective_from", "day_of_week"],
+                name="availability_provider_gen_idx",
+            ),
+        ]
         constraints = [
             models.CheckConstraint(
                 condition=Q(start_time__lt=F("end_time")),
@@ -72,11 +80,9 @@ class Availability(models.Model):
         )
 
     def clean(self):
-        # Role is enforced here at the application layer, not a DB
-        # constraint (this ticket's brief: "should probably validate
-        # role='provider' ... not a DB constraint" — a user's role can
-        # change over time and a DB CHECK can't reach across tables to
-        # verify it).
+        # Role is enforced at the application layer, not a DB constraint:
+        # a user's role can change over time and a DB CHECK can't reach
+        # across tables to verify it.
         if self.provider_id and self.provider.role != self.provider.Role.PROVIDER:
             raise ValidationError({"provider": "Availability can only be set for a provider."})
         if self.start_time is not None and self.end_time is not None:
@@ -85,18 +91,17 @@ class Availability(models.Model):
 
 
 class AppointmentType(models.Model):
-    """A provider-defined visit type and its duration (architecture.md §2 —
-    duration is per-`AppointmentType`, never a fixed global increment).
-
-    No forced snapping to a 10/15-minute grid: `duration_minutes` accepts
-    any positive integer. The slot-generation loop
-    (`scheduling/slots.py::get_open_slots`) starts each day's slicing at the
-    availability window's own start time and steps forward by exactly
-    `duration_minutes` each time, so slots are always contiguous and
-    correctly sized regardless of whether the duration happens to be a
-    round number — there's no shared grid for durations to collide on, so
-    there's nothing a forced snap would protect against.
+    """A provider-defined visit type — a name-only category that drives
+    tag-coloring on the calendar (e.g. "Consultation" vs "Follow-up").
+    Every appointment is a fixed 60-minute slot: `duration_minutes` defaults
+    to 60 and a `CheckConstraint` guarantees it can never be anything else.
+    The field stays on the model rather than hardcoding 60 in
+    `scheduling/slots.py` so the model is the single source of truth the
+    slot-generation loop reads. A fixed single-column constant is exactly
+    what a DB `CheckConstraint` is for.
     """
+
+    FIXED_DURATION_MINUTES = 60
 
     provider = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -104,9 +109,8 @@ class AppointmentType(models.Model):
         related_name="appointment_types",
     )
     name = models.CharField(max_length=100)
-    duration_minutes = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+    duration_minutes = models.PositiveIntegerField(default=FIXED_DURATION_MINUTES)
 
-    # See `Availability.owner_field_name` above.
     owner_field_name = "provider"
 
     class Meta:
@@ -114,6 +118,10 @@ class AppointmentType(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["provider", "name"], name="unique_appointment_type_name_per_provider"
+            ),
+            models.CheckConstraint(
+                condition=Q(duration_minutes=60),
+                name="appointment_type_duration_is_60",
             ),
         ]
 
@@ -129,21 +137,14 @@ class AppointmentType(models.Model):
 
 class BlockedTime(models.Model):
     """A provider-declared date/time range during which no slot should ever
-    be computed as bookable, regardless of what `Availability` says
-    (TICKET-05 -- "Blocked ranges never appear as bookable regardless of
-    underlying working hours").
+    be computed as bookable, regardless of what `Availability` says.
 
-    `start`/`end` are tz-aware UTC `DateTimeField`s -- unlike `Availability`,
-    a block is a one-off instant range on the calendar (e.g. "on vacation
-    Aug 20-27"), not a recurring wall-clock weekly pattern, so there's no
-    DST-resolution step to defer: the values stored here are already the
-    real instants.
-
-    Conceptually just another busy interval: `scheduling/slots.py`'s
-    `get_open_slots` doesn't know or care that a `busy_intervals` entry came
-    from here rather than TICKET-07's future `Booking` -- see
-    `SlotsView.get` in `views.py` for where a provider's blocked ranges get
-    folded into `busy_intervals` at the call site.
+    `start`/`end` are tz-aware UTC `DateTimeField`s — unlike `Availability`,
+    a block is a one-off instant range (e.g. "on vacation Aug 20-27"), not a
+    recurring wall-clock weekly pattern, so there's no DST-resolution step to
+    defer. `get_open_slots` treats this as just another busy interval; see
+    `SlotsView.get` in `views.py` for where blocked ranges are folded into
+    `busy_intervals`.
     """
 
     provider = models.ForeignKey(
@@ -155,11 +156,10 @@ class BlockedTime(models.Model):
     end = models.DateTimeField()
     label = models.CharField(max_length=100, blank=True)
 
-    # See `Availability.owner_field_name` above. `audit_target_type` keeps
-    # `AuditLog.target_type` as the readable `"blocked_time"` rather than
-    # the default lowercased class name `"blockedtime"` -- see
-    # `audit.ownership.target_type_for`.
     owner_field_name = "provider"
+    # `audit_target_type` keeps `AuditLog.target_type` as the readable
+    # `"blocked_time"` rather than the default lowercased class name
+    # `"blockedtime"` — see `audit.ownership.target_type_for`.
     audit_target_type = "blocked_time"
 
     class Meta:

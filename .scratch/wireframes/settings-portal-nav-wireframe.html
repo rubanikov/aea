@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wireframe — Portal navigation on Account settings (low-fi)</title>
+<style>
+  :root {
+    --ink: #333;
+    --line: #999;
+    --line-soft: #ccc;
+    --fill: #f2f2f2;
+    --fill-dark: #ddd;
+    --note: #666;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px 24px 80px;
+    font-family: "Comic Sans MS", "Segoe Print", cursive, sans-serif;
+    background: #fafafa;
+    color: var(--ink);
+  }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .meta { font-size: 13px; color: var(--note); margin: 0 0 32px; }
+  .panel {
+    max-width: 900px;
+    margin: 0 auto 48px;
+    border: 2px solid var(--line);
+    background: #fff;
+  }
+  .panel-title {
+    background: var(--fill-dark);
+    border-bottom: 2px solid var(--line);
+    padding: 8px 14px;
+    font-size: 14px;
+    font-weight: bold;
+  }
+  .panel-body { padding: 0; }
+
+  /* app shell chrome */
+  .shell-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    border-bottom: 2px solid var(--line);
+    padding: 12px 20px;
+    background: var(--fill);
+    flex-wrap: wrap;
+  }
+  .shell-left { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  .brand { font-weight: bold; font-size: 15px; }
+  .navlinks { display: flex; gap: 18px; font-size: 14px; }
+  .navlinks span { text-decoration: underline; }
+  .navlinks .current {
+    font-weight: bold;
+    text-decoration: none;
+    border-bottom: 3px solid var(--ink);
+    padding-bottom: 2px;
+  }
+  .shell-right { display: flex; gap: 10px; }
+  .chip {
+    border: 1.5px solid var(--line);
+    border-radius: 999px;
+    padding: 3px 12px;
+    font-size: 12px;
+    background: #fff;
+  }
+  .ghost {
+    background: repeating-linear-gradient(45deg, #eee, #eee 6px, #f7f7f7 6px, #f7f7f7 12px);
+    color: transparent;
+    border-radius: 4px;
+    user-select: none;
+  }
+
+  /* settings content */
+  .content { padding: 28px 24px 36px; }
+  .content-inner { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 22px; }
+  .page-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .page-head h2 { font-size: 18px; margin: 0; }
+  .back-link { font-size: 12px; text-decoration: underline; color: var(--note); }
+  .box {
+    border: 1.5px dashed var(--line);
+    padding: 14px;
+    font-size: 13px;
+  }
+  .box b { display: block; margin-bottom: 8px; font-size: 14px; }
+  .field {
+    height: 26px;
+    border: 1.5px solid var(--line-soft);
+    background: var(--fill);
+    margin: 6px 0;
+    max-width: 300px;
+  }
+  .btn {
+    display: inline-block;
+    border: 1.5px solid var(--ink);
+    background: var(--fill-dark);
+    padding: 5px 14px;
+    font-size: 12px;
+    margin-top: 6px;
+  }
+  .annot {
+    position: relative;
+    margin: 14px 20px;
+    border: 1.5px solid var(--ink);
+    background: #fffbe8;
+    padding: 8px 12px;
+    font-size: 12.5px;
+  }
+  .annot::before { content: "✎ "; }
+  .thumb-row { display: flex; gap: 20px; flex-wrap: wrap; padding: 20px; }
+  .thumb { flex: 1 1 260px; border: 1.5px solid var(--line-soft); }
+  .thumb .panel-title { font-size: 12px; padding: 5px 10px; }
+  .thumb .shell-header { padding: 8px 10px; gap: 8px; }
+  .thumb .brand { font-size: 12px; }
+  .thumb .navlinks { font-size: 11px; gap: 10px; }
+  .thumb .content { padding: 12px 10px; }
+  .thumb .mini-box { border: 1px dashed var(--line-soft); height: 34px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+
+<h1>Wireframe: Portal navigation on Account settings</h1>
+<p class="meta">Low-fi whiteboard sketch — greyscale boxes only, not visual design. Story 1: role-aware AppShell wraps the shared <code>/settings</code> route; URL stays <code>/settings</code>.</p>
+
+<!-- ============ PANEL A ============ -->
+<div class="panel">
+  <div class="panel-title">A. /settings — signed in as PROVIDER (happy path)</div>
+  <div class="panel-body">
+    <div class="shell-header">
+      <div class="shell-left">
+        <span class="brand">Provider portal</span>
+        <div class="navlinks">
+          <span>Dashboard</span>
+          <span>Availability</span>
+          <span class="current">Settings</span>
+        </div>
+      </div>
+      <div class="shell-right">
+        <span class="chip">☀/☾ theme</span>
+        <span class="chip">Dr. P. Provider ▾</span>
+      </div>
+    </div>
+    <div class="annot">Same AppShell chrome as /provider and /provider/calendar (ROLE_NAV.provider). "Settings" marked as the current page (aria-current="page"). Browser URL: <b>/settings</b> — unchanged. NOTE: the first provider link is renamed "Calendar" → <b>"Dashboard"</b> (label-only change in <code>frontend/lib/nav-config.ts</code>; href stays <code>/provider/calendar</code>) so provider naming matches the patient nav.</div>
+    <div class="content">
+      <div class="content-inner">
+        <div class="page-head">
+          <h2>Account settings</h2>
+          <span class="back-link">Back to dashboard</span>
+        </div>
+        <div class="box"><b>Profile</b><div class="field"></div><div class="field"></div><span class="btn">Save profile</span></div>
+        <div class="box"><b>Password</b><div class="field"></div><div class="field"></div><span class="btn">Update password</span></div>
+        <div class="box"><b>Danger zone</b><span class="btn">Delete account</span></div>
+      </div>
+    </div>
+    <div class="annot">Settings content is UNCHANGED (same Profile / Password / Danger zone sections, same max-width column). Open question: keep or drop the now-redundant "Back to dashboard" link — see notes.</div>
+  </div>
+</div>
+
+<!-- ============ PANEL B ============ -->
+<div class="panel">
+  <div class="panel-title">B. /settings — signed in as PATIENT (and the role-fallback case)</div>
+  <div class="panel-body">
+    <div class="shell-header">
+      <div class="shell-left">
+        <span class="brand">Patient portal</span>
+        <div class="navlinks">
+          <span>Dashboard</span>
+          <span>My Appointments</span>
+          <span class="current">Settings</span>
+        </div>
+      </div>
+      <div class="shell-right">
+        <span class="chip">☀/☾ theme</span>
+        <span class="chip">Pat Patient ▾</span>
+      </div>
+    </div>
+    <div class="content" style="padding-bottom: 8px;">
+      <div class="content-inner">
+        <div class="page-head"><h2>Account settings</h2><span class="back-link">Back to dashboard</span></div>
+        <div class="box" style="height: 60px;"><b>… same settings content …</b></div>
+      </div>
+    </div>
+    <div class="annot">ROLE_NAV.patient links. Fallback rule: if the resolved role is somehow neither provider nor patient, render THIS patient nav (providers are always admin-assigned, so an unknown role is treated as patient). Never show the wrong role's menu.</div>
+  </div>
+</div>
+
+<!-- ============ PANEL C ============ -->
+<div class="panel">
+  <div class="panel-title">C. /settings — NEUTRAL LOADING state (role not yet known)</div>
+  <div class="panel-body">
+    <div class="shell-header">
+      <div class="shell-left">
+        <span class="brand ghost">Xxxxxxx portal</span>
+        <div class="navlinks">
+          <span class="ghost" style="text-decoration:none;">Xxxxxxxx</span>
+          <span class="ghost" style="text-decoration:none;">Xxxxxxxxxxxx</span>
+          <span class="ghost" style="text-decoration:none;">Xxxxxxx</span>
+        </div>
+      </div>
+      <div class="shell-right">
+        <span class="chip">☀/☾ theme</span>
+        <span class="chip ghost">Xxxx Xxxx</span>
+      </div>
+    </div>
+    <div class="annot">While the role loads: header bar is present at full height (no layout shift when links appear), but NO role-specific links or portal label are shown — neutral placeholders / empty slots only. Never flash provider links at a patient or vice-versa.</div>
+    <div class="content" style="padding-bottom: 8px;">
+      <div class="content-inner">
+        <div class="page-head"><h2>Account settings</h2></div>
+        <div class="box" style="height: 60px;"><b>Settings content renders as it does today</b>(profile form has its own loading behaviour — untouched)</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ PANEL D ============ -->
+<div class="panel">
+  <div class="panel-title">D. Mobile thumbnail + state summary</div>
+  <div class="thumb-row">
+    <div class="thumb">
+      <div class="panel-title">Mobile (~375px)</div>
+      <div class="shell-header">
+        <span class="brand">Provider portal</span>
+        <span class="chip">▾</span>
+      </div>
+      <div class="navlinks" style="padding: 6px 10px; border-bottom: 1px solid var(--line-soft);">
+        <span>Dashboard</span> <span>Availability</span> <span class="current">Settings</span>
+      </div>
+      <div class="content">
+        <div class="mini-box"></div>
+        <div class="mini-box"></div>
+        <div class="mini-box"></div>
+      </div>
+    </div>
+    <div class="thumb" style="padding: 12px; font-size: 12.5px; line-height: 1.7;">
+      <b>States covered</b><br>
+      • Loading → Panel C (neutral header, no links)<br>
+      • Provider → Panel A &nbsp;• Patient → Panel B<br>
+      • Unknown role → patient nav (Panel B annot)<br>
+      • Error: role fetch failure behaves like unknown role → patient nav (no dead-end blank header)<br>
+      • Empty: n/a (settings always has content)
+    </div>
+  </div>
+  <div class="annot">Nav links wrap on small screens exactly as the existing AppShell header already does — no new mobile pattern invented for this story.</div>
+</div>
+
+</body>
+</html>

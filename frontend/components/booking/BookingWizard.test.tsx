@@ -18,11 +18,13 @@ const OSEI = { id: 1, name: "Dr. Amara Osei", timezone: "America/New_York" };
 const CHEN = { id: 2, name: "Dr. Riley Chen", timezone: "America/Chicago" };
 const PROVIDERS = [OSEI, CHEN];
 
+// `duration_minutes` is server-fixed at 60: every appointment is a
+// one-hour slot.
 const OSEI_TYPES = [
-  { id: 10, name: "Annual Physical", duration_minutes: 30 },
-  { id: 11, name: "Follow-up", duration_minutes: 15 },
+  { id: 10, name: "Annual Physical", duration_minutes: 60 },
+  { id: 11, name: "Follow-up", duration_minutes: 60 },
 ];
-const CHEN_TYPES = [{ id: 20, name: "New Patient Intake", duration_minutes: 45 }];
+const CHEN_TYPES = [{ id: 20, name: "New Patient Intake", duration_minutes: 60 }];
 
 // Today on the *provider's* clock, matching how `DateTimeStep` buckets days.
 const TODAY_KEY = zonedDateKey(new Date().toISOString(), OSEI.timezone);
@@ -172,7 +174,7 @@ describe("BookingWizard", () => {
 
     await user.click(await screen.findByRole("button", { name: /Follow-up/ }));
     await screen.findByRole("heading", { name: "Pick a date & time" });
-    expect(within(summaryRail()).getByText("Follow-up (15 min)")).toBeInTheDocument();
+    expect(within(summaryRail()).getByText("Follow-up (60 min)")).toBeInTheDocument();
     expect(within(summaryRail()).getAllByText("Not chosen yet")).toHaveLength(1);
 
     await user.click(await screen.findByRole("button", { name: /^9:00am/ }));
@@ -184,13 +186,13 @@ describe("BookingWizard", () => {
     // every selection in the rail.
     await user.click(within(summaryRail()).getByRole("button", { name: "Change provider" }));
     await screen.findByRole("heading", { name: "Choose a provider" });
-    expect(within(summaryRail()).getByText("Follow-up (15 min)")).toBeInTheDocument();
+    expect(within(summaryRail()).getByText("Follow-up (60 min)")).toBeInTheDocument();
     expect(within(summaryRail()).getByText(/9:00–9:30am/)).toBeInTheDocument();
 
     // Re-selecting the SAME provider is not a change either.
     await user.click(screen.getByRole("button", { name: /Dr\. Amara Osei/ }));
     await screen.findByRole("heading", { name: "Choose a service" });
-    expect(within(summaryRail()).getByText("Follow-up (15 min)")).toBeInTheDocument();
+    expect(within(summaryRail()).getByText("Follow-up (60 min)")).toBeInTheDocument();
     expect(within(summaryRail()).getByText(/9:00–9:30am/)).toBeInTheDocument();
   });
 
@@ -208,7 +210,7 @@ describe("BookingWizard", () => {
     expect(within(summaryRail()).getByText("Dr. Riley Chen")).toBeInTheDocument();
     // Both downstream selections are gone.
     expect(within(summaryRail()).getAllByText("Not chosen yet")).toHaveLength(2);
-    expect(within(summaryRail()).queryByText("Follow-up (15 min)")).not.toBeInTheDocument();
+    expect(within(summaryRail()).queryByText("Follow-up (60 min)")).not.toBeInTheDocument();
   });
 
   it("changing the service clears the slot only", async () => {
@@ -223,7 +225,7 @@ describe("BookingWizard", () => {
 
     await screen.findByRole("heading", { name: "Pick a date & time" });
     expect(within(summaryRail()).getByText("Dr. Amara Osei")).toBeInTheDocument();
-    expect(within(summaryRail()).getByText("Annual Physical (30 min)")).toBeInTheDocument();
+    expect(within(summaryRail()).getByText("Annual Physical (60 min)")).toBeInTheDocument();
     // The slot is the only thing cleared.
     expect(within(summaryRail()).getAllByText("Not chosen yet")).toHaveLength(1);
   });
@@ -240,7 +242,7 @@ describe("BookingWizard", () => {
 
     await screen.findByRole("heading", { name: "Confirm your appointment" });
     expect(within(summaryRail()).getByText("Dr. Amara Osei")).toBeInTheDocument();
-    expect(within(summaryRail()).getByText("Follow-up (15 min)")).toBeInTheDocument();
+    expect(within(summaryRail()).getByText("Follow-up (60 min)")).toBeInTheDocument();
     expect(within(summaryRail()).getByText(/9:30–10:00am/)).toBeInTheDocument();
   });
 
@@ -278,7 +280,7 @@ describe("BookingWizard", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't load open slots/i);
     // The earlier steps' selections survive the failure.
     expect(within(summaryRail()).getByText("Dr. Amara Osei")).toBeInTheDocument();
-    expect(within(summaryRail()).getByText("Follow-up (15 min)")).toBeInTheDocument();
+    expect(within(summaryRail()).getByText("Follow-up (60 min)")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: /try again/i }));
 
@@ -311,7 +313,7 @@ describe("BookingWizard", () => {
     expect(await screen.findByRole("heading", { name: "Pick a date & time" })).toBeInTheDocument();
     await waitFor(() => expect(slotsCalls).toBe(slotsCallsBeforeConfirm + 1));
     expect(within(summaryRail()).getByText("Dr. Amara Osei")).toBeInTheDocument();
-    expect(within(summaryRail()).getByText("Follow-up (15 min)")).toBeInTheDocument();
+    expect(within(summaryRail()).getByText("Follow-up (60 min)")).toBeInTheDocument();
     expect(within(summaryRail()).getAllByText("Not chosen yet")).toHaveLength(1);
   });
 });

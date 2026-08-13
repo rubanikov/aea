@@ -5,7 +5,8 @@ import { BlockedTimeSection } from "@/components/availability/BlockedTimeSection
 import { WorkingHoursSection } from "@/components/availability/WorkingHoursSection";
 
 /**
- * Provider availability settings: appointment types (name + duration),
+ * Provider availability settings: appointment types (name-only — every
+ * appointment is a fixed 60-minute slot),
  * weekly working hours, and one-off blocked time, all required before a
  * provider is really "bookable".
  */

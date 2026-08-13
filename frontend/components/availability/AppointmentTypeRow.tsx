@@ -8,7 +8,7 @@ import { validateAppointmentType } from "@/lib/availability/validation";
 import type { AppointmentType, AppointmentTypeInput } from "@/lib/availability/types";
 import { AppointmentTypeForm } from "./AppointmentTypeForm";
 
-const KNOWN_SERVER_FIELDS = new Set(["name", "duration_minutes"]);
+const KNOWN_SERVER_FIELDS = new Set(["name"]);
 
 interface AppointmentTypeRowProps {
   appointmentType: AppointmentType;
@@ -22,10 +22,11 @@ interface AppointmentTypeRowProps {
 type Mode = "view" | "edit" | "confirm-delete";
 
 /**
- * A single appointment type: view mode (name, "45 minutes"-style duration,
- * Edit/Remove), inline edit mode (`AppointmentTypeForm`), and an inline
- * delete confirmation. Deleting is a two-step action so a misclick can't
- * destroy a type a provider is relying on.
+ * A single appointment type: view mode (name, the fixed "60 minutes"
+ * duration the server reports, Edit/Remove), inline edit mode
+ * (`AppointmentTypeForm`, name-only), and an inline delete confirmation.
+ * Deleting is a two-step action so a misclick can't destroy a type a
+ * provider is relying on.
  */
 export function AppointmentTypeRow({
   appointmentType,
@@ -34,9 +35,6 @@ export function AppointmentTypeRow({
 }: AppointmentTypeRowProps) {
   const [mode, setMode] = useState<Mode>("view");
   const [name, setName] = useState(appointmentType.name);
-  const [durationMinutes, setDurationMinutes] = useState(
-    appointmentType.duration_minutes
-  );
   const [nameError, setNameError] = useState<string | undefined>();
   const [formError, setFormError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -45,14 +43,13 @@ export function AppointmentTypeRow({
 
   function startEdit() {
     setName(appointmentType.name);
-    setDurationMinutes(appointmentType.duration_minutes);
     setNameError(undefined);
     setFormError(null);
     setMode("edit");
   }
 
   async function handleSubmit() {
-    const errors = validateAppointmentType({ name, duration_minutes: durationMinutes });
+    const errors = validateAppointmentType({ name });
     if (errors.name) {
       setNameError(errors.name);
       nameInputRef.current?.focus();
@@ -63,10 +60,7 @@ export function AppointmentTypeRow({
     setFormError(null);
     setSaving(true);
     try {
-      await onSave(appointmentType.id, {
-        name: name.trim(),
-        duration_minutes: durationMinutes,
-      });
+      await onSave(appointmentType.id, { name: name.trim() });
       setMode("view");
     } catch (error) {
       if (
@@ -109,8 +103,6 @@ export function AppointmentTypeRow({
           idPrefix={`appointment-type-${appointmentType.id}`}
           name={name}
           onNameChange={setName}
-          durationMinutes={durationMinutes}
-          onDurationChange={setDurationMinutes}
           nameError={nameError}
           formError={formError}
           saving={saving}
