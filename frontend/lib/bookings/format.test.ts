@@ -3,6 +3,7 @@ import {
   formatAppointmentDateTime,
   formatBookingTimeRange,
   formatCancellationNoticeMessage,
+  formatProviderClockRange,
 } from "./format";
 
 describe("formatBookingTimeRange", () => {
@@ -26,6 +27,43 @@ describe("formatBookingTimeRange", () => {
         "America/New_York"
       )
     ).toBe("11:45am–12:15pm");
+  });
+});
+
+describe("formatProviderClockRange", () => {
+  it("gives the provider's own wall clock for a viewer in another zone", () => {
+    // 13:00Z is the 9:00am slot on an Eastern schedule (EDT, UTC-4); the
+    // same instant is 8:00am to a Central-time patient.
+    expect(
+      formatProviderClockRange(
+        "2026-08-19T13:00:00.000Z",
+        "2026-08-19T14:00:00.000Z",
+        "America/New_York",
+        "America/Chicago"
+      )
+    ).toBe("9:00–10:00am");
+  });
+
+  it("returns null when both zones render the range identically", () => {
+    expect(
+      formatProviderClockRange(
+        "2026-08-19T13:00:00.000Z",
+        "2026-08-19T14:00:00.000Z",
+        "America/New_York",
+        "America/New_York"
+      )
+    ).toBeNull();
+  });
+
+  it("returns null for two zone ids naming the same wall clock", () => {
+    expect(
+      formatProviderClockRange(
+        "2026-08-19T13:00:00.000Z",
+        "2026-08-19T14:00:00.000Z",
+        "America/New_York",
+        "US/Eastern"
+      )
+    ).toBeNull();
   });
 });
 

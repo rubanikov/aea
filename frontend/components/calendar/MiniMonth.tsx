@@ -4,6 +4,7 @@ import { useState } from "react";
 import {
   WEEKDAY_HEADERS,
   addMonths,
+  dateKey,
   formatFullDate,
   formatMonthYear,
   monthGrid,
@@ -38,12 +39,24 @@ interface MiniMonthProps {
  * mounts this with `key={weekStartKey}` so week navigation in the main
  * grid re-seeds the mini month to follow along, without this component
  * needing derived-state effects.
+ *
+ * Month «/» jumps the parent to the 15th of that month (always inside
+ * the month) so the week grid and its fetches follow — paging the mini
+ * calendar alone used to leave the main grid on the current week, which
+ * made a deferred hours change look like it hadn't applied yet when
+ * browsing a future month.
  */
 export function MiniMonth({ weekStartKey, todayKey, onSelectDay, markedDays }: MiniMonthProps) {
   const { year, month } = parseDateKey(weekStartKey);
   const [visibleMonth, setVisibleMonth] = useState<YearMonth>({ year, month });
   const visibleWeek = new Set(weekDates(weekStartKey));
   const grid = monthGrid(visibleMonth);
+
+  function goToMonth(delta: number) {
+    const next = addMonths(visibleMonth, delta);
+    setVisibleMonth(next);
+    onSelectDay(dateKey(next.year, next.month, 15));
+  }
 
   return (
     <div className="flex flex-col gap-1">
@@ -52,7 +65,7 @@ export function MiniMonth({ weekStartKey, todayKey, onSelectDay, markedDays }: M
         <div className="flex gap-1">
           <button
             type="button"
-            onClick={() => setVisibleMonth((current) => addMonths(current, -1))}
+            onClick={() => goToMonth(-1)}
             aria-label="Previous month"
             className="rounded px-1.5 py-0.5 text-sm hover:bg-accent"
           >
@@ -60,7 +73,7 @@ export function MiniMonth({ weekStartKey, todayKey, onSelectDay, markedDays }: M
           </button>
           <button
             type="button"
-            onClick={() => setVisibleMonth((current) => addMonths(current, 1))}
+            onClick={() => goToMonth(1)}
             aria-label="Next month"
             className="rounded px-1.5 py-0.5 text-sm hover:bg-accent"
           >

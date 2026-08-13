@@ -86,10 +86,11 @@ export type BookingStatusAction = "completed" | "cancelled" | "no_show";
 
 /**
  * Patient-facing booking shape, from `GET /bookings/mine`:
- * `{id, provider_id, provider_name, appointment_type_id,
- * appointment_type_name, start_time, end_time, status, reminder_sent}[]`,
- * UTC ISO datetimes, ordered by `start_time`. Matches
- * `backend/bookings/serializers.py`'s `PatientBookingListSerializer`.
+ * `{id, provider_id, provider_name, provider_timezone,
+ * appointment_type_id, appointment_type_name, start_time, end_time,
+ * status, reminder_sent}[]`, UTC ISO datetimes, ordered by `start_time`.
+ * Matches `backend/bookings/serializers.py`'s
+ * `PatientBookingListSerializer`.
  *
  * `appointment_type_id` lets a reschedule flow call
  * `GET /scheduling/slots` directly with the id instead of resolving it
@@ -101,6 +102,11 @@ export interface PatientBooking {
   id: number;
   provider_id: number;
   provider_name: string;
+  /** The provider's own IANA zone — the clock this appointment was booked
+   * on and the one their office keeps it in. Patient surfaces render times
+   * on the patient's own clock, so this is what lets them also show the
+   * time the patient actually picked (see `formatProviderClockRange`). */
+  provider_timezone: string;
   appointment_type_id: number;
   appointment_type_name: string;
   start_time: string;

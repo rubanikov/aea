@@ -6,9 +6,11 @@ import { extractBookingErrorDetail } from "@/lib/bookings/errors";
 import {
   formatAppointmentDateTime,
   formatCancellationNoticeMessage,
+  formatProviderClockRange,
 } from "@/lib/bookings/format";
 import { hoursUntilBookingStart, isWithinCancellationNoticeWindow } from "@/lib/bookings/status";
 import type { PatientBooking } from "@/lib/bookings/types";
+import { formatTimezone } from "@/lib/timezones";
 import { BookingStatusBadge } from "./BookingStatusBadge";
 import { RescheduleDialog } from "./RescheduleDialog";
 
@@ -34,6 +36,12 @@ type Mode = "view" | "confirm-cancel";
  * One appointment card in "My Appointments": status badge, appointment
  * type + provider name, the date/time in the patient's own timezone, and,
  * on a still-`confirmed` row only, Reschedule and Cancel.
+ *
+ * A second time line carries the provider's own clock whenever it reads
+ * differently (`formatProviderClockRange`) — the slot was picked, and is
+ * kept by the provider's office, on that clock, so a patient who booked
+ * "9:00am with Dr. Rossi" from Central time should not find only "8:00am"
+ * here.
  *
  * Reschedule opens `RescheduleDialog`, a focus-trapped modal launched from
  * this card, chosen over a dedicated route (there is no `GET /bookings/:id`
@@ -90,6 +98,12 @@ export function AppointmentCard({
   const [rescheduleTrigger, setRescheduleTrigger] = useState<HTMLElement | null>(null);
 
   const dateTimeLabel = formatAppointmentDateTime(booking.start_time, booking.end_time, timezone);
+  const providerClockRange = formatProviderClockRange(
+    booking.start_time,
+    booking.end_time,
+    booking.provider_timezone,
+    timezone
+  );
   const actionsAvailable = booking.status === "confirmed";
   const withinNoticeWindow = isWithinCancellationNoticeWindow(booking.start_time, now);
   const actionContext = `${booking.appointment_type_name} with ${booking.provider_name}, ${dateTimeLabel}`;
@@ -141,6 +155,12 @@ export function AppointmentCard({
       <p className="text-sm text-muted-foreground">
         {dateTimeLabel} (your time, {timezone})
       </p>
+      {providerClockRange ? (
+        <p className="text-sm text-muted-foreground">
+          Provider&apos;s time: {providerClockRange}{" "}
+          {formatTimezone(booking.provider_timezone)}
+        </p>
+      ) : null}
       {booking.status === "cancelled" && booking.cancellation_reason ? (
         <p className="whitespace-pre-wrap text-sm text-muted-foreground">
           Cancelled — reason: {booking.cancellation_reason}

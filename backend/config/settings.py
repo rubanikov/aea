@@ -14,6 +14,7 @@ from datetime import timedelta
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from corsheaders.defaults import default_headers
 from django.core.exceptions import ImproperlyConfigured
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -232,6 +233,16 @@ CORS_ALLOWED_ORIGINS = [
     if origin.strip()
 ]
 CORS_ALLOW_CREDENTIALS = True
+
+# django-cors-headers' defaults cover `x-requested-with` (accounts/csrf.py's
+# mitigation, sent on every unsafe-method request) but not `Idempotency-Key`,
+# which `POST /bookings` reads (bookings/views.py's IDEMPOTENCY_KEY_HEADER).
+# A custom header absent from the preflight response is not a soft failure:
+# the browser refuses to send the real request at all, so the server logs an
+# `OPTIONS` with no `POST` after it and the caller's `fetch` rejects with a
+# network-level error carrying no status to report on. Any new custom request
+# header the frontend starts sending has to be added here too.
+CORS_ALLOW_HEADERS = (*default_headers, "idempotency-key")
 
 
 # Django REST Framework

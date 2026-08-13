@@ -11,16 +11,15 @@ describe("PatientDashboardPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders the booking wizard's provider step", () => {
-    // The providers request never resolves during this test; the step
+  it("renders the page heading and the patient calendar", () => {
+    // The bookings request never resolves during this test; the calendar
     // stays in its loading state, which is all this smoke test cares about.
     vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
     render(<PatientDashboardPage />);
 
     expect(
-      screen.getByRole("heading", { name: "Book an appointment", level: 1 })
+      screen.getByRole("heading", { name: "My Calendar", level: 1 })
     ).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Choose a provider" })).toBeInTheDocument();
-    expect(screen.getByText(/loading providers/i)).toBeInTheDocument();
+    expect(screen.getByText(/loading your calendar/i)).toBeInTheDocument();
   });
 });

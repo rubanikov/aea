@@ -35,9 +35,10 @@ class Booking(models.Model):
         CANCELLED = "cancelled", "Cancelled"
         NO_SHOW = "no_show", "No-show"
 
-    # The statuses that still occupy a provider's slot -- what the
-    # concurrency guard (`bookings.services.create_booking`'s Layer 1 query)
-    # and the partial `UniqueConstraint` below both treat as "blocking."
+    # The statuses that still occupy a slot -- what the concurrency guard
+    # (`bookings.services.create_booking`'s Layer 1 query) and the partial
+    # unique constraints below both treat as "blocking." One active booking
+    # per hour block, for the provider *and* for the patient.
     # `CANCELLED`/`COMPLETED`/`NO_SHOW` bookings never block a slot.
     ACTIVE_STATUSES = [Status.REQUESTED, Status.CONFIRMED]
 
@@ -101,6 +102,17 @@ class Booking(models.Model):
                 fields=["provider", "start_time"],
                 condition=Q(status__in=["requested", "confirmed"]),
                 name="unique_active_booking_per_provider_slot",
+            ),
+            # Mirror of the provider constraint on the patient axis: a
+            # patient cannot sit in two chairs at the same start time,
+            # even across different providers. Appointments are a fixed
+            # 60-minute hour grid, so identical `start_time` *is* the
+            # hour block. Layer 1 still checks general overlap; this is
+            # the race-losing insert backstop.
+            models.UniqueConstraint(
+                fields=["patient", "start_time"],
+                condition=Q(status__in=["requested", "confirmed"]),
+                name="unique_active_booking_per_patient_slot",
             ),
             models.CheckConstraint(
                 condition=Q(start_time__lt=F("end_time")), name="booking_start_before_end"

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useAuthenticatedRequest } from "@/hooks/use-authenticated-request";
 import { useIsDesktop } from "@/hooks/use-is-desktop";
 import { useProviderAvailability } from "@/hooks/use-provider-availability";
+import { generationWindowsInRange } from "@/lib/availability/generations";
+import type { AvailabilityDay } from "@/lib/availability/types";
 import { useProviderBlockedTime } from "@/hooks/use-provider-blocked-time";
 import { ApiError } from "@/lib/api/client";
 import type { BlockedTime } from "@/lib/availability/types";
@@ -107,12 +109,12 @@ function blockedTimesInWeek(
  * prerequisite: without it there's no correct way to bound the
  * `GET /bookings` query or position anything at all.
  *
- * The recurring weekly availability (`useProviderAvailability`) is the
- * opposite: it only shapes the grid's visible hour range, so its fetch is
- * mount-keyed (identical data every week) and its failure never blocks
- * the calendar — the grid falls back to the hours the week's bookings
- * span, with a non-blocking warning banner whose retry re-fires only that
- * one fetch.
+ * The schedule generations (`useProviderAvailability`) only shape the
+ * grid's visible hour range. The fetch is mount-keyed (live + at most one
+ * pending change); which generation governs a day is a date comparison,
+ * so week navigation does not refetch. Failure never blocks the calendar
+ * — the grid falls back to the hours the week's bookings span, with a
+ * non-blocking warning banner whose retry re-fires only that one fetch.
  *
  * One-off blocked time (`useProviderBlockedTime`) follows the same
  * mount-keyed, non-blocking pattern: `GET /scheduling/blocked-time` takes
@@ -145,6 +147,8 @@ export function ProviderCalendar() {
 
   const {
     availability,
+    current,
+    pending,
     error: availabilityError,
     retry: retryAvailability,
   } = useProviderAvailability();
@@ -232,9 +236,9 @@ export function ProviderCalendar() {
    * week (the fetch effect above re-fires for the new `weekStart`) and
    * moves the selected day along with it. Mirrors `SlotBrowser`'s
    * `goToMonth`, which resets its own selected date the same way on month
-   * navigation. Deliberately does NOT touch the availability fetch: the
-   * recurring schedule is identical for every week (see
-   * `useProviderAvailability`). */
+   * navigation. Deliberately does NOT touch the schedule fetch: live +
+   * pending generations are already in memory, and which one governs a
+   * day is a date comparison (see `generationWindowsInRange`). */
   function goToWeek(weekStart: string, selectedDay: string) {
     setBookings(null);
     setBookingsError(null);
@@ -415,12 +419,23 @@ export function ProviderCalendar() {
   } else {
     const bookingsByDay = groupByDay(bookings, timezone);
     const days = weekDates(effectiveNav.weekStart);
+    const weekHours: AvailabilityDay[] = current
+      ? generationWindowsInRange(current, pending, days).map((window) => ({
+          id: window.id,
+          day_of_week: window.day_of_week,
+          start_time: window.start_time,
+          end_time: window.end_time,
+          effective_from: null,
+        }))
+      : (availability ?? []);
     const availabilityKnownEmpty = availability !== null && availability.length === 0;
-    // While availability is loading (or failed), the grid is bounded by
+    // While the schedule is loading (or failed), the grid is bounded by
     // the week's bookings alone; `DEFAULT_HOUR_RANGE` keeps a recognizable
-    // grid on screen even with nothing to derive a range from.
+    // grid on screen even with nothing to derive a range from. Once
+    // loaded, the range follows the generation that actually governs this
+    // week — a pending hours change is visible on dates after it starts.
     const range =
-      visibleHourRange(availability ?? [], bookings, timezone) ?? DEFAULT_HOUR_RANGE;
+      visibleHourRange(weekHours, bookings, timezone) ?? DEFAULT_HOUR_RANGE;
 
     const toolbar = (
       <div className="flex flex-wrap items-center gap-2">

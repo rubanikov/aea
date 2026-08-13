@@ -76,17 +76,46 @@ class BookingMineListTests(BookingsAPITestCase):
                 "status",
                 "reminder_sent",
                 "cancellation_reason",
+                "provider_timezone",
             },
         )
         self.assertEqual(row["id"], self.own_booking.id)
         self.assertEqual(row["provider_id"], self.provider.id)
         self.assertEqual(row["provider_name"], self.provider.name)
+        self.assertEqual(row["provider_timezone"], self.provider.timezone)
         self.assertEqual(row["appointment_type_id"], self.appointment_type.id)
         self.assertEqual(row["appointment_type_name"], self.appointment_type.name)
         self.assertEqual(row["start_time"], "2026-08-17T09:00:00Z")
         self.assertEqual(row["end_time"], "2026-08-17T10:00:00Z")
         self.assertEqual(row["status"], "confirmed")
         self.assertEqual(row["reminder_sent"], False)
+
+    def test_provider_timezone_is_the_providers_own_zone_not_the_patients(self):
+        """A patient books on the *provider's* clock (the booking wizard
+        labels every slot in `provider.timezone`), so every patient-facing
+        surface has to be able to show that same clock back to them --
+        otherwise a 9:00am Eastern appointment reads as 8:00am to a
+        Central-time patient with nothing tying it back to the time they
+        picked. The patient's own zone is deliberately different here so a
+        serializer wired to the wrong side of the booking fails loudly.
+        """
+        eastern_provider, eastern_type = self.setup_bookable_provider(
+            email="eastern@example.com", timezone="America/New_York"
+        )
+        self.patient.timezone = "America/Chicago"
+        self.patient.save(update_fields=["timezone"])
+        booking = self.make_booking(
+            provider=eastern_provider,
+            patient=self.patient,
+            appointment_type=eastern_type,
+            start_time=_utc(2026, 8, 19, 13, 0),  # 9:00am EDT
+        )
+        self.login_as(self.patient)
+
+        response = self.client.get("/bookings/mine")
+
+        row = next(row for row in response.json() if row["id"] == booking.id)
+        self.assertEqual(row["provider_timezone"], "America/New_York")
 
     def test_results_are_ordered_by_start_time(self):
         earlier = self.make_booking(

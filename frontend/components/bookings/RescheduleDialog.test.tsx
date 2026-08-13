@@ -34,6 +34,7 @@ const BOOKING: PatientBooking = {
   id: 1,
   provider_id: 10,
   provider_name: "Dr. Amara Osei",
+  provider_timezone: "UTC",
   appointment_type_id: 100,
   appointment_type_name: "Annual Physical",
   start_time: "2026-08-18T15:00:00.000Z",
@@ -43,9 +44,11 @@ const BOOKING: PatientBooking = {
   cancellation_reason: "",
 };
 
+// `duration_minutes` is server-fixed at 60: every appointment is a
+// one-hour slot.
 const APPOINTMENT_TYPES = [
-  { id: 77, name: "Annual Physical", duration_minutes: 30 },
-  { id: 78, name: "Follow-up", duration_minutes: 15 },
+  { id: 77, name: "Annual Physical", duration_minutes: 60 },
+  { id: 78, name: "Follow-up", duration_minutes: 60 },
 ];
 
 // Real "today", computed the exact same way the component itself does --
@@ -178,7 +181,7 @@ describe("RescheduleDialog", () => {
 
     expect(
       await screen.findByText(
-        /Annual Physical with Dr\. Amara Osei \(30 min\) — currently/
+        /Annual Physical with Dr\. Amara Osei \(60 min\) — currently/
       )
     ).toBeInTheDocument();
     expect(await screen.findByText("Pick a date")).toBeInTheDocument();
@@ -221,7 +224,7 @@ describe("RescheduleDialog", () => {
   it("shows a specific message when this appointment's service can no longer be found for the provider", async () => {
     mockFetchRouter({
       [APPOINTMENT_TYPES_PATH]: () =>
-        jsonResponse([{ id: 78, name: "Follow-up", duration_minutes: 15 }]),
+        jsonResponse([{ id: 78, name: "Follow-up", duration_minutes: 60 }]),
     });
     renderDialog();
 

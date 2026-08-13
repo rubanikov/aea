@@ -517,6 +517,20 @@ class SlotsView(APIView):
                 end_time__gt=padded_start,
             )
         ]
+        # A patient already holding an hour (with any provider) cannot be
+        # offered that same hour here -- one appointment per hour block,
+        # both axes. Other roles browsing this feed are not occupying a
+        # patient chair, so they still see the provider's raw open slots.
+        if request.user.role == User.Role.PATIENT:
+            busy_intervals += [
+                (booking.start_time, booking.end_time)
+                for booking in Booking.objects.filter(
+                    patient=request.user,
+                    status__in=Booking.ACTIVE_STATUSES,
+                    start_time__lt=padded_end,
+                    end_time__gt=padded_start,
+                )
+            ]
 
         slots = get_open_slots(
             provider,

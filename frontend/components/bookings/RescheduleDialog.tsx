@@ -172,6 +172,7 @@ export function RescheduleDialog({
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
   const [confirmStatus, setConfirmStatus] = useState<ConfirmStatus>("form");
   const [submitErrorMessage, setSubmitErrorMessage] = useState<string | null>(null);
+  const [conflictMessage, setConflictMessage] = useState<string | null>(null);
   const [newBooking, setNewBooking] = useState<RescheduledBooking | null>(null);
 
   const todayKey = schedule ? zonedDateKey(new Date().toISOString(), schedule.timeZone) : null;
@@ -314,6 +315,7 @@ export function RescheduleDialog({
   function handleSelectSlot(slot: Slot) {
     setConfirmStatus("form");
     setSubmitErrorMessage(null);
+    setConflictMessage(null);
     setSelectedSlot(slot);
   }
 
@@ -355,6 +357,7 @@ export function RescheduleDialog({
       setConfirmStatus("success");
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
+        setConflictMessage(extractBookingErrorDetail(error.body));
         setConfirmStatus("conflict");
       } else if (error instanceof ApiError && error.status === 400) {
         setConfirmStatus("form");
@@ -437,8 +440,8 @@ export function RescheduleDialog({
           <span aria-hidden="true">⚠</span> This time is no longer available
         </h2>
         <p className="text-sm text-danger-soft-foreground">
-          Someone else just booked it. Nothing about this appointment changed. Pick
-          another time.
+          {conflictMessage ??
+            "Someone else just booked it. Nothing about this appointment changed. Pick another time."}
         </p>
         <button
           type="button"

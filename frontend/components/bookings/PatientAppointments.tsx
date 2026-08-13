@@ -147,7 +147,7 @@ export function PatientAppointments() {
           provider in seconds.
         </p>
         <Link
-          href="/patient"
+          href="/patient/book"
           className="rounded bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary-hover"
         >
           Find a provider

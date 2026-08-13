@@ -273,11 +273,32 @@ class BookingExclusionTests(SchedulingAPITestCase):
         self.assertEqual(len(starts), 8)
         self.assertIn("2026-08-17T12:00:00Z", starts)
 
-    def test_a_booking_on_another_providers_calendar_does_not_affect_this_query(self):
+    def test_a_patients_booking_elsewhere_hides_that_hour_from_this_provider(self):
         other_provider = self.create_provider(email="other@example.com", timezone="UTC")
         Booking.objects.create(
             provider=other_provider,
             patient=self.patient,
+            appointment_type=AppointmentType.objects.create(
+                provider=other_provider, name="Follow-up", duration_minutes=60
+            ),
+            start_time="2026-08-17T12:00:00Z",
+            end_time="2026-08-17T13:00:00Z",
+            status=Booking.Status.CONFIRMED,
+        )
+        self.login_as(self.patient)
+
+        response = self._query()
+
+        starts = [slot["start"] for slot in response.json()["slots"]]
+        self.assertEqual(len(starts), 7)
+        self.assertNotIn("2026-08-17T12:00:00Z", starts)
+
+    def test_another_patients_booking_elsewhere_does_not_hide_this_providers_hour(self):
+        other_patient = self.create_patient(email="other-patient@example.com")
+        other_provider = self.create_provider(email="other@example.com", timezone="UTC")
+        Booking.objects.create(
+            provider=other_provider,
+            patient=other_patient,
             appointment_type=AppointmentType.objects.create(
                 provider=other_provider, name="Follow-up", duration_minutes=60
             ),

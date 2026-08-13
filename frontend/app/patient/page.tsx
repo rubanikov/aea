@@ -1,16 +1,16 @@
-"use client";
-
-import { BookingWizard } from "@/components/booking/BookingWizard";
+import { PatientCalendar } from "@/components/bookings/PatientCalendar";
 
 /**
- * Patient dashboard: the four-step booking wizard (Provider → Service →
- * Date & time → Confirm) with its persistent summary rail.
+ * Patient dashboard: the patient's own week-grid calendar, mirroring the
+ * provider's `/provider/calendar`. Booking moved to its own route
+ * (`/patient/book`, reached via the calendar's "+ Book appointment" CTA)
+ * when this route stopped mounting the wizard directly.
  */
 export default function PatientDashboardPage() {
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-8">
-      <h1 className="text-2xl font-semibold tracking-tight">Book an appointment</h1>
-      <BookingWizard />
+    <div className="flex flex-col gap-6">
+      <h1 className="text-xl font-semibold">My Calendar</h1>
+      <PatientCalendar />
     </div>
   );
 }

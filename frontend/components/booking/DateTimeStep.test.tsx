@@ -225,9 +225,10 @@ describe("DateTimeStep", () => {
     await screen.findByText(THIS_WEEK_LABEL);
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    // Mini-month: page to September, then jump to a day there.
+    // Mini-month «/» jumps the week grid (to the 15th), not just the
+    // sidebar label — otherwise a future month still showed this week's
+    // slots / hours.
     await user.click(screen.getByRole("button", { name: "Next month" }));
-    await user.click(screen.getByRole("button", { name: "Tuesday, September 15, 2026" }));
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     const firstUrl = new URL(fetchMock.mock.calls[0][0] as string);

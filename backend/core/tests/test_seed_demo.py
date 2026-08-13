@@ -9,6 +9,7 @@ from django.utils import timezone as django_timezone
 
 from bookings.models import Booking
 from core.management.commands.seed_demo import (
+    DEMO_TIMEZONE,
     HORIZON_LENGTH_DAYS,
     HORIZON_START_OFFSET_DAYS,
     PROVIDER_CONFIGS,
@@ -84,10 +85,10 @@ class SeedDemoCommandTests(TestCase):
         self.assertEqual(User.objects.filter(role=User.Role.PROVIDER).count(), 15)
         self.assertEqual(User.objects.filter(role=User.Role.PATIENT).count(), 25)
 
-    def test_providers_have_distinct_timezones_and_2_to_4_appointment_types(self):
+    def test_demo_accounts_use_central_timezone_and_providers_have_2_to_4_appointment_types(self):
+        timezones = set(User.objects.values_list("timezone", flat=True))
+        self.assertEqual(timezones, {DEMO_TIMEZONE})
         providers = User.objects.filter(role=User.Role.PROVIDER)
-        timezones = {provider.timezone for provider in providers}
-        self.assertGreater(len(timezones), 1)  # "not perfectly uniform"
 
         for provider in providers:
             type_count = AppointmentType.objects.filter(provider=provider).count()
@@ -171,6 +172,21 @@ class SeedDemoCommandTests(TestCase):
         self.assertEqual(times_of_day, {starts[0].time()})
         gaps = [(starts[i + 1] - starts[i]).days for i in range(len(starts) - 1)]
         self.assertTrue(all(gap == 7 for gap in gaps), gaps)
+
+    def test_no_patient_holds_two_appointments_in_the_same_hour(self):
+        for patient in User.objects.filter(role=User.Role.PATIENT):
+            starts = list(
+                Booking.objects.filter(
+                    patient=patient,
+                    status__in=Booking.ACTIVE_STATUSES,
+                ).values_list("start_time", flat=True)
+            )
+            duplicates = sorted({start for start in starts if starts.count(start) > 1})
+            self.assertEqual(
+                duplicates,
+                [],
+                f"{patient.email} is booked twice at {duplicates}",
+            )
 
     def test_is_idempotent(self):
         call_command("seed_demo", stdout=StringIO())

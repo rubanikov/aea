@@ -219,6 +219,25 @@ class BookingRescheduleTests(BookingsAPITestCase):
             1,
         )
 
+    def test_reschedule_to_an_hour_the_patient_already_holds_elsewhere_is_rejected(self):
+        other_provider, other_type = self.setup_bookable_provider(
+            email="other-doc@example.com"
+        )
+        self.make_booking(
+            provider=other_provider,
+            patient=self.patient,
+            appointment_type=other_type,
+            start_time=_utc(2026, 8, 17, 10, 0),
+        )
+        self.login_as(self.patient)
+
+        response = self._reschedule(self.booking.id, f"{MONDAY}T10:00:00Z")
+
+        self.assertEqual(response.status_code, 409)
+        self.assertIn("already have an appointment", response.json()["detail"])
+        self.booking.refresh_from_db()
+        self.assertEqual(self.booking.status, Booking.Status.CONFIRMED)
+
     def test_unauthenticated_request_is_rejected(self):
         response = self._reschedule(self.booking.id, f"{MONDAY}T10:00:00Z")
 

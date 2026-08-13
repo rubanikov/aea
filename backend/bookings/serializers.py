@@ -216,6 +216,16 @@ class PatientBookingListSerializer(serializers.ModelSerializer):
     that indirection and the "type renamed/deleted between calls" edge case
     it implies.
 
+    `provider_timezone`: the provider's own IANA zone. A patient picks a
+    slot off the provider's schedule, labelled on the provider's clock
+    (`frontend/components/booking/SlotBlock.tsx`), so every patient-facing
+    surface afterwards has to be able to show that same clock back to
+    them. Without it, a 9:00am Eastern appointment reads as 8:00am to a
+    Central-time patient with nothing on the screen tying it back to the
+    time they actually booked. `select_related("provider")` in
+    `BookingMineListView` already loads the row this reads from, so it
+    costs no extra query.
+
     `reminder_sent` (added TICKET-12): whether a `ReminderLog` row exists
     for this booking's 24h interval, i.e. whether the reminder email has
     already gone out -- see `PatientBookingReminderAnnotatedListSerializer`
@@ -226,6 +236,7 @@ class PatientBookingListSerializer(serializers.ModelSerializer):
 
     provider_id = serializers.IntegerField(read_only=True)
     provider_name = serializers.CharField(source="provider.name", read_only=True)
+    provider_timezone = serializers.CharField(source="provider.timezone", read_only=True)
     appointment_type_id = serializers.IntegerField(read_only=True)
     appointment_type_name = serializers.CharField(source="appointment_type.name", read_only=True)
     reminder_sent = serializers.BooleanField(read_only=True)
@@ -237,6 +248,7 @@ class PatientBookingListSerializer(serializers.ModelSerializer):
             "id",
             "provider_id",
             "provider_name",
+            "provider_timezone",
             "appointment_type_id",
             "appointment_type_name",
             "start_time",

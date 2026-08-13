@@ -63,7 +63,9 @@ class Meta:
         )
     ]
 ```
-Cal.com's own docs note their equivalent key only catches *identical* start/end, not general overlap — that's fine here, because it's a last-line guarantee, not the primary mechanism. Even if a future refactor introduces a bug in the transaction logic above, the database itself cannot commit two active bookings for the same provider+slot. This is strictly more robust than either system alone, and it's exactly the "row lock + unique constraint" combination the brief specifies.
+The same two layers apply on the **patient** axis: Layer 1's `select_for_update` also locks overlapping active bookings for `patient_id`, and Layer 2 adds `unique_active_booking_per_patient_slot` on `(patient, start_time)` for `requested`/`confirmed`. Appointments are a fixed 60-minute hour grid, so identical `start_time` is the hour block. A patient cannot hold two chairs in the same hour, even across different providers.
+
+Cal.com's own docs note their equivalent key only catches *identical* start/end, not general overlap — that's fine here, because it's a last-line guarantee, not the primary mechanism. Even if a future refactor introduces a bug in the transaction logic above, the database itself cannot commit two active bookings for the same provider+slot or the same patient+slot. This is strictly more robust than either system alone, and it's exactly the "row lock + unique constraint" combination the brief specifies.
 
 **Explicitly do not ship:** a pre-check-then-insert with no DB guard — the pattern Easy!Appointments' own code comment admits is a race ("it is possible that two or more customers select the same appointment date and time concurrently... one of the two will eventually get the selected date") and that OpenEMR has zero protection against at all (confirmed against its live schema — no unique constraint, no transaction, no lock on the insert path). These are the "what not to do" reference points from the research, not design options.
 

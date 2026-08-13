@@ -11,18 +11,24 @@ vi.mock("next/navigation", () => ({
 
 const PROFILE_PATH = "/profile";
 const BOOKINGS_PATH = "/bookings";
-const AVAILABILITY_PATH = "/scheduling/availability";
+const SCHEDULE_PATH = "/scheduling/schedule";
 const BLOCKED_TIME_PATH = "/scheduling/blocked-time";
 const TIMEZONE = "America/New_York";
 
-// Mon–Fri 9–17, the provider's recurring weekly schedule as
-// `GET /scheduling/availability` returns it.
-const DEFAULT_AVAILABILITY = [0, 1, 2, 3, 4].map((day) => ({
+// Mon–Fri 9–17, the live generation as `GET /scheduling/schedule` returns it.
+const DEFAULT_WINDOWS = [0, 1, 2, 3, 4].map((day) => ({
   id: day + 1,
   day_of_week: day,
   start_time: "09:00:00",
   end_time: "17:00:00",
 }));
+
+const DEFAULT_SCHEDULE = {
+  timezone: TIMEZONE,
+  today: "2026-08-18",
+  current: { effective_from: null, windows: DEFAULT_WINDOWS },
+  pending: null,
+};
 
 // Tuesday, August 18, 2026, in UTC as the API would send it for a
 // provider on America/New_York (EDT, UTC-4 in August).
@@ -85,9 +91,9 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 /** Routes `fetch` by pathname (query strings are ignored, matching every
  * other section's test router in this codebase). `/profile` defaults to a
- * successful America/New_York response, `/scheduling/availability` to the
- * Mon–Fri 9–17 schedule, and `/scheduling/blocked-time` to an empty list
- * unless a test overrides them. */
+ * successful America/New_York response, `/scheduling/schedule` to the
+ * Mon–Fri 9–17 live generation, and `/scheduling/blocked-time` to an empty
+ * list unless a test overrides them. */
 function mockFetchRouter(
   overrides: Partial<
     Record<string, (init: RequestInit | undefined) => Response | Promise<Response>>
@@ -102,8 +108,8 @@ function mockFetchRouter(
     if (path === PROFILE_PATH) {
       return Promise.resolve(jsonResponse({ timezone: TIMEZONE }));
     }
-    if (path === AVAILABILITY_PATH) {
-      return Promise.resolve(jsonResponse(DEFAULT_AVAILABILITY));
+    if (path === SCHEDULE_PATH) {
+      return Promise.resolve(jsonResponse(DEFAULT_SCHEDULE));
     }
     if (path === BLOCKED_TIME_PATH) {
       return Promise.resolve(jsonResponse([]));
@@ -323,7 +329,7 @@ describe("ProviderCalendar", () => {
     render(<ProviderCalendar />);
 
     await screen.findByText("Week of Aug 17–23, 2026");
-    expect(callsTo(fetchMock, AVAILABILITY_PATH)).toBe(1);
+    expect(callsTo(fetchMock, SCHEDULE_PATH)).toBe(1);
 
     await user.click(screen.getByRole("button", { name: "Go to previous week" }));
 
@@ -342,7 +348,7 @@ describe("ProviderCalendar", () => {
 
     // The recurring schedule is identical every week: availability was
     // fetched once on mount and never again across three navigations.
-    expect(callsTo(fetchMock, AVAILABILITY_PATH)).toBe(1);
+    expect(callsTo(fetchMock, SCHEDULE_PATH)).toBe(1);
     expect(callsTo(fetchMock, PROFILE_PATH)).toBe(1);
   });
 
@@ -363,7 +369,53 @@ describe("ProviderCalendar", () => {
         (url as string).includes("date_from=2026-08-24&date_to=2026-08-30")
       )
     ).toBe(true);
-    expect(callsTo(fetchMock, AVAILABILITY_PATH)).toBe(1);
+    expect(callsTo(fetchMock, SCHEDULE_PATH)).toBe(1);
+  });
+
+  it("uses pending working hours for the grid once the visible week is on or after the effective date", async () => {
+    const liveWindows = [0, 1, 2, 3, 4].map((day) => ({
+      id: day + 1,
+      day_of_week: day,
+      start_time: "08:00:00",
+      end_time: "15:00:00",
+    }));
+    mockFetchRouter({
+      [SCHEDULE_PATH]: () =>
+        jsonResponse({
+          timezone: TIMEZONE,
+          today: "2026-08-18",
+          current: { effective_from: null, windows: liveWindows },
+          pending: {
+            effective_from: "2026-10-08",
+            windows: [
+              ...[0, 1, 3, 4].map((day) => ({
+                id: day + 10,
+                day_of_week: day,
+                start_time: "08:00:00",
+                end_time: "15:00:00",
+              })),
+              { id: 20, day_of_week: 2, start_time: "08:00:00", end_time: "13:00:00" },
+              { id: 21, day_of_week: 2, start_time: "16:00:00", end_time: "18:00:00" },
+            ],
+          },
+        }),
+      [BOOKINGS_PATH]: () => jsonResponse([]),
+    });
+    const user = userEvent.setup();
+    render(<ProviderCalendar />);
+
+    await screen.findByText("Week of Aug 17–23, 2026");
+    expect(screen.getByText("8 AM")).toBeInTheDocument();
+    expect(screen.getByText("2 PM")).toBeInTheDocument();
+    expect(screen.queryByText("4 PM")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Next month" }));
+    await user.click(screen.getByRole("button", { name: "Next month" }));
+    await user.click(screen.getByRole("button", { name: "Next month" }));
+
+    expect(await screen.findByText("Week of Nov 9–15, 2026")).toBeInTheDocument();
+    expect(screen.getByText("4 PM")).toBeInTheDocument();
+    expect(screen.getByText("5 PM")).toBeInTheDocument();
   });
 
   it("extends the visible hours to include a booking outside configured availability instead of cutting it off", async () => {
@@ -396,7 +448,8 @@ describe("ProviderCalendar", () => {
 
   it("shows a setup prompt instead of an empty grid when there is no availability AND no bookings", async () => {
     mockFetchRouter({
-      [AVAILABILITY_PATH]: () => jsonResponse([]),
+      [SCHEDULE_PATH]: () =>
+        jsonResponse({ ...DEFAULT_SCHEDULE, current: { effective_from: null, windows: [] } }),
       [BOOKINGS_PATH]: () => jsonResponse([]),
     });
     render(<ProviderCalendar />);
@@ -416,7 +469,8 @@ describe("ProviderCalendar", () => {
 
   it("still renders the grid (bounded by the bookings) with an inline nudge when availability is empty but bookings exist", async () => {
     mockFetchRouter({
-      [AVAILABILITY_PATH]: () => jsonResponse([]),
+      [SCHEDULE_PATH]: () =>
+        jsonResponse({ ...DEFAULT_SCHEDULE, current: { effective_from: null, windows: [] } }),
       [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT]),
     });
     render(<ProviderCalendar />);
@@ -434,11 +488,11 @@ describe("ProviderCalendar", () => {
   it("keeps the grid rendering when the availability fetch fails, with a scoped retry that re-fires only that fetch", async () => {
     let availabilityCalls = 0;
     const fetchMock = mockFetchRouter({
-      [AVAILABILITY_PATH]: () => {
+      [SCHEDULE_PATH]: () => {
         availabilityCalls += 1;
         return availabilityCalls === 1
           ? new Response("", { status: 500 })
-          : jsonResponse(DEFAULT_AVAILABILITY);
+          : jsonResponse(DEFAULT_SCHEDULE);
       },
       [BOOKINGS_PATH]: () => jsonResponse([NEW_PATIENT_VISIT]),
     });
@@ -464,7 +518,7 @@ describe("ProviderCalendar", () => {
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
 
     // Scoped: only the availability fetch re-fired.
-    expect(callsTo(fetchMock, AVAILABILITY_PATH)).toBe(2);
+    expect(callsTo(fetchMock, SCHEDULE_PATH)).toBe(2);
     expect(callsTo(fetchMock, PROFILE_PATH)).toBe(profileCallsBefore);
     expect(callsTo(fetchMock, BOOKINGS_PATH)).toBe(bookingsCallsBefore);
   });
@@ -1037,7 +1091,7 @@ describe("ProviderCalendar", () => {
 
       const profileCallsBefore = callsTo(fetchMock, PROFILE_PATH);
       const bookingsCallsBefore = callsTo(fetchMock, BOOKINGS_PATH);
-      const availabilityCallsBefore = callsTo(fetchMock, AVAILABILITY_PATH);
+      const availabilityCallsBefore = callsTo(fetchMock, SCHEDULE_PATH);
 
       await user.click(within(warning).getByRole("button", { name: "Try again" }));
 
@@ -1048,7 +1102,7 @@ describe("ProviderCalendar", () => {
       expect(callsTo(fetchMock, BLOCKED_TIME_PATH)).toBe(2);
       expect(callsTo(fetchMock, PROFILE_PATH)).toBe(profileCallsBefore);
       expect(callsTo(fetchMock, BOOKINGS_PATH)).toBe(bookingsCallsBefore);
-      expect(callsTo(fetchMock, AVAILABILITY_PATH)).toBe(availabilityCallsBefore);
+      expect(callsTo(fetchMock, SCHEDULE_PATH)).toBe(availabilityCallsBefore);
     });
   });
 });

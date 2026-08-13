@@ -3,16 +3,35 @@
 import { useEffect, useState } from "react";
 import { useAuthenticatedRequest } from "@/hooks/use-authenticated-request";
 import { ApiError } from "@/lib/api/client";
-import type { AvailabilityDay } from "@/lib/availability/types";
+import type {
+  AvailabilityDay,
+  ProviderSchedule,
+  ScheduleGeneration,
+} from "@/lib/availability/types";
 
-const AVAILABILITY_PATH = "/scheduling/availability";
+const SCHEDULE_PATH = "/scheduling/schedule";
+
+function windowsAsAvailability(
+  generation: ScheduleGeneration | null
+): AvailabilityDay[] | null {
+  if (generation === null) {
+    return null;
+  }
+  return generation.windows.map((window) => ({
+    id: window.id,
+    day_of_week: window.day_of_week,
+    start_time: window.start_time,
+    end_time: window.end_time,
+    effective_from: generation.effective_from,
+  }));
+}
 
 /**
- * The provider's full recurring weekly schedule (`GET
- * /scheduling/availability`), fetched ONCE per mount — deliberately not
- * keyed on the visible week. The endpoint takes no date-range params and
- * returns the same recurring rows for any week, so re-fetching on week
- * navigation would be wasted round-trips for identical data.
+ * The provider's schedule generations (`GET /scheduling/schedule`),
+ * fetched ONCE per mount — not keyed on the visible week. The payload
+ * is the live hours plus at most one pending change; which generation
+ * governs a given day is a client-side date comparison, so week
+ * navigation does not need a refetch.
  *
  * Failure here must never block the calendar: the week grid still renders
  * bounded by the week's bookings alone (see `visibleHourRange`'s
@@ -20,23 +39,25 @@ const AVAILABILITY_PATH = "/scheduling/availability";
  * ONLY this fetch — not the profile fetch, not the bookings fetch.
  */
 export function useProviderAvailability(): {
-  /** `null` while loading or after a failure. */
+  /** Live generation windows, `null` while loading or after a failure. */
   availability: AvailabilityDay[] | null;
+  current: ScheduleGeneration | null;
+  pending: ScheduleGeneration | null;
   error: string | null;
   retry: () => void;
 } {
   const authFetch = useAuthenticatedRequest();
-  const [availability, setAvailability] = useState<AvailabilityDay[] | null>(null);
+  const [schedule, setSchedule] = useState<ProviderSchedule | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
 
-    authFetch<AvailabilityDay[]>(AVAILABILITY_PATH)
+    authFetch<ProviderSchedule>(SCHEDULE_PATH)
       .then((result) => {
         if (!cancelled) {
-          setAvailability(result);
+          setSchedule(result);
         }
       })
       .catch((err) => {
@@ -55,9 +76,15 @@ export function useProviderAvailability(): {
 
   function retry() {
     setError(null);
-    setAvailability(null);
+    setSchedule(null);
     setReloadKey((key) => key + 1);
   }
 
-  return { availability, error, retry };
+  return {
+    availability: windowsAsAvailability(schedule?.current ?? null),
+    current: schedule?.current ?? null,
+    pending: schedule?.pending ?? null,
+    error,
+    retry,
+  };
 }

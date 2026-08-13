@@ -38,6 +38,33 @@ export function formatBookingTimeRange(
 }
 
 /**
+ * The same window on the *provider's* clock, for a patient-facing surface
+ * that renders times on the patient's own — e.g. a 13:00Z appointment
+ * shown to a UTC patient as `"1:00–2:00pm"` also reads `"9:00–10:00am"` on
+ * an `America/New_York` provider's clock. `null` when both zones render
+ * the range identically, so a screen never repeats the same time twice.
+ *
+ * A patient picks a slot off the provider's schedule, labelled in the
+ * provider's zone (`components/booking/SlotBlock.tsx`) — so the number
+ * they picked has to survive onto the screens they see afterwards.
+ * Without it, booking "9:00am with Dr. Rossi" from Central time lands on
+ * a calendar reading 8:00am, which looks like the appointment moved.
+ * Compared as rendered ranges, not zone ids: two ids can name the same
+ * wall clock (`America/New_York` vs. `US/Eastern`), the same rule
+ * `SlotBlock` uses for its own second line.
+ */
+export function formatProviderClockRange(
+  startIso: string,
+  endIso: string,
+  providerTimeZone: string,
+  viewerTimeZone: string
+): string | null {
+  const providerRange = formatBookingTimeRange(startIso, endIso, providerTimeZone);
+  const viewerRange = formatBookingTimeRange(startIso, endIso, viewerTimeZone);
+  return providerRange === viewerRange ? null : providerRange;
+}
+
+/**
  * e.g. `("...T15:00:00.000Z", "...T15:30:00.000Z", "America/Chicago")` ->
  * `"Tuesday, August 18, 2026, 10:00–10:30am"`, the date+time line on a
  * "My Appointments" card. Built from the same zoned-conversion + full-date

@@ -229,11 +229,16 @@ export function DateTimeStep({
     : new Map<string, Slot[]>();
   const datesWithSlots = new Set(slotsByDate.keys());
   const days = weekDates(weekStart);
-  const weekHasSlots = days.some((day) => datesWithSlots.has(day));
+  const weekSlots = days.flatMap((day) => slotsByDate.get(day) ?? []);
+  const weekHasSlots = weekSlots.length > 0;
+  // Bound the grid by this week's slots, not the whole fetched month: a
+  // 6-week month grid can straddle a pending hours switch, and using the
+  // month union would paint the old 8–3pm day onto a November week that
+  // already runs 8–1 and 4–6.
   const range = slotsResponse
     ? (visibleHourRange(
         [],
-        slotsResponse.slots.map((slot) => ({ start_time: slot.start, end_time: slot.end })),
+        weekSlots.map((slot) => ({ start_time: slot.start, end_time: slot.end })),
         scheduleTimeZone
       ) ?? DEFAULT_HOUR_RANGE)
     : DEFAULT_HOUR_RANGE;

@@ -21,7 +21,7 @@ describe("PatientAppointmentsPage", () => {
       screen.getByRole("heading", { name: "My Appointments", level: 1 })
     ).toBeInTheDocument();
     const bookNewLink = screen.getByRole("link", { name: "+ Book new" });
-    expect(bookNewLink).toHaveAttribute("href", "/patient");
+    expect(bookNewLink).toHaveAttribute("href", "/patient/book");
     expect(screen.getByText(/loading your appointments/i)).toBeInTheDocument();
   });
 });

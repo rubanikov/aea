@@ -1,3 +1,6 @@
+from datetime import datetime
+from datetime import timezone as dt_timezone
+
 from audit.models import AuditLog
 from bookings.models import Booking
 from scheduling.models import AppointmentType, BlockedTime
@@ -320,6 +323,79 @@ class BookingConflictTests(BookingsAPITestCase):
         self.assertEqual(first.status_code, 201)
         self.assertEqual(second.status_code, 409)
         self.assertEqual(Booking.objects.count(), 1)
+
+    def test_a_patient_cannot_book_two_providers_in_the_same_hour(self):
+        other_provider, other_type = self.setup_bookable_provider(
+            email="other-doc@example.com"
+        )
+        self.login_as(self.patient)
+        first = self.post_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=f"{MONDAY}T09:00:00Z",
+        )
+        self.assertEqual(first.status_code, 201)
+
+        second = self.post_booking(
+            provider=other_provider,
+            appointment_type=other_type,
+            start_time=f"{MONDAY}T09:00:00Z",
+        )
+
+        self.assertEqual(second.status_code, 409)
+        self.assertIn("already have an appointment", second.json()["detail"])
+        self.assertEqual(
+            Booking.objects.filter(
+                patient=self.patient, status__in=Booking.ACTIVE_STATUSES
+            ).count(),
+            1,
+        )
+
+    def test_a_patient_can_book_two_providers_in_different_hours(self):
+        other_provider, other_type = self.setup_bookable_provider(
+            email="other-doc@example.com"
+        )
+        self.login_as(self.patient)
+        first = self.post_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=f"{MONDAY}T09:00:00Z",
+        )
+        second = self.post_booking(
+            provider=other_provider,
+            appointment_type=other_type,
+            start_time=f"{MONDAY}T10:00:00Z",
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(
+            Booking.objects.filter(
+                patient=self.patient, status__in=Booking.ACTIVE_STATUSES
+            ).count(),
+            2,
+        )
+
+    def test_a_cancelled_patient_booking_does_not_block_the_same_hour_elsewhere(self):
+        other_provider, other_type = self.setup_bookable_provider(
+            email="other-doc@example.com"
+        )
+        self.make_booking(
+            provider=self.provider,
+            patient=self.patient,
+            appointment_type=self.appointment_type,
+            start_time=datetime(2026, 8, 17, 9, 0, tzinfo=dt_timezone.utc),
+            status=Booking.Status.CANCELLED,
+        )
+        self.login_as(self.patient)
+
+        response = self.post_booking(
+            provider=other_provider,
+            appointment_type=other_type,
+            start_time=f"{MONDAY}T09:00:00Z",
+        )
+
+        self.assertEqual(response.status_code, 201)
 
 
 class BookingIdempotencyTests(BookingsAPITestCase):

@@ -24,6 +24,18 @@ class SlotNoLongerAvailable(BookingConflict):
         super().__init__(message)
 
 
+class PatientAlreadyBooked(SlotNoLongerAvailable):
+    """The requesting patient already has an active booking in this hour
+    block (possibly with a different provider). Same 409 as a lost race
+    for the provider's chair -- the slot isn't takeable -- but a distinct
+    message so the UI can say "you already have an appointment" rather
+    than "someone else just booked it."
+    """
+
+    def __init__(self, message="You already have an appointment during this hour."):
+        super().__init__(message)
+
+
 class SlotNotOpen(BookingConflict):
     """The requested slot was never bookable to begin with -- outside the
     provider's working hours, inside a blocked range, or in the past

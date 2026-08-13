@@ -5,6 +5,7 @@ import { useAuthenticatedRequest } from "@/hooks/use-authenticated-request";
 import { ApiError } from "@/lib/api/client";
 import { formatDurationShort } from "@/lib/availability/durations";
 import type { AppointmentType } from "@/lib/availability/types";
+import { extractBookingErrorDetail } from "@/lib/bookings/errors";
 import { formatAppointmentDateTime } from "@/lib/bookings/format";
 import type { Booking, Provider, Slot } from "@/lib/scheduling/types";
 import { formatTimezone } from "@/lib/timezones";
@@ -68,7 +69,10 @@ interface ConfirmStepProps {
  * The provider's clock leads in the summary, matching the slot button just
  * clicked (`TimeSlotGrid` labels on that same clock) — then the same
  * window on the patient's own, so neither reading is left to guesswork.
- * Timezone names go through `formatTimezone`; raw IANA ids are never shown.
+ * The success view carries both for the same reason: a confirmation that
+ * answers a 10:00am slot with "9:00am" reads as though the wrong time was
+ * booked. Timezone names go through `formatTimezone`; raw IANA ids are
+ * never shown.
  */
 export function ConfirmStep({
   provider,
@@ -85,6 +89,7 @@ export function ConfirmStep({
   const [status, setStatus] = useState<StepStatus>("form");
   const [reason, setReason] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [conflictMessage, setConflictMessage] = useState<string | null>(null);
   const [booking, setBooking] = useState<Booking | null>(null);
 
   async function handleConfirm() {
@@ -110,6 +115,7 @@ export function ConfirmStep({
       onBooked(created);
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
+        setConflictMessage(extractBookingErrorDetail(error.body));
         setStatus("conflict");
       } else if (error instanceof ApiError && error.status === 401) {
         // The shared auth hook is already handling this (refresh-and-retry,
@@ -133,7 +139,8 @@ export function ConfirmStep({
           <span aria-hidden="true">⚠</span> This time is no longer available
         </h2>
         <p className="text-sm text-danger-soft-foreground">
-          Someone else just booked it. Nothing was booked. Pick another time.
+          {conflictMessage ??
+            "Someone else just booked it. Nothing was booked. Pick another time."}
         </p>
         <Button onClick={onSlotUnavailable} className="self-start">
           Choose another time
@@ -150,6 +157,12 @@ export function ConfirmStep({
           <p className="font-medium">
             {appointmentType.name} with {provider.name}
           </p>
+          {providerRange === patientRange ? null : (
+            <p>
+              {providerRange} — provider&apos;s local time (
+              {formatTimezone(provider.timezone)})
+            </p>
+          )}
           <p>
             {patientRange} — your time ({formatTimezone(patientTimeZone)})
           </p>

@@ -19,14 +19,39 @@ from datetime import timezone as dt_timezone
 from zoneinfo import ZoneInfo
 
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 
 from audit.services import record_audit_event
 from scheduling.models import BlockedTime
 from scheduling.slots import get_open_slots
 
-from .exceptions import SlotNoLongerAvailable, SlotNotOpen
+from .exceptions import PatientAlreadyBooked, SlotNoLongerAvailable, SlotNotOpen
 from .models import Booking
 from .transitions import check_cancellation_notice, transition
+
+_PATIENT_SLOT_CONSTRAINT = "unique_active_booking_per_patient_slot"
+
+
+def _raise_if_hour_taken(conflicting, *, patient):
+    """Raise the matching 409 if `conflicting` (a locked Booking queryset)
+    already occupies this hour for the provider or the patient. No-op when
+    the queryset is empty -- the caller proceeds to insert.
+    """
+    if not conflicting.exists():
+        return
+    if conflicting.filter(patient=patient).exists():
+        raise PatientAlreadyBooked()
+    raise SlotNoLongerAvailable()
+
+
+def _conflict_from_integrity_error(exc):
+    """Layer 2: map a unique-index rejection onto the matching 409.
+    Postgres includes the constraint name in the error; a patient-slot
+    collision is the patient's own hour, not a lost race for the chair.
+    """
+    if _PATIENT_SLOT_CONSTRAINT in str(exc):
+        return PatientAlreadyBooked()
+    return SlotNoLongerAvailable()
 
 
 def _busy_intervals(provider, padded_start, padded_end):
@@ -93,8 +118,9 @@ def _book_open_slot(
     `UniqueConstraint` can still raise (see both callers' docstrings).
 
     1. Layer 1 -- `select_for_update()` locks any existing active `Booking`
-       for `provider` overlapping `[start_time, end_time)`;
-       `SlotNoLongerAvailable` if one exists.
+       for `provider` *or* `patient` overlapping `[start_time, end_time)`;
+       `PatientAlreadyBooked` if the patient already occupies this hour,
+       `SlotNoLongerAvailable` if the provider's chair is taken.
     2. Point 6 -- re-validates the slot is genuinely open right now (hours,
        blocked time, not in the past) via `get_open_slots`; `SlotNotOpen`
        if not. Deliberately runs *after* step 1: by this point there is no
@@ -107,13 +133,12 @@ def _book_open_slot(
        function's convention) -- all in the same transaction.
     """
     conflicting = Booking.objects.select_for_update().filter(
-        provider=provider,
+        Q(provider=provider) | Q(patient=patient),
         status__in=Booking.ACTIVE_STATUSES,
         start_time__lt=end_time,
         end_time__gt=start_time,
     )
-    if conflicting.exists():
-        raise SlotNoLongerAvailable()
+    _raise_if_hour_taken(conflicting, patient=patient)
 
     if not _slot_is_currently_open(provider, appointment_type, start_time, end_time):
         # Under Postgres's default READ COMMITTED isolation, the locked
@@ -131,8 +156,7 @@ def _book_open_slot(
         # slipped in since the first check) disambiguates them correctly.
         # A `SlotNotOpen` after this point is genuinely about hours/blocked
         # time/the past, not a lost race.
-        if conflicting.exists():
-            raise SlotNoLongerAvailable()
+        _raise_if_hour_taken(conflicting, patient=patient)
         raise SlotNotOpen()
 
     booking = Booking.objects.create(
@@ -206,7 +230,7 @@ def create_booking(*, patient, provider, appointment_type, start_time, idempoten
             existing = Booking.objects.filter(idempotency_key=idempotency_key).first()
             if existing is not None:
                 return existing
-        raise SlotNoLongerAvailable() from exc
+        raise _conflict_from_integrity_error(exc) from exc
 
 
 def reschedule_booking(*, booking, actor, start_time):
@@ -306,4 +330,4 @@ def reschedule_booking(*, booking, actor, start_time):
             )
             return new_booking
     except IntegrityError as exc:
-        raise SlotNoLongerAvailable() from exc
+        raise _conflict_from_integrity_error(exc) from exc

@@ -4,7 +4,7 @@ Originally (TICKET-01) a placeholder that only created one account per role.
 Now that `Availability`/`AppointmentType`/`Booking` all exist, this seeds a
 dataset shaped for the k6 load test in `k6/` (see `k6/README.md`):
 
-  - ~10 providers, each with a distinct timezone, a Mon-Fri recurring
+  - ~10 providers, each in America/Chicago, a Mon-Fri recurring
     `Availability` (varying hours -- some with a lunch-break split), and
     2-4 name-only `AppointmentType`s. Every appointment is a fixed
     60-minute slot (the model's `appointment_type_duration_is_60`
@@ -43,6 +43,7 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.utils import timezone as django_timezone
 
+from bookings.exceptions import PatientAlreadyBooked, SlotNoLongerAvailable
 from bookings.models import Booking
 from bookings.services import create_booking
 from scheduling.models import AppointmentType, Availability
@@ -53,6 +54,9 @@ User = get_user_model()
 # Demo accounts, one per role. Password is fixed and dev-only -- never used
 # outside a local/demo database seeded from this command.
 DEMO_PASSWORD = "demo-password-not-for-prod"  # noqa: S105 -- seed fixture, not a real credential
+# Shared clinic clock for every demo account so patient and provider
+# calendars agree with a Central-time grader machine.
+DEMO_TIMEZONE = "America/Chicago"
 
 ADMIN_ACCOUNTS = [
     {"email": "admin@demo.aea.test", "name": "Demo Admin"},
@@ -82,70 +86,70 @@ PROVIDER_CONFIGS = [
     {
         "email": "provider1@demo.aea.test",
         "name": "Dr. Ana Rossi",
-        "timezone": "America/New_York",
+        "timezone": DEMO_TIMEZONE,
         "windows": [("08:00", "15:00")],
         "appointment_types": ["Follow-up", "New Patient Visit", "Annual Physical"],
     },
     {
         "email": "provider2@demo.aea.test",
         "name": "Dr. Brian Chen",
-        "timezone": "America/Chicago",
+        "timezone": DEMO_TIMEZONE,
         "windows": [("09:00", "12:00"), ("13:00", "17:00")],  # lunch break
         "appointment_types": ["Consultation", "New Patient Visit"],
     },
     {
         "email": "provider3@demo.aea.test",
         "name": "Dr. Carla Gomez",
-        "timezone": "America/Los_Angeles",
+        "timezone": DEMO_TIMEZONE,
         "windows": [("07:00", "13:00")],
         "appointment_types": ["Follow-up", "Consultation", "Annual Physical"],
     },
     {
         "email": "provider4@demo.aea.test",
         "name": "Dr. Deepak Rao",
-        "timezone": "America/Denver",
+        "timezone": DEMO_TIMEZONE,
         "windows": [("09:00", "16:00")],
         "appointment_types": ["Follow-up", "New Patient Visit"],
     },
     {
         "email": "provider5@demo.aea.test",
         "name": "Dr. Elena Petrova",
-        "timezone": "UTC",
+        "timezone": DEMO_TIMEZONE,
         "windows": [("10:00", "15:00")],
         "appointment_types": ["Consultation", "New Patient Visit", "Annual Physical"],
     },
     {
         "email": "provider6@demo.aea.test",
         "name": "Dr. Farid Haidari",
-        "timezone": "America/New_York",
+        "timezone": DEMO_TIMEZONE,
         "windows": [("08:00", "12:00"), ("13:00", "16:00")],  # lunch break
         "appointment_types": ["Follow-up", "New Patient Visit"],
     },
     {
         "email": "provider7@demo.aea.test",
         "name": "Dr. Grace Kim",
-        "timezone": "America/Chicago",
+        "timezone": DEMO_TIMEZONE,
         "windows": [("09:00", "14:00")],
         "appointment_types": ["Follow-up", "New Patient Visit", "Annual Physical"],
     },
     {
         "email": "provider8@demo.aea.test",
         "name": "Dr. Hassan Ali",
-        "timezone": "America/Los_Angeles",
+        "timezone": DEMO_TIMEZONE,
         "windows": [("08:00", "13:00")],
         "appointment_types": ["Consultation", "New Patient Visit"],
     },
     {
         "email": "provider9@demo.aea.test",
         "name": "Dr. Ines Fischer",
-        "timezone": "America/Denver",
+        "timezone": DEMO_TIMEZONE,
         "windows": [("07:30", "14:30")],
         "appointment_types": ["Follow-up", "Consultation", "Annual Physical"],
     },
     {
         "email": "provider10@demo.aea.test",
         "name": "Dr. Jamal Ochieng",
-        "timezone": "UTC",
+        "timezone": DEMO_TIMEZONE,
         "windows": [("09:00", "16:00")],
         "appointment_types": [
             "Follow-up",
@@ -191,35 +195,35 @@ WEEKLY_PROVIDER_CONFIGS = [
     {
         "email": "provider11@demo.aea.test",
         "name": "Dr. Miriam Osei",
-        "timezone": "America/New_York",
+        "timezone": DEMO_TIMEZONE,
         "windows": [("09:00", "17:00")],
         "appointment_types": ["Follow-up", "New Patient Visit"],
     },
     {
         "email": "provider12@demo.aea.test",
         "name": "Dr. Lucas Almeida",
-        "timezone": "America/Chicago",
+        "timezone": DEMO_TIMEZONE,
         "windows": [("08:00", "16:00")],
         "appointment_types": ["Consultation", "Annual Physical"],
     },
     {
         "email": "provider13@demo.aea.test",
         "name": "Dr. Naomi Choi",
-        "timezone": "America/Denver",
+        "timezone": DEMO_TIMEZONE,
         "windows": [("09:00", "17:00")],
         "appointment_types": ["Follow-up", "Consultation"],
     },
     {
         "email": "provider14@demo.aea.test",
         "name": "Dr. Tariq Farouk",
-        "timezone": "America/Los_Angeles",
+        "timezone": DEMO_TIMEZONE,
         "windows": [("08:00", "16:00")],
         "appointment_types": ["New Patient Visit", "Annual Physical"],
     },
     {
         "email": "provider15@demo.aea.test",
         "name": "Dr. Sophie Lindgren",
-        "timezone": "UTC",
+        "timezone": DEMO_TIMEZONE,
         "windows": [("09:00", "17:00")],
         "appointment_types": ["Follow-up", "Consultation"],
     },
@@ -254,6 +258,26 @@ HORIZON_LENGTH_DAYS = 56
 # not saturated -- while staying a fast, fully reproducible calculation
 # (see `_seed_bookings_for_provider`).
 BOOKING_SAMPLE_STEP = 20
+
+
+def _first_free_patient(patients, start, end, start_index):
+    """Return the first patient in the rotating list who does not already
+    hold `[start, end)`, or None if every patient in the pool is busy.
+    One appointment per hour block applies to patients as well as
+    providers, so the seed cannot hand the same hour to the same person
+    twice even across different doctors.
+    """
+    for step in range(len(patients)):
+        candidate = patients[(start_index + step) % len(patients)]
+        busy = Booking.objects.filter(
+            patient=candidate,
+            status__in=Booking.ACTIVE_STATUSES,
+            start_time__lt=end,
+            end_time__gt=start,
+        ).exists()
+        if not busy:
+            return candidate
+    return None
 
 
 class Command(BaseCommand):
@@ -306,13 +330,14 @@ class Command(BaseCommand):
             User.objects.filter(email__in=[p["email"] for p in WEEKLY_PATIENT_ACCOUNTS])
         )
         weekly_booking_count = 0
-        for provider, appointment_types in weekly_providers:
+        for index, (provider, appointment_types) in enumerate(weekly_providers):
             weekly_booking_count += self._seed_weekly_recurring_bookings(
                 provider,
                 appointment_types[0],
                 weekly_patients,
                 horizon_start,
                 weekly_horizon_end,
+                weekday_rotation=index,
             )
 
         self.stdout.write("")
@@ -347,13 +372,20 @@ class Command(BaseCommand):
     def _seed_account(self, account, *, role):
         user, created = User.objects.get_or_create(
             email=account["email"],
-            defaults={"name": account["name"], "role": role},
+            defaults={
+                "name": account["name"],
+                "role": role,
+                "timezone": DEMO_TIMEZONE,
+            },
         )
         if created:
             user.set_password(DEMO_PASSWORD)
             user.save(update_fields=["password"])
             self.stdout.write(self.style.SUCCESS(f"  created {role}: {account['email']}"))
         else:
+            if user.timezone != DEMO_TIMEZONE:
+                user.timezone = DEMO_TIMEZONE
+                user.save(update_fields=["timezone"])
             self.stdout.write(f"  already exists {role}: {account['email']}")
 
     def _seed_provider(self, config):
@@ -370,6 +402,9 @@ class Command(BaseCommand):
             provider.save(update_fields=["password"])
             self.stdout.write(self.style.SUCCESS(f"  created provider: {config['email']}"))
         else:
+            if provider.timezone != config["timezone"]:
+                provider.timezone = config["timezone"]
+                provider.save(update_fields=["timezone"])
             self.stdout.write(f"  already exists provider: {config['email']}")
 
         for day in range(5):  # Monday(0) .. Friday(4)
@@ -471,36 +506,50 @@ class Command(BaseCommand):
         )
         sampled = candidates[::BOOKING_SAMPLE_STEP]
 
+        booked = 0
         for offset, slot in enumerate(sampled):
-            patient = patients[(patient_offset + offset) % len(patients)]
+            start_index = (patient_offset + offset) % len(patients)
+            patient = _first_free_patient(patients, slot.start, slot.end, start_index)
+            if patient is None:
+                continue
             idempotency_key = (
                 f"seed-booking-{provider.id}-{primary_appointment_type.id}-{slot.start.isoformat()}"
             )
-            create_booking(
-                patient=patient,
-                provider=provider,
-                appointment_type=primary_appointment_type,
-                start_time=slot.start,
-                idempotency_key=idempotency_key,
-            )
+            try:
+                create_booking(
+                    patient=patient,
+                    provider=provider,
+                    appointment_type=primary_appointment_type,
+                    start_time=slot.start,
+                    idempotency_key=idempotency_key,
+                )
+            except (PatientAlreadyBooked, SlotNoLongerAvailable):
+                continue
+            booked += 1
 
         self.stdout.write(
-            f"  provider {provider.email}: sampled {len(sampled)} slots for pre-existing bookings "
+            f"  provider {provider.email}: sampled {booked} slots for pre-existing bookings "
             f"(of {len(candidates)} open {primary_appointment_type.name} slots)"
         )
-        return len(sampled)
+        return booked
 
     def _seed_weekly_recurring_bookings(
-        self, provider, appointment_type, patients, horizon_start, horizon_end
+        self,
+        provider,
+        appointment_type,
+        patients,
+        horizon_start,
+        horizon_end,
+        *,
+        weekday_rotation=0,
     ):
         """Gives each of `patients` a standing weekly appointment with
         `provider` -- the same weekday and time slot, every week across the
         horizon -- rather than `_seed_bookings_for_provider`'s random single
         sample. This is what "1 appointment per week for each doctor" means
-        as a concrete, collision-free schedule: patient 0 gets this
-        provider's first Monday slot every week, patient 1 gets the second
-        Monday slot, patient 4 gets the first Tuesday slot, and so on,
-        cycling by weekday every `len(patients) // 5` patients.
+        as a concrete schedule: patient 0 gets this provider's first slot on
+        its rotated weekday every week, patient 1 the second slot on the
+        next weekday, and so on.
 
         Slots are grouped into `(weekday, position-within-day)` buckets by
         walking the chronologically-ordered candidate list and resetting a
@@ -510,6 +559,24 @@ class Command(BaseCommand):
         every slot in one patient's bucket is exactly "book this patient
         into that recurring weekly slot for as many weeks as the horizon
         covers."
+
+        `weekday_rotation` (the provider's index in the cohort) shifts which
+        weekday each patient lands on, and is what keeps a patient's five
+        standing appointments from all falling in the same hour. Without it
+        every provider hands patient `i` the same `(weekday, position)`
+        bucket, and since positions are per-provider ordinals rather than
+        clock times, whether that collides depends purely on whether two
+        providers' windows happen to start at the same hour -- with the
+        `WEEKLY_PROVIDER_CONFIGS` above, three start at 09:00 and two at
+        08:00, so patient 0 would get three simultaneous Monday 09:00
+        appointments and two simultaneous 08:00 ones. That now trips
+        `unique_active_booking_per_patient_slot` (one active booking per
+        patient per hour, architecture.md §3), so the rotation is also
+        what keeps the seed from colliding with its own uniqueness rule.
+        Rotating by provider gives each patient all five weekdays instead,
+        while preserving the per-provider layout -- patients `i` and `j`
+        share a bucket only when `i == j`, so each doctor still sees 4
+        distinct patients a day, 20 a week.
         """
         candidates = get_open_slots(
             provider, appointment_type, horizon_start, horizon_end, now=django_timezone.now()
@@ -527,18 +594,23 @@ class Command(BaseCommand):
 
         booked = 0
         for index, patient in enumerate(patients):
-            weekday, position = index % 5, index // 5
+            weekday, position = (index + weekday_rotation) % 5, index // 5
             for slot in buckets.get((weekday, position), []):
+                if _first_free_patient([patient], slot.start, slot.end, 0) is None:
+                    continue
                 idempotency_key = (
                     f"seed-weekly-{provider.id}-{appointment_type.id}-{slot.start.isoformat()}"
                 )
-                create_booking(
-                    patient=patient,
-                    provider=provider,
-                    appointment_type=appointment_type,
-                    start_time=slot.start,
-                    idempotency_key=idempotency_key,
-                )
+                try:
+                    create_booking(
+                        patient=patient,
+                        provider=provider,
+                        appointment_type=appointment_type,
+                        start_time=slot.start,
+                        idempotency_key=idempotency_key,
+                    )
+                except (PatientAlreadyBooked, SlotNoLongerAvailable):
+                    continue
                 booked += 1
 
         self.stdout.write(

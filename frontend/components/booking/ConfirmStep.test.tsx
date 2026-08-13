@@ -202,6 +202,25 @@ describe("ConfirmStep", () => {
     expect(screen.queryByRole("button", { name: "Confirm booking" })).not.toBeInTheDocument();
   });
 
+  it("keeps the provider's clock on the success view, not just the patient's", async () => {
+    mockFetchRouter(() => jsonResponse(BOOKING_RESPONSE, 201));
+    const user = userEvent.setup();
+    renderStep();
+
+    await user.click(screen.getByRole("button", { name: "Confirm booking" }));
+
+    // The slot was picked as 10:00am on the provider's clock; a
+    // confirmation that only says 9:00am reads like it booked the wrong
+    // time.
+    const confirmation = await screen.findByRole("status");
+    expect(confirmation).toHaveTextContent(
+      "Tuesday, August 18, 2026, 10:00–11:00am — provider's local time (Eastern Time (New York))"
+    );
+    expect(confirmation).toHaveTextContent(
+      "Tuesday, August 18, 2026, 9:00–10:00am — your time (Central Time (Chicago))"
+    );
+  });
+
   it("offers to start a fresh booking from the success view", async () => {
     mockFetchRouter(() => jsonResponse(BOOKING_RESPONSE, 201));
     const user = userEvent.setup();
@@ -230,6 +249,20 @@ describe("ConfirmStep", () => {
 
     await user.click(screen.getByRole("button", { name: "Choose another time" }));
     expect(onSlotUnavailable).toHaveBeenCalledTimes(1);
+  });
+
+  it("on a 409 for the patient's own hour, shows the server's already-booked detail", async () => {
+    mockFetchRouter(() =>
+      jsonResponse({ detail: "You already have an appointment during this hour." }, 409)
+    );
+    const user = userEvent.setup();
+    renderStep();
+
+    await user.click(screen.getByRole("button", { name: "Confirm booking" }));
+
+    const conflict = await screen.findByRole("alert");
+    expect(conflict).toHaveTextContent("You already have an appointment during this hour.");
+    expect(conflict).not.toHaveTextContent("Someone else just booked it");
   });
 
   it("on a generic failure, shows an actionable error and lets the patient retry", async () => {

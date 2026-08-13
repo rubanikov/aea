@@ -18,6 +18,7 @@ const ANNUAL_PHYSICAL: PatientBooking = {
   id: 1,
   provider_id: 10,
   provider_name: "Dr. Amara Osei",
+  provider_timezone: "America/Chicago",
   appointment_type_id: 100,
   appointment_type_name: "Annual Physical",
   start_time: "2026-08-18T15:00:00.000Z",
@@ -32,6 +33,7 @@ const LAB_REVIEW: PatientBooking = {
   id: 2,
   provider_id: 10,
   provider_name: "Dr. Amara Osei",
+  provider_timezone: "America/Chicago",
   appointment_type_id: 101,
   appointment_type_name: "Lab Review",
   start_time: "2026-08-12T23:00:00.000Z",
@@ -85,6 +87,39 @@ describe("AppointmentCard", () => {
         "Tuesday, August 18, 2026, 10:00–10:30am (your time, America/Chicago)"
       )
     ).toBeInTheDocument();
+  });
+
+  it("shows the provider's own clock when it differs from the patient's", () => {
+    render(
+      <AppointmentCard
+        booking={{ ...ANNUAL_PHYSICAL, provider_timezone: "America/New_York" }}
+        timezone="America/Chicago"
+        onCancel={vi.fn()}
+        onRescheduled={vi.fn()}
+        now={NOW}
+      />
+    );
+
+    // The patient picked this slot off an Eastern schedule, where it reads
+    // 11:00am — an hour later than their own 10:00am. Dropping that number
+    // is what makes a booked appointment look like it moved.
+    expect(
+      screen.getByText("Provider's time: 11:00–11:30am Eastern Time (New York)")
+    ).toBeInTheDocument();
+  });
+
+  it("omits the provider's clock when it reads the same as the patient's", () => {
+    render(
+      <AppointmentCard
+        booking={ANNUAL_PHYSICAL}
+        timezone="America/Chicago"
+        onCancel={vi.fn()}
+        onRescheduled={vi.fn()}
+        now={NOW}
+      />
+    );
+
+    expect(screen.queryByText(/provider's time/i)).not.toBeInTheDocument();
   });
 
   it("shows the reminder-sent indicator when reminder_sent is true", () => {

@@ -3,6 +3,10 @@
 .env.local
 *.env.local
 
+# Local reference only — demo account emails/password (see README.md's
+# "Demo credentials" section for the pattern; this file spells out names)
+DEMO_CREDENTIALS.md
+
 # OS / editors
 .DS_Store
 Thumbs.db

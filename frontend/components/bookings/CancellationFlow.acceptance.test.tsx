@@ -42,6 +42,7 @@ const PATIENT_BOOKING: PatientBooking = {
   id: 1,
   provider_id: 10,
   provider_name: "Dr. Smith",
+  provider_timezone: "UTC",
   appointment_type_id: 100,
   appointment_type_name: "Follow-up",
   start_time: "2026-08-18T15:00:00.000Z",

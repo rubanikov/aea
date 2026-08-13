@@ -22,6 +22,7 @@ const UPCOMING_CONFIRMED = {
   id: 1,
   provider_id: 10,
   provider_name: "Dr. Amara Osei",
+  provider_timezone: "UTC",
   appointment_type_name: "Annual Physical",
   start_time: "2026-08-18T15:00:00.000Z",
   end_time: "2026-08-18T15:30:00.000Z",
@@ -33,6 +34,7 @@ const INSIDE_NOTICE_WINDOW = {
   id: 2,
   provider_id: 10,
   provider_name: "Dr. Amara Osei",
+  provider_timezone: "UTC",
   appointment_type_name: "Lab Review",
   start_time: "2026-08-12T23:00:00.000Z",
   end_time: "2026-08-12T23:15:00.000Z",
@@ -43,6 +45,7 @@ const PAST_COMPLETED = {
   id: 3,
   provider_id: 11,
   provider_name: "Dr. Renata Silva",
+  provider_timezone: "UTC",
   appointment_type_name: "Follow-up",
   start_time: "2026-08-01T13:00:00.000Z",
   end_time: "2026-08-01T13:15:00.000Z",
@@ -53,6 +56,7 @@ const CANCELLED_VISIT = {
   id: 4,
   provider_id: 11,
   provider_name: "Dr. Renata Silva",
+  provider_timezone: "UTC",
   appointment_type_name: "Consultation",
   start_time: "2026-08-25T13:00:00.000Z",
   end_time: "2026-08-25T13:30:00.000Z",
@@ -144,7 +148,7 @@ describe("PatientAppointments", () => {
       await screen.findByText(/you don't have any appointments yet/i)
     ).toBeInTheDocument();
     const link = screen.getByRole("link", { name: "Find a provider" });
-    expect(link).toHaveAttribute("href", "/patient");
+    expect(link).toHaveAttribute("href", "/patient/book");
     // No tabs shown over an empty list.
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
   });
@@ -351,6 +355,7 @@ describe("PatientAppointments", () => {
                 id: 501,
                 provider_id: 10,
                 provider_name: "Dr. Amara Osei",
+                provider_timezone: "UTC",
                 appointment_type_name: "Annual Physical",
                 start_time: NEW_SLOT.start,
                 end_time: NEW_SLOT.end,
@@ -360,6 +365,7 @@ describe("PatientAppointments", () => {
                 id: 1,
                 provider_id: 10,
                 provider_name: "Dr. Amara Osei",
+                provider_timezone: "UTC",
                 appointment_type_name: "Annual Physical",
                 start_time: UPCOMING_CONFIRMED.start_time,
                 end_time: UPCOMING_CONFIRMED.end_time,
