@@ -16,7 +16,7 @@ __all__ = ["AJAX_HEADERS", "TEST_PASSWORD", "SchedulingAPITestCase", "next_monda
 def next_monday(*, min_days_ahead=7):
     """The first Monday at least `min_days_ahead` days from the real
     current date -- far enough out that "tomorrow" never lands past it,
-    near enough that the 90-day collision horizon always includes it.
+    near enough that the default collision horizon always includes it.
     Derived from the real clock because the schedule/slots views resolve
     "today" from `django_timezone.now()` (never mocked in API tests --
     the cookie-JWT auth path shares that module)."""

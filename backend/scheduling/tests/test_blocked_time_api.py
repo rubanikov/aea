@@ -1,7 +1,8 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 
 from django.contrib.auth import get_user_model
+from django.utils import timezone as django_timezone
 
 from audit.models import AuditLog
 from bookings.models import Booking
@@ -181,12 +182,44 @@ class BlockedTimeCollisionTests(SchedulingAPITestCase):
         self.assertEqual(len(body["collisions"]), 1)
         entry = body["collisions"][0]
         self.assertEqual(entry["id"], self.booking.id)
+        self.assertEqual(
+            entry["start_time"],
+            self.booking.start_time.isoformat().replace("+00:00", "Z"),
+        )
+        self.assertEqual(
+            entry["end_time"],
+            self.booking.end_time.isoformat().replace("+00:00", "Z"),
+        )
         self.assertEqual(entry["patient_name"], self.patient.name)
         self.assertEqual(entry["appointment_type_name"], "Follow-up")
         self.assertEqual(entry["status"], "confirmed")
         # Nothing was created.
         self.assertEqual(BlockedTime.objects.count(), 0)
         self.assertEqual(AuditLog.objects.count(), 0)
+
+    def test_block_overlapping_a_booking_beyond_day_133_is_created_without_409(self):
+        beyond_start = django_timezone.now() + timedelta(days=134)
+        beyond_booking = self.create_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=beyond_start,
+            patient=self.patient,
+        )
+        self.login_as(self.provider)
+
+        response = self.post_json(
+            "/scheduling/blocked-time",
+            {
+                "start": beyond_start.isoformat().replace("+00:00", "Z"),
+                "end": (beyond_start + timedelta(hours=2)).isoformat().replace("+00:00", "Z"),
+            },
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
+        self.assertNotIn("collisions", response.json())
+        beyond_booking.refresh_from_db()
+        self.assertEqual(beyond_booking.status, Booking.Status.CONFIRMED)
+        self.assertEqual(BlockedTime.objects.count(), 1)
 
     def test_keep_new_hours_creates_the_block_and_writes_an_audit_entry_per_booking(self):
         self.login_as(self.provider)

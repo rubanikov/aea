@@ -9,6 +9,7 @@ from django.utils import timezone as django_timezone
 
 from bookings.models import Booking
 from core.management.commands.seed_demo import (
+    BOOKING_SAMPLE_STEP,
     DEMO_TIMEZONE,
     HORIZON_LENGTH_DAYS,
     HORIZON_START_OFFSET_DAYS,
@@ -18,18 +19,18 @@ from core.management.commands.seed_demo import (
     WEEKLY_PROVIDER_CONFIGS,
 )
 from scheduling.models import AppointmentType, Availability
-from scheduling.slots import get_open_slots
+from scheduling.slots import MAX_SLOT_QUERY_RANGE_DAYS, get_open_slots
 
 User = get_user_model()
 
-# Independently worked out from `PROVIDER_CONFIGS`' windows and the 56-day
-# (8-full-week) horizon, with every type a fixed 60-minute slot: 40 working
+# Independently worked out from `PROVIDER_CONFIGS`' windows and the 133-day
+# (19-full-week) horizon, with every type a fixed 60-minute slot: 95 working
 # days x sum over providers of (window hours x type count)
-# = 40 x (7x3 + 7x2 + 6x3 + 7x2 + 5x3 + 7x2 + 5x3 + 5x2 + 7x3 + 7x4)
-# = 40 x 170. Not derived by calling the code under test, so this is a real
+# = 95 x (7x3 + 7x2 + 6x3 + 7x2 + 5x3 + 7x2 + 5x3 + 5x2 + 7x3 + 7x4)
+# = 95 x 170. Not derived by calling the code under test, so this is a real
 # assertion, not a tautology: if `seed_demo`'s config ever drifts from this
 # number, this test is what catches it.
-EXPECTED_GROSS_SLOT_TOTAL = 6800
+EXPECTED_GROSS_SLOT_TOTAL = 16150
 # 12 windows across the original 10 providers x 5 weekdays (60), plus the
 # weekly cohort's 5 providers x 1 window each x 5 weekdays (25).
 EXPECTED_AVAILABILITY_ROW_COUNT = 60 + 25
@@ -37,9 +38,12 @@ EXPECTED_AVAILABILITY_ROW_COUNT = 60 + 25
 # 2 each for the weekly cohort's 5 (10).
 EXPECTED_APPOINTMENT_TYPE_COUNT = 27 + 10
 # Sum over providers of ceil(primary_type_slots / BOOKING_SAMPLE_STEP),
-# where primary_type_slots = window hours x 40 working days (hourly slots):
-# 280,280,240,280,200,280,200,200,280,280 -> 14+14+12+14+10+14+10+10+14+14.
-EXPECTED_BOOKING_COUNT = 126
+# where primary_type_slots = window hours x 95 working days (hourly slots):
+# 665,665,570,665,475,665,475,475,665,665
+# -> 34+34+29+34+24+34+24+24+34+34.
+EXPECTED_BOOKING_COUNT = 305
+# Per-provider sample counts from the brief (primary-type slots / BOOKING_SAMPLE_STEP).
+EXPECTED_PER_PROVIDER_BOOKING_COUNTS = [34, 34, 29, 34, 24, 34, 24, 24, 34, 34]
 # Every weekday in WEEKLY_HORIZON_LENGTH_DAYS occurs this many times --
 # exact, not a sample, since 35 (5 weeks) is a multiple of 7.
 EXPECTED_WEEKLY_OCCURRENCES_PER_PATIENT_PER_DOCTOR = WEEKLY_HORIZON_LENGTH_DAYS // 7
@@ -51,15 +55,7 @@ EXPECTED_WEEKLY_BOOKING_COUNT = (
 
 
 class SeedDemoCommandTests(TestCase):
-    """Seeding a full ~7,000-slot dataset (10 providers, ~130 pre-existing
-    bookings) is the slowest thing this command does, so it's run once in
-    `setUpTestData` -- Django's per-class fixture, wrapped in its own
-    transaction and rolled back to a savepoint between test methods -- and
-    every read-only assertion below shares that one run. Only
-    `test_is_idempotent` calls the command again, on top of that shared
-    data, since re-invoking it is the exact behavior under test there.
-    """
-
+    """Heavy seed runs once in `setUpTestData`; only `test_is_idempotent` re-runs."""
     @classmethod
     def setUpTestData(cls):
         call_command("seed_demo", stdout=StringIO())
@@ -79,6 +75,12 @@ class SeedDemoCommandTests(TestCase):
         self.assertIn("admin", output)
         self.assertIn("provider", output)
         self.assertIn("patient", output)
+
+    def test_horizon_and_sampling_constants_match_ticket_01_contract(self):
+        self.assertEqual(HORIZON_LENGTH_DAYS, 133)
+        self.assertEqual(WEEKLY_HORIZON_LENGTH_DAYS, 35)
+        self.assertEqual(BOOKING_SAMPLE_STEP, 20)
+        self.assertEqual(MAX_SLOT_QUERY_RANGE_DAYS, 60)
 
     def test_creates_one_admin_fifteen_providers_and_twenty_five_patients(self):
         self.assertEqual(User.objects.filter(role=User.Role.ADMIN).count(), 1)
@@ -114,6 +116,18 @@ class SeedDemoCommandTests(TestCase):
                 total += len(get_open_slots(provider, appointment_type, horizon_start, horizon_end))
 
         self.assertEqual(total, EXPECTED_GROSS_SLOT_TOTAL)
+
+    def test_each_original_provider_has_the_brief_per_provider_booking_sample_count(self):
+        original_provider_emails = [config["email"] for config in PROVIDER_CONFIGS]
+        for email, expected_count in zip(
+            original_provider_emails, EXPECTED_PER_PROVIDER_BOOKING_COUNTS, strict=True
+        ):
+            count = Booking.objects.filter(provider__email=email).count()
+            self.assertEqual(
+                count,
+                expected_count,
+                f"{email} expected {expected_count} sample bookings, got {count}",
+            )
 
     def test_seeds_a_modest_realistic_utilization_of_pre_existing_bookings(self):
         # Scoped to the original 10 providers -- the weekly-recurring

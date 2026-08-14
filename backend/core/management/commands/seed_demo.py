@@ -1,40 +1,15 @@
-"""Seed demo accounts + a realistic multi-provider calendar (TICKET-13).
+"""Seed demo accounts and a multi-provider calendar for k6 (TICKET-13).
 
-Originally (TICKET-01) a placeholder that only created one account per role.
-Now that `Availability`/`AppointmentType`/`Booking` all exist, this seeds a
-dataset shaped for the k6 load test in `k6/` (see `k6/README.md`):
+Creates ~10 k6 providers (America/Chicago, Mon-Fri availability, 2-4
+name-only 60-minute appointment types), demo patients/admin (`DEMO_PASSWORD`),
+and a deterministic sample of pre-existing bookings (~305 over 16,150 gross
+slots in a 133-day horizon). Also seeds a weekly-recurring cohort (5 doctors,
+20 patients, 100 standing weekly bookings).
 
-  - ~10 providers, each in America/Chicago, a Mon-Fri recurring
-    `Availability` (varying hours -- some with a lunch-break split), and
-    2-4 name-only `AppointmentType`s. Every appointment is a fixed
-    60-minute slot (the model's `appointment_type_duration_is_60`
-    constraint), so types differ only by name.
-  - A handful of patient accounts + one admin, all logging in with
-    `DEMO_PASSWORD`.
-  - A modest, deterministic sample of pre-existing `Booking` rows (a few
-    percent of the computed slot volume) so the load test isn't hitting an
-    all-empty calendar.
-
-On top of that (added after a grader specifically asked for a *regular*,
-easy-to-verify pattern rather than the k6 cohort's random sampling): 5 more
-doctors and 20 more patients, where every patient has a standing weekly
-appointment with every doctor -- 20 patients x 5 doctors = 100 recurring
-weekly bookings, i.e. 20 patients on each doctor's calendar every single
-week. See `_seed_weekly_recurring_bookings` for exactly how "weekly" is
-made concrete.
-
-Idempotent: every row this command creates is keyed by a natural,
-`get_or_create`-able identity (email; provider+day+start/end; provider+name;
-a deterministic per-slot `idempotency_key` for bookings -- see
-`_seed_bookings_for_provider` below) so re-running it never duplicates or
-errors. The one caveat (documented at `HORIZON_START_OFFSET_DAYS` below):
-the booking horizon is always "starting tomorrow," so a re-run on a later
-calendar day extends the horizon forward and can add a fresh batch of
-pre-seeded bookings for the newly-reachable dates -- re-running *within the
-same day* is fully idempotent, which is the scenario "safe to re-run"
-actually needs to cover here (verify a seed, then run k6, then re-verify).
+Idempotent via natural keys (`get_or_create`, per-slot `idempotency_key`).
+Re-running on a later calendar day extends the horizon forward and may add
+bookings for newly reachable dates; same-day re-runs are fully idempotent.
 """
-
 from collections import defaultdict
 from datetime import timedelta
 from zoneinfo import ZoneInfo
@@ -78,9 +53,9 @@ PATIENT_ACCOUNTS = [
 # bookings from (see that function's docstring for why only one type per
 # provider is used for booking seeding).
 #
-# With hourly slots, this list works out to exactly 6,800 computed slots
-# over the 56-day horizon below (`HORIZON_*`): 40 working days x the sum
-# over providers of (window hours x type count) = 40 x 170. See
+# With hourly slots, this list works out to exactly 16,150 computed slots
+# over the 133-day horizon below (`HORIZON_*`): 95 working days x the sum
+# over providers of (window hours x type count) = 95 x 170. See
 # `core/tests/test_seed_demo.py::EXPECTED_GROSS_SLOT_TOTAL`.
 PROVIDER_CONFIGS = [
     {
@@ -243,14 +218,15 @@ WEEKLY_HORIZON_LENGTH_DAYS = 35
 # Forward-looking booking horizon: starts tomorrow (never today -- keeps
 # every generated slot safely after `get_open_slots`'s "now" cutoff, so the
 # arithmetic below isn't at the mercy of what time of day this command
-# happens to run) and spans exactly 56 days = 8 full weeks. 56 is a
-# multiple of 7, so every weekday occurs exactly 8 times in the horizon
+# happens to run) and spans exactly 133 days = 19 full weeks. 133 is a
+# multiple of 7, so every weekday occurs exactly 19 times in the horizon
 # regardless of which day-of-week it starts on -- that's what makes the
 # ~16,000 figure below exact, reproducible arithmetic rather than an
-# estimate. Also comfortably inside `MAX_SLOT_QUERY_RANGE_DAYS` (60), so
-# the whole horizon is queryable in a single `GET /scheduling/slots` call.
+# estimate. This command calls `get_open_slots` directly over the full
+# horizon; patient-facing `GET /scheduling/slots` is still capped at
+# `MAX_SLOT_QUERY_RANGE_DAYS` (60) per request.
 HORIZON_START_OFFSET_DAYS = 1
-HORIZON_LENGTH_DAYS = 56
+HORIZON_LENGTH_DAYS = 133
 
 # Deterministic sampling density for pre-existing bookings: every Nth open
 # slot of a provider's *primary* appointment type gets booked. Picked so
@@ -481,21 +457,10 @@ class Command(BaseCommand):
         patients,
         patient_offset,
     ):
-        """Books every `BOOKING_SAMPLE_STEP`th open slot of `provider`'s
-        *primary* (first-configured) appointment type -- deliberately only
-        one type per provider, not one pass per type: all types now share
-        the same fixed 60-minute grid, so booking a second type
-        independently would just try the exact same start times again and
-        have every attempt rejected by `create_booking`'s conflict guard
-        -- fine in production, just wasted work in a seed script that can
-        trivially avoid it by sampling one type.
+        """Every `BOOKING_SAMPLE_STEP`th open slot of the primary appointment type.
 
-        Deterministic and idempotent: candidates are computed with
-        `busy_intervals=()` (the same fixed, structural list every run),
-        and each booking's `idempotency_key` is derived from
-        provider/appointment-type/slot-start -- `create_booking` returns
-        the existing row instead of erroring the moment that key already
-        exists, so re-running this on the same day recreates nothing.
+        One type per provider only: all types share the same 60-minute grid.
+        Idempotent via deterministic `idempotency_key` per slot start.
         """
         candidates = get_open_slots(
             provider,
@@ -543,40 +508,14 @@ class Command(BaseCommand):
         *,
         weekday_rotation=0,
     ):
-        """Gives each of `patients` a standing weekly appointment with
-        `provider` -- the same weekday and time slot, every week across the
-        horizon -- rather than `_seed_bookings_for_provider`'s random single
-        sample. This is what "1 appointment per week for each doctor" means
-        as a concrete schedule: patient 0 gets this provider's first slot on
-        its rotated weekday every week, patient 1 the second slot on the
-        next weekday, and so on.
+        """Standing weekly slot per patient per provider (not random sampling).
 
-        Slots are grouped into `(weekday, position-within-day)` buckets by
-        walking the chronologically-ordered candidate list and resetting a
-        counter every time the calendar date changes. Because `Availability`
-        recurs identically every week, the same bucket key names the same
-        weekly-recurring clock time across the whole horizon -- so booking
-        every slot in one patient's bucket is exactly "book this patient
-        into that recurring weekly slot for as many weeks as the horizon
-        covers."
-
-        `weekday_rotation` (the provider's index in the cohort) shifts which
-        weekday each patient lands on, and is what keeps a patient's five
-        standing appointments from all falling in the same hour. Without it
-        every provider hands patient `i` the same `(weekday, position)`
-        bucket, and since positions are per-provider ordinals rather than
-        clock times, whether that collides depends purely on whether two
-        providers' windows happen to start at the same hour -- with the
-        `WEEKLY_PROVIDER_CONFIGS` above, three start at 09:00 and two at
-        08:00, so patient 0 would get three simultaneous Monday 09:00
-        appointments and two simultaneous 08:00 ones. That now trips
-        `unique_active_booking_per_patient_slot` (one active booking per
-        patient per hour, architecture.md §3), so the rotation is also
-        what keeps the seed from colliding with its own uniqueness rule.
-        Rotating by provider gives each patient all five weekdays instead,
-        while preserving the per-provider layout -- patients `i` and `j`
-        share a bucket only when `i == j`, so each doctor still sees 4
-        distinct patients a day, 20 a week.
+        Candidates are bucketed by `(weekday, position-within-day)`; booking
+        every slot in a patient's bucket is one recurring weekly time for the
+        full horizon. `weekday_rotation` (this provider's index in the cohort)
+        shifts which weekday each patient gets so five doctors do not all hand
+        patient `i` the same hour (which would violate
+        `unique_active_booking_per_patient_slot`, architecture.md §3).
         """
         candidates = get_open_slots(
             provider, appointment_type, horizon_start, horizon_end, now=django_timezone.now()

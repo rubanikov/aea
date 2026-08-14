@@ -106,7 +106,7 @@ class ProviderScheduleView(APIView):
     2. Validate `effective_from` is null or strictly after the
        provider-local today -- 400 on `effective_from` otherwise.
     3. Build the proposed post-write timeline and run
-       `find_schedule_collisions` over the next 90 days
+       `find_schedule_collisions` over the next 133 days
        (`collisions.DEFAULT_HORIZON_DAYS`).
     4. Collisions -> 409 with the collision list and `earliest_safe_date`,
        nothing written. This covers both an immediate apply that would

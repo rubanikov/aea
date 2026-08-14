@@ -16,6 +16,9 @@ Thumbs.db
 # Claude Code local tooling state (not part of the project)
 .claude/
 
+# Local downloaded tools (e.g. portable k6)
+.tools/
+
 # Python (backend/) — see backend/.gitignore for the full set
 __pycache__/
 *.pyc

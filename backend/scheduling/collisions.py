@@ -26,15 +26,11 @@ from .schedule import effective_generation_key, window_field
 # `scheduling.slots.MAX_SLOT_QUERY_RANGE_DAYS` — that caps a single
 # patient-facing slot query; this caps how far ahead a provider edit is
 # checked, and the two don't need to be equal.
-DEFAULT_HORIZON_DAYS = 90
+DEFAULT_HORIZON_DAYS = 133
 
 
 def _as_collision(booking) -> dict:
-    """One entry of the shape the frontend's affected-appointments list
-    needs. Reads only fields off `booking.patient`/`booking.appointment_type`
-    that the two finder functions below always `select_related` -- never a
-    fresh query per booking.
-    """
+    """Shape for the frontend affected-appointments list (no extra queries)."""
     return {
         "id": booking.id,
         "start_time": booking.start_time,

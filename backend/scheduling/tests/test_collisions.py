@@ -10,7 +10,11 @@ from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
 
 from bookings.models import Booking
-from scheduling.collisions import find_blocked_time_collisions, find_schedule_collisions
+from scheduling.collisions import (
+    DEFAULT_HORIZON_DAYS,
+    find_blocked_time_collisions,
+    find_schedule_collisions,
+)
 from scheduling.models import AppointmentType, Availability
 
 from .helpers import SchedulingAPITestCase
@@ -22,6 +26,11 @@ def _utc(*args):
 
 def _t(value: str) -> time:
     return datetime.strptime(value, "%H:%M").time()
+
+
+class HorizonConstantTests(SchedulingAPITestCase):
+    def test_default_horizon_days_is_133(self):
+        self.assertEqual(DEFAULT_HORIZON_DAYS, 133)
 
 
 def _window(day_of_week, start_time, end_time):
@@ -137,6 +146,36 @@ class FindScheduleCollisionsTests(SchedulingAPITestCase):
         )
 
         self.assertEqual([entry["id"] for entry in collisions], [self.booking.id])
+
+    def test_default_horizon_includes_booking_at_plus_120_days(self):
+        now = _utc(2026, 8, 1)
+        far_future_start = now + timedelta(days=120)
+        far_booking = self.create_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=far_future_start,
+        )
+        # Empty proposed set: every active booking within the default
+        # 133-day horizon is a collision.
+        collisions = find_schedule_collisions(
+            self.provider, _single_generation([]), now=now
+        )
+
+        self.assertIn(far_booking.id, [entry["id"] for entry in collisions])
+
+    def test_default_horizon_excludes_booking_at_plus_134_days(self):
+        now = _utc(2026, 8, 1)
+        beyond_horizon_start = now + timedelta(days=134)
+        beyond_booking = self.create_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=beyond_horizon_start,
+        )
+        collisions = find_schedule_collisions(
+            self.provider, _single_generation([]), now=now
+        )
+
+        self.assertNotIn(beyond_booking.id, [entry["id"] for entry in collisions])
 
     def test_multiple_windows_on_the_same_day_can_jointly_cover_a_booking(self):
         # A single day split into a morning and afternoon window (e.g. a
@@ -372,3 +411,40 @@ class FindBlockedTimeCollisionsTests(SchedulingAPITestCase):
 
         self.assertEqual(collisions, [])
         self.assertIsNotNone(far_future_booking.id)  # sanity: row exists, just excluded
+
+    def test_default_horizon_includes_booking_at_plus_120_days_when_blocked(self):
+        now = _utc(2026, 8, 1)
+        far_future_start = now + timedelta(days=120)
+        far_booking = self.create_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=far_future_start,
+        )
+
+        collisions = find_blocked_time_collisions(
+            self.provider,
+            far_future_start,
+            far_future_start + timedelta(hours=2),
+            now=now,
+        )
+
+        self.assertEqual([entry["id"] for entry in collisions], [far_booking.id])
+
+    def test_default_horizon_excludes_booking_at_plus_134_days_when_blocked(self):
+        now = _utc(2026, 8, 1)
+        beyond_horizon_start = now + timedelta(days=134)
+        beyond_booking = self.create_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=beyond_horizon_start,
+        )
+
+        collisions = find_blocked_time_collisions(
+            self.provider,
+            beyond_horizon_start,
+            beyond_horizon_start + timedelta(hours=2),
+            now=now,
+        )
+
+        self.assertEqual(collisions, [])
+        self.assertIsNotNone(beyond_booking.id)  # sanity: row exists, just excluded

@@ -131,9 +131,15 @@ This is a healthcare scheduling app handling PHI (patient identity, appointment 
 - Every booking/status change and every admin action is written to an append-only audit log (`actor`, `action`, `target`, `timestamp`) — verified by dedicated tests that no update/delete path exists for it.
 - No PHI (names, emails, phone numbers, appointment content) appears in server logs or the reminder email body — only IDs. The one deliberate exception: a doctor-cancelled appointment's cancellation email/SMS carries the provider's written reason and the appointment time — a scoped, approved tradeoff, not an oversight; see `architecture.md` §7a.
 - Account deletion scrubs PHI fields in place (never hard-deletes, so audit history stays intact) and cancels upcoming appointments as part of the same request.
-- TLS/HTTPS in transit: enforced app-side (`SECURE_SSL_REDIRECT`, `*_COOKIE_SECURE` outside `DEBUG`) whenever it's deployed behind a proxy that terminates TLS, which is how Railway/Vercel both work by default. Encryption at rest for the database is delegated to the Postgres host (Supabase and Railway's managed Postgres both encrypt at rest by default) — not something the application layer configures itself, since no live database was provisioned as part of this build (see Deployment below).
+- TLS/HTTPS in transit: enforced app-side (`SECURE_SSL_REDIRECT`, `*_COOKIE_SECURE` outside `DEBUG`) and live on the deployed instance — Railway terminates TLS at its edge proxy for both services. Encryption at rest for the database is delegated to the Postgres host (Railway's managed Postgres encrypts at rest by default) — not something the application layer configures itself.
 - No BAA is in place with any third-party vendor (Resend, Railway, etc.) in this deployment — a real production rollout handling real PHI would need one from each vendor that touches it; see `tech-stack-research.md` for which vendors offer one and at what tier.
 
 ## Deployment
 
-Deploy-ready configuration is committed (`backend/railway.json`, standard Next.js zero-config detection for Vercel), but no live infrastructure was provisioned as part of this build — provisioning real cloud accounts was treated as a separate, explicit decision outside the scope of writing the application itself.
+The app is deployed on Railway (project `aea-scheduling-portal`), three services in one project: `backend` (Django, Railpack build, migrations run automatically on deploy via `railway.json`'s start command), `frontend` (Next.js, zero-config Railpack detection), and a managed `Postgres` instance wired to the backend via `${{Postgres.DATABASE_URL}}`.
+
+- **Frontend:** https://frontend-production-9ca8.up.railway.app
+- **Backend API:** https://backend-production-e1121.up.railway.app
+- **Health check:** https://backend-production-e1121.up.railway.app/health
+
+The deployed database is seeded with the same `seed_demo` dataset described above (15 providers, 25 patients) — use the demo credentials in `DEMO_CREDENTIALS.md` to log in. `RESEND_API_KEY` is intentionally left unset on the deployed backend, so reminder dispatch logs and skips sends rather than emailing real addresses from a demo deployment — see `reminders/README.md` for that fallback behavior.

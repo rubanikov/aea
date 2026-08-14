@@ -9,8 +9,9 @@ Two scripts, one per benchmark in `project.md`'s Performance Benchmarks table:
 
 Both run at the brief's stated load -- **20-50 concurrent virtual users for
 60s** -- against the dataset `core/management/commands/seed_demo.py` seeds
-(~10 providers, ~16,000 computed slots; see that file's docstring for the
-exact arithmetic). Each declares an explicit k6 `thresholds` entry
+(10 k6 providers, **16,150** gross computed slots over a **133-day** horizon;
+see that file's docstring for the exact arithmetic). Each declares an explicit
+k6 `thresholds` entry
 (`p(95)<1000` on the tagged request), so a run visibly passes or fails --
 you don't have to eyeball a number.
 
@@ -97,43 +98,41 @@ part of what "genuine booking-action latency" should include here.
 
 ## Login: once per run, not once per VU
 
-Both scripts log in **once**, in k6's `setup()` (which runs before any VU
-starts), and pass the resulting session cookie to every VU via `setup()`'s
-returned `data`. This was a deliberate fix, not the initial design: logging
-in once *per VU* is the more obviously "realistic" choice and is what this
-script started with, but `POST /auth/login` is throttled to 5/min per
-source IP (`accounts/views.py`'s `LoginRateThrottle`), and every VU in a k6
-run shares one source IP. Confirmed empirically while building this script
--- at `VUS=30` with a once-per-VU login, ~25 of the 30 VUs got a `429` at
-test start and never reached the endpoint under test at all. A shared
-15-minute access token comfortably outlives a 60s run, so one login has no
-accuracy cost.
+Both scripts log in once in k6's `setup()` and pass the session cookie to every
+VU via `setup()`'s returned `data`. Per-VU login hits the 5/min IP throttle on
+`POST /auth/login` (at `VUS=30`, most VUs got `429` before reaching the endpoint
+under test). A 15-minute access token outlives a 60s run.
+
+`k6/helpers.js` randomizes 14-day query windows (`QUERY_WINDOW_DAYS=13`) across
+the seeded **133-day** horizon (`HORIZON_START_OFFSET_DAYS=1`,
+`HORIZON_END_OFFSET_DAYS=131`), staying under `GET /scheduling/slots`'s
+60-day range cap.
 
 ## Results from a local run (informational, not the deployed benchmark)
 
-Run 2026-08-11 against a local Postgres 16 instance and Django's
-**development** server (`manage.py runserver`, not a production WSGI
-server) on this machine, `VUS=30`, `DURATION=60s`, immediately after
-`python manage.py seed_demo`:
+Run **2026-08-13** against a local Postgres 16 instance and a **Waitress**
+WSGI server (16 threads) on this machine, `VUS=30`, `DURATION=60s`,
+immediately after `python manage.py seed_demo` on the **133-day seed**
+(16,150 gross computed slots). Django's `manage.py runserver` dropped
+connections under this load on Windows (same class of failure as the
+2026-08-11 note below), so the re-run used Waitress rather than the
+dev server. Thresholds remain `p(95)<1000` and were not weakened.
 
 | Script | p95 | Threshold | Result |
 |---|---|---|---|
-| `slot-availability.js` | **257ms** | < 1000ms | PASS |
-| `booking-action.js` | **542ms** | < 1000ms | PASS |
+| `slot-availability.js` | **252ms** | < 1000ms | PASS |
+| `booking-action.js` | **652ms** | < 1000ms | PASS |
 
-Both runs' `checks` rate was >99%. A small fraction of requests (<1%,
-both runs) failed at the connection level rather than returning an
-unexpected HTTP status -- consistent with `manage.py runserver`'s known
-limits under concurrent load on Windows, not the endpoint logic (every
-logged HTTP response for `/scheduling/slots` and `/bookings` during both
-runs was 200/201/409/400, all expected outcomes; a real deployment sits
-behind a production WSGI server, per architecture.md's Railway hosting
-choice). `booking-action.js` also logged one `400` (`SlotNotOpen`) among
-~1,735 bookings -- two iterations picked different appointment types for
-the same provider whose slots happened to overlap, and the second lost that
-overlap to the first between its own `GET` and `POST` calls; a real, if
-rare, guard path (architecture.md §3), not a script bug.
+Both runs' `checks` rate was 100%. `booking-action.js` accepted 201 or 409
+as success; `booking_succeeded_rate` was 93% (665/714 bookings that found
+an open slot). A production deployment sits behind gunicorn on Railway,
+per architecture.md.
 
-**This machine is not the deployed environment** -- these numbers are an
-end-to-end proof the harness works and produces a real data point, not the
-project's actual benchmark result.
+**This machine is not the deployed environment** -- these numbers prove
+the harness still passes under the expanded seed, not the project's
+Railway benchmark.
+
+Earlier run **2026-08-11** (56-day seed, 6,800 slots, `manage.py runserver`):
+slot-availability **257ms**, booking-action **542ms**, both PASS, checks
+>99%, with a small fraction of connection-level failures on the Windows
+dev server.

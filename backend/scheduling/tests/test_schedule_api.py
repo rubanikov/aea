@@ -8,7 +8,7 @@ write, audit entries, and that a 409 never writes anything.
 
 Date fixtures are derived from the real clock (the view resolves "today"
 from `django_timezone.now()`), pushed far enough into the future that the
-90-day collision horizon always covers them.
+133-day collision horizon always covers them.
 """
 
 from datetime import datetime, timedelta
@@ -571,7 +571,7 @@ class SchedulePutCollisionTests(ScheduleTestCase):
             provider=self.provider, day_of_week=MONDAY, start_time="09:00", end_time="17:00"
         )
         # Monday 09:00-10:00 UTC, at least a week out -- inside the live
-        # window and well within the 90-day collision horizon.
+        # window and well within the 133-day collision horizon.
         self.booking_date = next_monday()
         self.booking = self.create_booking(
             provider=self.provider,
@@ -595,6 +595,14 @@ class SchedulePutCollisionTests(ScheduleTestCase):
         self.assertEqual(len(body["collisions"]), 1)
         entry = body["collisions"][0]
         self.assertEqual(entry["id"], self.booking.id)
+        self.assertEqual(
+            entry["start_time"],
+            self.booking.start_time.isoformat().replace("+00:00", "Z"),
+        )
+        self.assertEqual(
+            entry["end_time"],
+            self.booking.end_time.isoformat().replace("+00:00", "Z"),
+        )
         self.assertEqual(entry["patient_name"], self.patient.name)
         self.assertEqual(entry["appointment_type_name"], "Follow-up")
         self.assertEqual(entry["status"], "confirmed")
@@ -701,6 +709,36 @@ class SchedulePutCollisionTests(ScheduleTestCase):
         )
 
         self.assertEqual(response.status_code, 200, response.content)
+
+    def test_put_that_would_strand_a_booking_beyond_day_133_is_accepted(self):
+        # Bookings on day 134+ sit outside the default collision horizon, so
+        # schedule changes that would orphan them are allowed.
+        beyond_date = django_timezone.now().date() + timedelta(days=134)
+        day_of_week = beyond_date.weekday()
+        beyond_booking = self.create_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=datetime.combine(
+                beyond_date, datetime.min.time(), tzinfo=dt_timezone.utc
+            )
+            + timedelta(hours=9),
+            patient=self.patient,
+        )
+
+        response = self.put_json(
+            SCHEDULE_PATH,
+            {
+                "windows": [
+                    _window(MONDAY, "09:00", "17:00"),
+                    _window(day_of_week, "10:00", "17:00"),
+                ],
+                "effective_from": None,
+            },
+        )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        beyond_booking.refresh_from_db()
+        self.assertEqual(beyond_booking.status, "confirmed")
 
 
 class PendingScheduleDeleteTests(ScheduleTestCase):

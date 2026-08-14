@@ -1,31 +1,11 @@
-// Shared setup for both k6 scripts in this directory -- see k6/README.md.
+// Shared setup for both k6 scripts in this directory (see k6/README.md).
 //
-// Auth note: this API delivers JWTs as httpOnly cookies, never a token a
-// script could read out of a JSON body (accounts/tokens.py). k6 exposes the
-// Set-Cookie values a response received via `res.cookies` regardless of
-// `httpOnly` (that flag is a browser-JS restriction, not an HTTP-client
-// one), so `login()` below reads the access-token cookie value straight out
-// of the login response and hands back a literal `Cookie` header string for
-// every request after that -- explicit and easy to reason about, rather
-// than depending on k6's automatic per-VU cookie jar (whose reset-between-
-// iterations behavior is a global `options.noCookiesReset` setting neither
-// script needs to also get right).
+// Auth: JWTs arrive as httpOnly cookies; k6 still exposes them via
+// `res.cookies`, so `login()` builds an explicit `Cookie` header. State-changing
+// requests also need `X-Requested-With: XMLHttpRequest` (accounts/csrf.py).
 //
-// Every unsafe-method request (`POST /auth/login`, `POST /bookings`) also
-// needs `X-Requested-With: XMLHttpRequest` -- accounts/csrf.py enforces it
-// on every state-changing request, login included (see
-// `CookieJWTAuthentication.authenticate`).
-//
-// Login happens exactly ONCE per run, in `setup()`, and every VU reuses
-// that one session cookie (passed through `setup()`'s returned `data`) --
-// not "once per VU." This isn't just a style choice: `POST /auth/login` is
-// throttled to 5/min per source IP (`accounts/views.py`'s
-// `LoginRateThrottle`), and every VU in a k6 run shares one source IP.
-// Confirmed empirically while building this script -- VUS=30 with a
-// once-per-VU login design throttles ~25 of the 30 VUs to a 429 at test
-// start, well before any of them ever reach the endpoint under test. A
-// 15-minute access token comfortably outlives a 60s run, so one shared
-// login has no accuracy cost here.
+// Login runs once in `setup()`, not per VU: `POST /auth/login` is throttled
+// to 5/min per IP and all VUs share one IP. A 15-minute token outlives a 60s run.
 
 import http from 'k6/http';
 
@@ -40,11 +20,12 @@ export const PATIENT_PASSWORD = __ENV.PATIENT_PASSWORD || 'demo-password-not-for
 export const AJAX_HEADERS = { 'X-Requested-With': 'XMLHttpRequest' };
 export const JSON_HEADERS = Object.assign({ 'Content-Type': 'application/json' }, AJAX_HEADERS);
 
-// Query/booking windows stay inside seed_demo's 56-day (8-week) horizon and
-// well under GET /scheduling/slots's own 60-day range cap
-// (scheduling/slots.py's MAX_SLOT_QUERY_RANGE_DAYS) -- see README.md.
+// Query/booking windows stay inside seed_demo's 133-day horizon (offset 1
+// through day 133 inclusive) and well under GET /scheduling/slots's own
+// 60-day range cap (scheduling/slots.py's MAX_SLOT_QUERY_RANGE_DAYS) --
+// see README.md. QUERY_WINDOW_DAYS=13 keeps each query to 14 calendar days.
 export const HORIZON_START_OFFSET_DAYS = 1;
-export const HORIZON_END_OFFSET_DAYS = 54;
+export const HORIZON_END_OFFSET_DAYS = 131;
 export const QUERY_WINDOW_DAYS = 13; // 14 calendar days inclusive per query
 
 /** Logs in as the seeded demo patient and returns a `Cookie` header value
