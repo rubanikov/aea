@@ -9,10 +9,16 @@ its dedup table.
 - `models.ReminderLog`: append-only "a reminder was successfully sent"
   record, `UniqueConstraint(booking, interval)` is the actual dedup
   guarantee.
-- `emails.send_reminder_email(booking)`: the one seam that talks to
-  Resend. PHI-free body (`emails.build_reminder_email_body`): generic
-  notice + a link into the frontend portal, no patient name / appointment
-  type / any health-context detail.
+- `emails.send_reminder_email(booking)`: the seam the dispatcher calls
+  (and the one tests patch). PHI-free body
+  (`emails.build_reminder_email_body`): generic notice + a link to
+  `/patient/appointments` in the frontend, no patient name / appointment
+  type / any health-context detail. The actual Resend HTTP call lives in
+  `bookings.notifications.send_email` — one transport shared with the
+  doctor-cancellation notifications (email + carrier SMS gateway,
+  `bookings/notifications.py`), so there is exactly one place that POSTs
+  to Resend. Cancellation notices are *not* PHI-free by design; that
+  exception is documented in `architecture.md` §7a, not here.
 - `services.dispatch_due_reminders()`: selects confirmed bookings due in
   the window, skips already-logged ones, sends, logs. The single write
   path to `ReminderLog`.

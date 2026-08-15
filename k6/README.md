@@ -19,8 +19,9 @@ you don't have to eyeball a number.
 
 - k6 installed (https://k6.io/docs/get-started/installation/) -- not a repo
   dependency, a separate tool you run against the running backend.
-- Postgres running and reachable at `DATABASE_URL` (see `backend/.env.example`
-  / the repo root `.env.example`). `select_for_update` -- the double-booking
+- Postgres running and reachable at `DATABASE_URL` (see the repo root
+  `.env.example`; the backend reads `.env` from the repo root or from
+  `backend/`). `select_for_update` -- the double-booking
   guard both scripts exercise via `booking-action.js` -- is a documented
   silent no-op on SQLite (architecture.md §3), so this must be real Postgres.
 - The Django backend migrated, seeded, and running.
@@ -30,7 +31,7 @@ you don't have to eyeball a number.
 ```bash
 cd backend
 python -m venv .venv && source .venv/Scripts/activate  # or .venv/bin/activate on macOS/Linux
-pip install -r requirements-dev.txt
+pip install -r requirements.lock      # exact pins; requirements-dev.txt is the ranged source
 python manage.py migrate
 python manage.py seed_demo
 python manage.py runserver 0.0.0.0:8000

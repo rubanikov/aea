@@ -70,6 +70,7 @@ def delete_account(user):
 
     user.name = ""
     user.phone = ""
+    user.sms_carrier = ""
     user.email = f"deleted-user-{user.id}@deleted.invalid"
     user.is_active = False
     user.deleted_at = django_timezone.now()

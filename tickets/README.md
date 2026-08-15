@@ -32,6 +32,22 @@ Every ticket is Both-scope (backend+frontend build in parallel within it) except
 8. **TICKET-11** — widened to explicitly include the collision-warning modal UI (radio-button resolution choice, affected-appointments list), not just a backend 409 response.
 9. **TICKET-14** — explicitly includes the deletion-request UI (danger-zone card, typed-confirmation modal, pending-deletion banner).
 
+## Built after the slate (not covered by TICKET-01…14)
+
+All 14 tickets shipped. The following landed afterwards as follow-up features
+and hardening passes; their planning artifacts live under `.scratch/<feature>/`
+rather than here, and their as-built behaviour is documented in
+`architecture.md` §10 and [`docs/features.md`](../docs/features.md).
+
+| Feature / pass | What it added | Where |
+|---|---|---|
+| Doctor cancellation reason + patient notification | Provider cancel requires a written reason (≤500 chars); patient gets an email and, if they've saved a phone + carrier, an SMS via the carrier's email-to-SMS gateway. Per-recipient hourly budget + endpoint throttle. | `bookings/notifications.py`, `Booking.cancellation_reason`, `CancellationNotificationLog`, `User.sms_carrier` |
+| Theme toggle + UI redesign | Light/dark theme (persisted in `localStorage`, contrast-tested), shadcn-style primitives, week-grid provider and patient calendars, four-step booking wizard, error boundaries. | `frontend/components/theme`, `components/calendar`, `components/booking`, `app/error.tsx` |
+| Settings nav + multi-block hours | Portal nav stays visible on `/settings`; working hours are multiple blocks per weekday (≥1 h gap between blocks) with an optional future `effective_from` — a *pending* schedule that applies from that date; discard endpoint; pending banner. | `scheduling/schedule.py`, `GET/PUT /scheduling/schedule`, `DELETE /scheduling/schedule/pending`, `components/availability/WorkingHoursSection.tsx` |
+| Overlap exclusion constraints + one-per-hour rule | Postgres GiST exclusion constraints on active bookings (per provider and per patient) so mixed 30/60-min bookings can't overlap; deadlock-abort mapped to 409. | `bookings/migrations/0005_no_overlapping_active_bookings.py`, `bookings/services.py` |
+| 133-day seed horizon | `seed_demo` and the collision scan cover 133 days (~16,150 slots) to match the k6 benchmark. | `core/management/commands/seed_demo.py`, `scheduling/collisions.py` |
+| Hardening pass | Login lockout (10 failures / 15 min), refresh-token rotation with reuse detection, JSON-only error handler (never an HTML 500), 64 KB request-body cap (413), `Cache-Control: no-store` on every response, JSON logging outside debug, audit append-only DB trigger, `Idempotency-Key` on `POST /bookings`, transactional account deletion, `requirements.lock`, Railway cron config-as-code. | `accounts/lockout.py`, `accounts/tokens.py`, `core/exceptions.py`, `core/middleware.py`, `core/logging.py`, `audit/migrations/0002_*` |
+
 ## Stretch — not sliced in this slate
 
 Waitlist + auto-fill (#8), telehealth video link (#9), recurring appointments (#10), insurance/intake PHI capture (#11), natural-language booking (#12) are explicitly out of scope. Waitlist in particular needs its own concurrency design if pulled in later — nothing in TICKET-07's guard covers "who gets the slot when it frees."

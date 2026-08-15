@@ -28,6 +28,26 @@ backend vars, for the backend) if you need to point at a non-default API URL.
 | `npm test` | Run the Vitest suite once (CI-friendly) |
 | `npm run test:watch` | Vitest in watch mode, for local dev |
 
+## Routes
+
+| Route | Role | What renders |
+| --- | --- | --- |
+| `/` | public | Landing page with a "Log in" link |
+| `/login` | public | Tabbed login / register (`components/auth`) |
+| `/access-denied` | public | Shown when a logged-in user visits another role's route |
+| `/patient` | patient | Own week-grid calendar (`components/bookings/PatientCalendar`) |
+| `/patient/book` | patient | Four-step booking wizard (`components/booking/BookingWizard`) |
+| `/patient/appointments` | patient | Upcoming / past list with cancel & reschedule (`components/bookings/PatientAppointments`) |
+| `/provider/calendar` | provider | Agenda / week grid with status actions (`components/bookings/ProviderCalendar`) — the provider "Dashboard" |
+| `/provider` | provider | Availability settings: appointment types, weekly hours (multi-block, pending schedule), blocked time (`components/availability`) |
+| `/admin` | admin | Audit-log viewer (`components/audit`) |
+| `/settings` | any authenticated | Profile, password, delete account (`components/settings`), inside the role's nav shell (`components/nav/SettingsShell`) |
+
+Per-role nav links live in `lib/nav-config.ts`; the shell is
+`components/nav/AppShell.tsx`. Theme (light/dark) is `components/theme` +
+`lib/theme`, persisted in `localStorage` — the only thing this app ever
+puts there.
+
 ## Auth, roles & account settings
 
 `lib/api/client.ts` is the one place that talks to the backend
@@ -79,12 +99,17 @@ gated route redirects to `/login`.
 Deployed on Railway as the `frontend` service of the `aea-scheduling-portal`
 project (zero-config Railpack detection with `frontend/` as the upload
 root), alongside the Django `backend` service and managed Postgres. The
-frontend rewrites `/auth/*`, `/bookings/*` etc. to the backend over
-Railway's private network (`next.config.ts`, `lib/api/proxy-rewrites.ts`)
-so the auth cookies stay first-party -- `up.railway.app` is a public
-suffix, so the two services would otherwise be different sites and
-`SameSite=Strict` cookies would never reach the browser. Set
-`NEXT_PUBLIC_API_URL` to the *frontend's* own origin and
-`RAILWAY_SERVICE_BACKEND_URL`/`BACKEND_URL` to the Django origin. Vercel
-would also work (stock App Router project) but needs the same rewrite
-target configured.
+frontend rewrites `/auth/*`, `/bookings/*` etc. to the backend
+(`next.config.ts`, `lib/api/proxy-rewrites.ts`) so the auth cookies stay
+first-party -- `up.railway.app` is a public suffix, so the two services
+would otherwise be different sites and `SameSite=Strict` cookies would
+never reach the browser. Set `NEXT_PUBLIC_API_URL` to the *frontend's* own
+origin and `BACKEND_URL` to the Django origin (`BACKEND_URL` wins; with it
+unset, `RAILWAY_SERVICE_BACKEND_URL` -- Railway's auto-injected public
+hostname of the `backend` service -- is used as `https://<host>`; with
+neither set, no rewrites are installed, which is the local-dev case). The
+deployed frontend points `BACKEND_URL` at the backend's public
+`https://…up.railway.app` origin, i.e. the hop goes through Railway's edge,
+not the private network. Vercel would also work (stock App Router project)
+but needs the same rewrite target configured. Full walkthrough:
+[`docs/deployment.md`](../docs/deployment.md).

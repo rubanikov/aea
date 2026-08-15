@@ -16,11 +16,13 @@ idempotent, but **does not reset passwords** on accounts that already exist.
 
 | | Frontend | API |
 |---|---|---|
-| Local | http://localhost:3003 | http://localhost:8000 |
+| Local | http://localhost:3000 | http://localhost:8000 |
 | Railway | https://frontend-production-9ca8.up.railway.app | https://backend-production-e1121.up.railway.app |
 
-Local frontend is on **3003** because another Docker container already binds
-3000. CORS already allows 3000, 3001, and 3003.
+`next dev` picks the next free port if 3000 is taken (3001, 3002, …). If
+that happens, add that origin to `CORS_ALLOWED_ORIGINS` in the root `.env`
+(the shipped `.env.example` default allows only `http://localhost:3000`) and
+restart the backend, or log-in requests will fail CORS.
 
 ## Password (every account)
 

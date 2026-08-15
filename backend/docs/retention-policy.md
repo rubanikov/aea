@@ -1,16 +1,19 @@
 # Patient Data Retention & Deletion Policy
 
-Starting a `backend/docs/` convention here: no prior doc lived under `backend/`
-before this ticket. This feeds the project README's PHI/retention section
-(see `project.md`'s "Data minimization & retention/deletion" requirement).
+This feeds the project README's PHI/retention section (see `project.md`'s
+"Data minimization & retention/deletion" requirement). Every claim below
+names the code that implements it.
 
 ## What PHI is collected
 
-- **Identity** (`accounts.User`): name, email, phone.
+- **Identity** (`accounts.User`): name, email, phone, and the patient's
+  chosen SMS carrier (`sms_carrier`, only meaningful together with `phone`).
 - **Appointments** (`bookings.Booking`): booking time, provider,
-  appointment type, and status history.
+  appointment type, status history, and — for provider-cancelled bookings —
+  the provider's free-text `cancellation_reason` (see `architecture.md` §7a
+  for why that text is treated as PHI and where it is sent).
 - **Intake/insurance fields**, if the stretch feature (project.md #11) is
-  built: treated as PHI the same as the above.
+  built: treated as PHI the same as the above. Not built today.
 
 Timezone is stored alongside identity but is not itself PHI.
 
@@ -38,16 +41,18 @@ not trusted as the record of consent.
 
 Deletion **scrubs the account row in place; it never hard-deletes it**:
 
-- `name` and `phone` are cleared.
+- `name`, `phone` and `sms_carrier` are cleared.
 - `email` is replaced with a non-reversible, unique placeholder
   (`deleted-user-<id>@deleted.invalid`).
-- The password is set unusable (`set_unusable_password`) and `is_active`
-  is set to `False`. Both are checked independently on every
-  authenticated request (see `accounts/authentication.py`), so a scrubbed
-  account can never log in or use a token issued before the scrub, even if
-  one somehow survived.
+- The password is set unusable (`set_unusable_password`), which blocks any
+  future login, and `is_active` is set to `False`, which SimpleJWT's
+  `get_user()` (inherited by `accounts.authentication.CookieJWTAuthentication`)
+  re-checks on every authenticated request — so a token issued before the
+  scrub is rejected the moment it is next presented, without waiting for it
+  to expire.
 - `deleted_at` is stamped, making "this account was scrubbed" itself a
-  queryable, auditable fact.
+  queryable, auditable fact. It is a tombstone, not an enforcement gate —
+  `is_active` is what actually locks the account out.
 
 The row is preserved specifically so `AuditLog.actor` (a foreign key)
 never has to fall back to `SET_NULL`: every past audit entry keeps
@@ -57,7 +62,9 @@ retroactively scrubbing every audit entry that referenced it; scrubbing
 the row once, up front, avoids both.
 
 Any upcoming appointments are cancelled as part of the same request:
-`accounts.serializers._cancel_upcoming_appointments` finds every active
+`accounts.services._cancel_upcoming_appointments` (called from
+`accounts.services.delete_account`, which runs the whole request in one
+transaction) finds every active
 (`requested`/`confirmed`) booking still in the future for that patient and
 moves each to `cancelled` through `bookings.transitions.transition()`, the
 same single write path every other status change in the app goes through,

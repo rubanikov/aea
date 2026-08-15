@@ -71,6 +71,7 @@ Each provider already has working hours, a few appointment types (30 or 60 min, 
 cd backend
 python manage.py test                 # full suite — needs DJANGO_SECRET_KEY set if DJANGO_DEBUG=False
 coverage run manage.py test && coverage report   # same suite, with the coverage gate CI enforces
+ruff check .                          # lint, also part of CI
 ```
 ```bash
 cd frontend
@@ -115,15 +116,31 @@ All documented with placeholders/comments in [`.env.example`](.env.example). The
 | `DJANGO_DEBUG` | `True` for local dev (default in `.env.example`). |
 | `CORS_ALLOWED_ORIGINS` | Must match the frontend's real origin. |
 | `RESEND_API_KEY` | Optional. Unset by design for local/grading use — the reminder dispatcher logs and skips sending rather than erroring (see [`backend/reminders/README.md`](backend/reminders/README.md)). |
-| `FRONTEND_BASE_URL` | Used only inside the reminder email's "view details" link. |
+| `FRONTEND_BASE_URL` | Portal link embedded in outbound messages: the reminder email's "view details" link and the doctor-cancellation email/SMS. |
+| `LOG_FORMAT` | Optional. `json` (default outside `DJANGO_DEBUG=True`) or `text` (default in debug). |
 | `NEXT_PUBLIC_API_URL` | Browser-facing API origin. Locally Django on `:8000`. On Railway, the *frontend* origin — Next rewrites API paths to Django so auth cookies stay first-party. |
+| `BACKEND_URL` / `RAILWAY_SERVICE_BACKEND_URL` | Frontend-server-only rewrite target for those proxied API paths. Unset locally (no rewrites; browser calls Django directly). |
+
+The full list, with per-variable comments, is in [`docs/installation.md`](docs/installation.md#environment-variables).
 
 ## Documentation map
 
+Guides (`docs/`):
+
+- [`docs/installation.md`](docs/installation.md) — full local setup: prerequisites and versions, Postgres options, every environment variable, backend/frontend steps for Git Bash and PowerShell, tests, k6, and a troubleshooting table.
+- [`docs/features.md`](docs/features.md) — what each role can do and the rules the app enforces (a click-through guide for the demo).
+- [`docs/api.md`](docs/api.md) — HTTP API reference: auth/cookies/CSRF, every endpoint with bodies, params, status codes and audit side effects, management commands.
+- [`docs/deployment.md`](docs/deployment.md) — how the Railway deployment is wired (four services, env vars per service, first-time provisioning, redeploy, seeding, operations) and how to deploy elsewhere.
+- [`docs/development.md`](docs/development.md) — repo layout, the conventions the code depends on, test/lint/coverage loop, migrations, dependency locking, CI.
+
+Design and background:
+
 - [`project.md`](project.md) — the original assessment brief.
-- [`architecture.md`](architecture.md) — the technical design every ticket was built against (data model, double-booking guard, RBAC/PHI approach, timezone handling, reminders).
+- [`architecture.md`](architecture.md) — the technical design every ticket was built against (data model, double-booking guard, RBAC/PHI approach, timezone handling, reminders), with "as built" notes and a §10 list of everything added since.
 - [`tech-stack-research.md`](tech-stack-research.md) / [`prior-art-research.md`](prior-art-research.md) — why this stack, and what real systems (Cal.com, Medplum, OpenEMR, Easy!Appointments) got right/wrong that this build learned from.
-- [`tickets/`](tickets/) — the 14 vertical build tickets, each with its own scope and accept criteria; `tickets/README.md` has the full build-wave plan.
+- [`tickets/`](tickets/) — the 14 vertical build tickets, each with its own scope and accept criteria; `tickets/README.md` has the full build-wave plan and a table of what was built after the slate.
+- [`DEMO_CREDENTIALS.md`](DEMO_CREDENTIALS.md) — every seeded account.
+- [`frontend/README.md`](frontend/README.md) — frontend scripts, route map, auth/route-guard details.
 - [`backend/docs/retention-policy.md`](backend/docs/retention-policy.md) — what PHI is collected, how long it's kept, what account deletion actually does.
 - [`AI_USAGE.md`](AI_USAGE.md) — AI tool usage disclosure.
 - [`k6/README.md`](k6/README.md) — performance-benchmark methodology and results.
@@ -144,7 +161,7 @@ This is a healthcare scheduling app handling PHI (patient identity, appointment 
 
 ## Deployment
 
-The app is deployed on Railway (project `aea-scheduling-portal`): `backend` (Django, Railpack build, migrations run automatically on deploy via `railway.json`'s start command), `frontend` (Next.js, zero-config Railpack detection), a managed `Postgres` instance wired to the backend via `${{Postgres.DATABASE_URL}}`, and the reminder cron as a fourth service defined in [`backend/railway.cron.json`](backend/railway.cron.json) (`*/15 * * * *` → `python manage.py dispatch_reminders`; provisioning commands in [`backend/reminders/README.md`](backend/reminders/README.md)).
+The app is deployed on Railway (project `aea-scheduling-portal`): `backend` (Django, Nixpacks build per [`backend/railway.json`](backend/railway.json); its start command runs `migrate` and `createcachetable` before gunicorn, so schema and cache table are always current on deploy), `frontend` (Next.js, zero-config Railpack detection), a managed `Postgres` instance wired to the backend via `${{Postgres.DATABASE_URL}}`, and the reminder cron as a fourth service defined in [`backend/railway.cron.json`](backend/railway.cron.json) (`*/15 * * * *` → `python manage.py dispatch_reminders`; provisioning commands in [`backend/reminders/README.md`](backend/reminders/README.md)). Step-by-step provisioning is in [`docs/deployment.md`](docs/deployment.md).
 
 - **Frontend:** https://frontend-production-9ca8.up.railway.app
 - **Backend API:** https://backend-production-e1121.up.railway.app

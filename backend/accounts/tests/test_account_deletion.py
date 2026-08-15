@@ -20,12 +20,20 @@ class AccountDeletionTests(AuthAPITestCase):
         self.user = User.objects.get(email="patient@example.com")
 
     def test_scrubs_phi_fields_sets_deleted_at_and_unusable_password(self):
+        # Give the account every optional contact field so the scrub has
+        # something real to clear, including the SMS carrier that pairs
+        # with `phone` for the cancellation-notice gateway.
+        self.user.phone = "+1 555 010 0100"
+        self.user.sms_carrier = User.Carrier.VERIZON
+        self.user.save(update_fields=["phone", "sms_carrier"])
+
         response = self.post_json("/profile/delete-account", {"password": TEST_PASSWORD})
 
         self.assertEqual(response.status_code, 200)
         self.user.refresh_from_db()
         self.assertEqual(self.user.name, "")
         self.assertEqual(self.user.phone, "")
+        self.assertEqual(self.user.sms_carrier, "")
         self.assertEqual(self.user.email, f"deleted-user-{self.user.id}@deleted.invalid")
         self.assertFalse(self.user.is_active)
         self.assertFalse(self.user.has_usable_password())
