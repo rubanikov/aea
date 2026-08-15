@@ -108,7 +108,37 @@ the seeded **133-day** horizon (`HORIZON_START_OFFSET_DAYS=1`,
 `HORIZON_END_OFFSET_DAYS=131`), staying under `GET /scheduling/slots`'s
 60-day range cap.
 
-## Results from a local run (informational, not the deployed benchmark)
+## Results against the deployed instance (Railway)
+
+Run **2026-08-15** from a residential connection against
+`https://backend-production-e1121.up.railway.app` (gunicorn on Railway,
+managed Postgres, same 133-day `seed_demo` dataset), immediately after
+that day's deploy:
+
+```
+k6 run -e BASE_URL=https://backend-production-e1121.up.railway.app        -e VUS=30 -e DURATION=60s -e THINK_TIME_MEAN=7 k6/slot-availability.js
+```
+
+| Script | VUs | p95 | median | Threshold | Result |
+|---|---|---|---|---|---|
+| `slot-availability.js` | 30 | **406ms** | 202ms | < 1000ms | PASS |
+
+`THINK_TIME_MEAN=7` paces 30 VUs to ~250 requests/min so the run stays
+under the API's per-account 300/min throttle without touching production
+settings (all VUs share one login -- see below). 244 iterations, 261 HTTP
+requests including setup. Checks 97.95%: 239 of 244 slot queries returned
+200 with a slots array; the other 5 were recorded by k6 with 0ms duration
+and never reached the server (Railway's HTTP log for the window shows
+exactly 239 `GET /scheduling/slots`, all `200`) -- client-side connection
+drops from this Windows machine, the same class of failure noted under the
+2026-08-11 local run. Latency includes ~100ms of transatlantic/edge RTT.
+
+`booking-action.js` was **not** run against the deployment: it creates
+real bookings for the demo patient across every provider, which would
+leave the shared demo calendars full of load-test appointments for the
+next grader. Its numbers below are from the local run.
+
+## Results from a local run (unthrottled, full request rate)
 
 Run **2026-08-13** against a local Postgres 16 instance and a **Waitress**
 WSGI server (16 threads) on this machine, `VUS=30`, `DURATION=60s`,

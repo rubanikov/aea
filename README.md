@@ -94,7 +94,7 @@ This fires 10 simultaneous booking/reschedule requests at the same last-open slo
 k6 run k6/slot-availability.js
 k6 run k6/booking-action.js
 ```
-Requires `seed_demo` to have run first (for realistic data volume) and the backend running at `http://localhost:8000` (override with `BASE_URL`). See [`k6/README.md`](k6/README.md) for the full methodology and a real local run's numbers.
+Requires `seed_demo` to have run first (for realistic data volume) and the backend running at `http://localhost:8000` (override with `BASE_URL`). See [`k6/README.md`](k6/README.md) for the full methodology, a run against the deployed Railway instance (slot-availability p95 406 ms at 30 VUs), and the unthrottled local run's numbers.
 
 ## Roles
 
