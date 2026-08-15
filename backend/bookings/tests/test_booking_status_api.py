@@ -150,11 +150,14 @@ class BookingStatusUpdateTests(BookingsAPITestCase):
     def test_invalid_transition_writes_no_audit_entry(self):
         self.login_as(self.provider)
         self._patch_status(self.booking.id, "cancelled")
-        AuditLog.objects.all().delete()
+        # `AuditLog` is enforced append-only (`AuditLogIsAppendOnly`), so
+        # "the rejected transition writes nothing" is asserted against a
+        # count snapshot rather than wiping the log first.
+        baseline_count = AuditLog.objects.count()
 
         self._patch_status(self.booking.id, "completed")
 
-        self.assertEqual(AuditLog.objects.count(), 0)
+        self.assertEqual(AuditLog.objects.count(), baseline_count)
 
     def test_unauthenticated_request_is_rejected(self):
         response = self._patch_status(self.booking.id, "cancelled")

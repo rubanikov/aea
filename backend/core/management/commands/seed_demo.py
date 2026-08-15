@@ -239,9 +239,9 @@ BOOKING_SAMPLE_STEP = 20
 def _first_free_patient(patients, start, end, start_index):
     """Return the first patient in the rotating list who does not already
     hold `[start, end)`, or None if every patient in the pool is busy.
-    One appointment per hour block applies to patients as well as
-    providers, so the seed cannot hand the same hour to the same person
-    twice even across different doctors.
+    No-overlapping-bookings applies to patients as well as providers, so
+    the seed cannot hand the same window to the same person twice even
+    across different doctors.
     """
     for step in range(len(patients)):
         candidate = patients[(start_index + step) % len(patients)]
@@ -391,9 +391,11 @@ class Command(BaseCommand):
 
         appointment_types = []
         for name in config["appointment_types"]:
-            # `duration_minutes` relies on the model default (60) -- the
-            # only value the `appointment_type_duration_is_60` constraint
-            # admits.
+            # `duration_minutes` relies on the model default (60).
+            # Deliberately not exercising the 30-minute option here: the
+            # seeded dataset backs the committed k6 benchmark (~16,150
+            # slots over 133 days), and changing durations would change
+            # that slot count.
             appointment_type, _ = AppointmentType.objects.get_or_create(
                 provider=provider, name=name
             )

@@ -113,6 +113,10 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    # Postgres-specific model helpers -- `bookings.models`'s
+    # `ExclusionConstraint` (the mixed-duration double-booking backstop)
+    # requires it. The project is Postgres end to end already.
+    "django.contrib.postgres",
     "corsheaders",
     "rest_framework",
     "rest_framework_simplejwt.token_blacklist",
@@ -297,7 +301,40 @@ REST_FRAMEWORK = {
         if DEBUG
         else ["rest_framework.renderers.JSONRenderer"]
     ),
+    # API-wide graceful degradation: a database outage mid-request (or any
+    # other unhandled exception) comes back as structured JSON with the
+    # right status, never Django's HTML error page -- the same "always
+    # returns JSON, never a 500" standard core/views.py's health_check sets
+    # for itself, applied to every endpoint. See core/exceptions.py; non-DRF
+    # paths get the equivalent from handler500 in config/urls.py.
+    "EXCEPTION_HANDLER": "core.exceptions.api_exception_handler",
 }
+
+
+# Cache -- backs DRF's throttle counters and the per-account login lockout
+# (accounts/lockout.py), so it must be shared state in production: gunicorn
+# runs several worker processes, and Django's default per-process LocMemCache
+# would multiply every rate limit by the worker count and reset all counters
+# on each deploy. DatabaseCache shares through Postgres with no new
+# infrastructure; its "django_cache" table is created by
+# `manage.py createcachetable` (not a migration -- see railway.json's
+# startCommand, which runs it right after migrate).
+#
+# Local `runserver` and `manage.py test` are single-process, where
+# per-process *is* the correct scope -- and neither should need the
+# unmanaged cache table to exist (test databases are built from migrations
+# alone), so both keep LocMemCache.
+if DEBUG or RUNNING_TESTS:
+    CACHES = {
+        "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+    }
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+            "LOCATION": "django_cache",
+        }
+    }
 
 
 # djangorestframework-simplejwt
@@ -355,6 +392,18 @@ SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SECURE_SSL_REDIRECT = not DEBUG and not RUNNING_TESTS
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# HSTS -- once a browser has seen one HTTPS response it refuses plain-HTTP
+# connections to this host for a year, closing the SSL-stripping window
+# SECURE_SSL_REDIRECT alone leaves open (the very first request before the
+# redirect). No RUNNING_TESTS carve-out needed here: SecurityMiddleware only
+# attaches the header to requests it considers secure, and the test client's
+# plain-HTTP requests never are, so unlike SECURE_SSL_REDIRECT this setting
+# is inert under `manage.py test`. `preload` is deliberately omitted -- it
+# requires submitting the domain to the browser preload list and is
+# effectively irreversible, which isn't a call a settings file should make.
+SECURE_HSTS_SECONDS = 0 if DEBUG else 31536000
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
 
 
 # Internationalization

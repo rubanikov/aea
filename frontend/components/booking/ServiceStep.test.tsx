@@ -13,11 +13,11 @@ const PROVIDERS_PATH = "/scheduling/providers";
 
 const PROVIDER = { id: 1, name: "Dr. Amara Osei", timezone: "America/New_York" };
 
-// `duration_minutes` is server-fixed at 60: every appointment is a
-// one-hour slot.
+// `duration_minutes` is a per-type provider choice of 30 or 60; the
+// mixed pair exercises both display labels.
 const OSEI_TYPES = [
   { id: 10, name: "Annual Physical", duration_minutes: 60 },
-  { id: 11, name: "Follow-up", duration_minutes: 60 },
+  { id: 11, name: "Follow-up", duration_minutes: 30 },
 ];
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -87,7 +87,8 @@ describe("ServiceStep", () => {
 
     expect(await screen.findByText("Annual Physical")).toBeInTheDocument();
     expect(screen.getByText("Follow-up")).toBeInTheDocument();
-    expect(screen.getAllByText("60 min")).toHaveLength(2);
+    expect(screen.getByText("60 min")).toBeInTheDocument();
+    expect(screen.getByText("30 min")).toBeInTheDocument();
   });
 
   it("shows a specific empty-state message for a provider with no appointment types configured", async () => {

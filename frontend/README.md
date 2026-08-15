@@ -34,7 +34,10 @@ backend vars, for the backend) if you need to point at a non-default API URL.
 (`NEXT_PUBLIC_API_URL`, default `http://localhost:8000`), always with
 `credentials: "include"` so the httpOnly session cookie rides along, and
 with `X-Requested-With: XMLHttpRequest` on every unsafe-method request (the
-backend's CSRF mitigation for a cookie-delivered auth token).
+backend's CSRF mitigation for a cookie-delivered auth token). On Railway,
+`NEXT_PUBLIC_API_URL` is this Next.js origin and `next.config.ts` rewrites
+API paths to Django — `*.up.railway.app` hosts are different sites, so a
+cookie set by the backend service would never be sent on frontend requests.
 
 - `/patient/*`, `/provider/*`, `/admin/*` are gated by role; `/settings` is
   gated to "any authenticated role" (no `/settings/*` sub-routes gated by a

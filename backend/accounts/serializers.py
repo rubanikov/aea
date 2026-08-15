@@ -6,8 +6,11 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.utils import timezone as django_timezone
 from rest_framework import serializers
+from rest_framework.exceptions import Throttled
 
 from audit.services import record_audit_event
+
+from . import lockout
 
 User = get_user_model()
 
@@ -67,18 +70,30 @@ class LoginSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True, trim_whitespace=False)
 
     def validate(self, attrs):
+        email = attrs["email"].strip().lower()
+        # Checked before authenticate(), so a locked account rejects even a
+        # correct password until the window expires -- see accounts/lockout
+        # .py. Throttled is DRF's native 429, matching the per-IP throttle's
+        # response shape.
+        if lockout.is_locked_out(email):
+            raise Throttled(detail=lockout.LOCKOUT_DETAIL)
+
         user = authenticate(
             self.context["request"],
-            username=attrs["email"].strip().lower(),
+            username=email,
             password=attrs["password"],
         )
         if user is None:
+            # Only genuine credential failures count toward lockout --
+            # malformed payloads never reach this point.
+            lockout.record_failure(email)
             # Deliberately generic and not tied to the `email` field: naming
             # which one was wrong (unknown account vs. wrong password) lets
             # an attacker enumerate registered emails.
             raise serializers.ValidationError(
                 "Invalid email or password.", code="invalid_credentials"
             )
+        lockout.clear_failures(email)
         attrs["user"] = user
         return attrs
 

@@ -18,8 +18,8 @@ const OSEI = { id: 1, name: "Dr. Amara Osei", timezone: "America/New_York" };
 const CHEN = { id: 2, name: "Dr. Riley Chen", timezone: "America/Chicago" };
 const PROVIDERS = [OSEI, CHEN];
 
-// `duration_minutes` is server-fixed at 60: every appointment is a
-// one-hour slot.
+// `duration_minutes` is a per-type provider choice of 30 or 60; these
+// fixtures use 60-minute types.
 const OSEI_TYPES = [
   { id: 10, name: "Annual Physical", duration_minutes: 60 },
   { id: 11, name: "Follow-up", duration_minutes: 60 },

@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { API_BASE_URL } from "./lib/api/client";
+import { backendOrigin } from "./lib/api/backend-origin";
 import { isRole } from "./lib/auth/roles";
 import { resolveRouteAccess } from "./lib/auth/route-guard";
 
@@ -45,7 +45,7 @@ async function fetchRoleForRequest(request: NextRequest): Promise<string | null>
   const cookie = request.headers.get("cookie");
 
   try {
-    const response = await fetch(`${API_BASE_URL}/auth/me`, {
+    const response = await fetch(`${backendOrigin()}/auth/me`, {
       headers: cookie ? { cookie } : undefined,
     });
 

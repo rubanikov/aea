@@ -54,6 +54,9 @@ class BookingConstraintTests(BookingsAPITestCase):
         self.assertEqual(Booking.objects.count(), 2)
 
     def test_same_provider_different_start_times_are_both_allowed(self):
+        # Back-to-back, not overlapping: also exercises TSTZRANGE's `[)`
+        # bounds on the exclusion constraints -- one booking's end touching
+        # the next's start is adjacency, never a constraint violation.
         self._create(start=_utc(2026, 8, 17, 9, 0))
 
         self._create(start=_utc(2026, 8, 17, 10, 0))
@@ -61,14 +64,87 @@ class BookingConstraintTests(BookingsAPITestCase):
         self.assertEqual(Booking.objects.count(), 2)
 
     def test_different_providers_can_share_the_same_start_time(self):
+        # A different *patient* too: since
+        # `unique_active_booking_per_patient_slot` (migration 0004), one
+        # patient can't hold two active bookings in the same hour block
+        # even across providers -- the shared start time under test here
+        # is the provider axis only.
         other_provider = self.create_provider(email="other@example.com")
+        other_patient = self.create_patient(email="other-patient@example.com")
         self._create()
 
         Booking.objects.create(
             provider=other_provider,
-            patient=self.patient,
+            patient=other_patient,
             appointment_type=self.appointment_type,
             start_time=_utc(2026, 8, 17, 9, 0),
+            end_time=_utc(2026, 8, 17, 10, 0),
+            status=Booking.Status.CONFIRMED,
+        )
+
+        self.assertEqual(Booking.objects.count(), 2)
+
+    def test_the_same_patient_cannot_hold_the_same_hour_with_two_providers(self):
+        other_provider = self.create_provider(email="other@example.com")
+        self._create()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Booking.objects.create(
+                    provider=other_provider,
+                    patient=self.patient,
+                    appointment_type=self.appointment_type,
+                    start_time=_utc(2026, 8, 17, 9, 0),
+                    end_time=_utc(2026, 8, 17, 10, 0),
+                    status=Booking.Status.CONFIRMED,
+                )
+
+    def test_overlapping_spans_with_different_start_times_are_rejected_on_the_provider_axis(self):
+        # The mixed-duration case the unique indexes can't see: a
+        # 60-minute booking at 09:00 and a 30-minute one at 09:30 share no
+        # start_time but overlap -- only the
+        # `no_overlapping_active_booking_per_provider` exclusion
+        # constraint refuses the second row.
+        other_patient = self.create_patient(email="other-patient@example.com")
+        self._create()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Booking.objects.create(
+                    provider=self.provider,
+                    patient=other_patient,
+                    appointment_type=self.appointment_type,
+                    start_time=_utc(2026, 8, 17, 9, 30),
+                    end_time=_utc(2026, 8, 17, 10, 0),
+                    status=Booking.Status.CONFIRMED,
+                )
+
+    def test_overlapping_spans_with_different_start_times_are_rejected_on_the_patient_axis(self):
+        other_provider = self.create_provider(email="other@example.com")
+        self._create()
+
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Booking.objects.create(
+                    provider=other_provider,
+                    patient=self.patient,
+                    appointment_type=self.appointment_type,
+                    start_time=_utc(2026, 8, 17, 9, 30),
+                    end_time=_utc(2026, 8, 17, 10, 0),
+                    status=Booking.Status.CONFIRMED,
+                )
+
+    def test_a_cancelled_booking_does_not_block_an_overlapping_span(self):
+        self._create(status=Booking.Status.CANCELLED)
+        other_patient = self.create_patient(email="cancelled-overlap@example.com")
+
+        # Does not raise -- the exclusion constraints are conditioned on
+        # active statuses, same as the unique indexes.
+        Booking.objects.create(
+            provider=self.provider,
+            patient=other_patient,
+            appointment_type=self.appointment_type,
+            start_time=_utc(2026, 8, 17, 9, 30),
             end_time=_utc(2026, 8, 17, 10, 0),
             status=Booking.Status.CONFIRMED,
         )

@@ -118,6 +118,32 @@ def find_schedule_collisions(
     return collisions
 
 
+def find_duration_change_collisions(appointment_type, *, now=None):
+    """Every future active booking made under `appointment_type` -- the
+    rows a `duration_minutes` change would strand (they were booked on the
+    old grid; the new grid may no longer contain their start times, and
+    their stored spans no longer match the type's advertised length).
+
+    Deliberately no `horizon_days` cap, unlike the two finders above: a
+    schedule/blocked-time edit is checked over a bounded window because
+    that's the window the change is compared against, but a duration
+    change redraws the type's slot grid for *every* future date, so any
+    future booking of the type collides regardless of how far out it is.
+    """
+    if now is None:
+        now = django_timezone.now()
+    bookings = (
+        Booking.objects.filter(
+            appointment_type=appointment_type,
+            status__in=Booking.ACTIVE_STATUSES,
+            start_time__gte=now,
+        )
+        .select_related("patient", "appointment_type")
+        .order_by("start_time")
+    )
+    return [_as_collision(booking) for booking in bookings]
+
+
 def find_blocked_time_collisions(
     provider, start, end, *, horizon_days=DEFAULT_HORIZON_DAYS, now=None
 ):

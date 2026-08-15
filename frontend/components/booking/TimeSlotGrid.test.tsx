@@ -75,6 +75,36 @@ describe("TimeSlotGrid", () => {
     expect(onSelectSlot).toHaveBeenCalledWith(SLOTS[0]);
   });
 
+  it("is fully keyboard-operable: Tab reaches each slot, Enter and Space select one", async () => {
+    const user = userEvent.setup();
+    const onSelectSlot = vi.fn();
+    render(
+      <TimeSlotGrid
+        slots={SLOTS}
+        scheduleTimeZone={SCHEDULE_TIME_ZONE}
+        viewerTimeZone={SCHEDULE_TIME_ZONE}
+        selectedDateLabel="Monday, August 24, 2026"
+        isToday={false}
+        onSelectSlot={onSelectSlot}
+      />
+    );
+
+    // Tab from the page into the grid: first slot takes focus, no
+    // mouse involved anywhere in this test.
+    await user.tab();
+    expect(screen.getByRole("button", { name: "9:00am" })).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(onSelectSlot).toHaveBeenCalledWith(SLOTS[0]);
+
+    // Tab again onto the next slot; Space must activate it too, the other
+    // half of native-button keyboard semantics.
+    await user.tab();
+    expect(screen.getByRole("button", { name: "9:30am" })).toHaveFocus();
+    await user.keyboard(" ");
+    expect(onSelectSlot).toHaveBeenLastCalledWith(SLOTS[1]);
+    expect(onSelectSlot).toHaveBeenCalledTimes(2);
+  });
+
   it("shows a today-specific empty message when there are no slots left today", () => {
     render(
       <TimeSlotGrid

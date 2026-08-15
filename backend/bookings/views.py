@@ -16,6 +16,7 @@ from scheduling.models import AppointmentType
 from . import notifications
 from .exceptions import (
     CancellationNoticeTooShort,
+    IdempotencyKeyConflict,
     InvalidTransition,
     NoShowBeforeStartTime,
     SlotNoLongerAvailable,
@@ -155,11 +156,41 @@ class BookingListCreateView(APIView):
         query.is_valid(raise_exception=True)
         params = query.validated_data
 
+        # Every read through this endpoint is a PHI read (patient names on
+        # a provider's roster), so every branch below writes an audit entry
+        # (security-audit findings: previously only the unfiltered admin
+        # list was logged, leaving both the provider's own roster read and
+        # an admin's `?provider_id=`-filtered read untraced). Metadata
+        # stays IDs/roles only -- never names or contact details (see
+        # `record_audit_event`'s docstring; `bookings.transitions`'s
+        # metadata convention).
         queryset = Booking.objects.select_related("patient", "appointment_type")
         if request.user.role == User.Role.PROVIDER:
             queryset = queryset.filter(provider=request.user)
+            # `target_id` is the provider whose calendar was read -- here,
+            # the requester's own -- matching the admin branches below, so
+            # "who read provider N's roster" is one query regardless of
+            # the reader's role.
+            record_audit_event(
+                actor=request.user,
+                action="read:booking_list",
+                target_type="booking",
+                target_id=request.user.id,
+                metadata={"initiated_by_role": request.user.role},
+            )
         elif params.get("provider_id"):
             queryset = queryset.filter(provider_id=params["provider_id"])
+            # An admin reading one named provider's full roster -- the
+            # same bypass fact as the unfiltered branch below, narrowed to
+            # one provider, so `<action>` names the narrower scope
+            # ("list_provider") and `target_id` records *which* provider.
+            record_audit_event(
+                actor=request.user,
+                action="admin_bypass:list_provider:booking",
+                target_type="booking",
+                target_id=params["provider_id"],
+                metadata=None,
+            )
         else:
             # An admin with no `provider_id` filter sees every booking in
             # the system -- unlike `IsOwnerOrAdmin`/`IsBookingProviderOrAdmin`
@@ -234,7 +265,7 @@ class BookingListCreateView(APIView):
             )
         except SlotNotOpen as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        except SlotNoLongerAvailable as exc:
+        except (SlotNoLongerAvailable, IdempotencyKeyConflict) as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_409_CONFLICT)
 
         logger.info(
@@ -282,6 +313,14 @@ class BookingMineListView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
+        # Deliberately *not* audited (security-audit pass, "every notable
+        # PHI read"): this is strictly a patient reading their own rows --
+        # the role check above admits nobody else, and there is no admin
+        # bypass through this endpoint -- so a row here would record "user
+        # looked at their own data" on every My-Appointments page load,
+        # burying the reads the log exists to catch (provider and admin
+        # reads of *other people's* PHI, all of which are audited in
+        # `BookingListCreateView.get` and `audit.views.AuditLogListView`).
         queryset = (
             Booking.objects.select_related("provider", "appointment_type")
             .filter(patient=request.user)

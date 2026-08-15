@@ -129,12 +129,15 @@ class BookingCancelTests(BookingsAPITestCase):
     def test_an_already_cancelled_booking_cannot_be_cancelled_again(self):
         self.login_as(self.patient)
         self._cancel(self.booking.id)
-        AuditLog.objects.all().delete()
+        # `AuditLog` is enforced append-only (`AuditLogIsAppendOnly`), so
+        # "the rejected retry writes nothing" is asserted against a count
+        # snapshot rather than wiping the log first.
+        baseline_count = AuditLog.objects.count()
 
         response = self._cancel(self.booking.id)
 
         self.assertEqual(response.status_code, 400)
-        self.assertEqual(AuditLog.objects.count(), 0)
+        self.assertEqual(AuditLog.objects.count(), baseline_count)
 
     def test_a_completed_booking_cannot_be_cancelled(self):
         past_booking = self.make_booking(

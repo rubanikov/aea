@@ -10,6 +10,7 @@ from accounts.permissions import IsAdminRole
 from .models import AuditLog
 from .pagination import AuditLogPagination
 from .serializers import AuditLogSerializer
+from .services import record_audit_event
 
 
 def _parse_date_boundary(field_name, raw_value, *, end_of_day):
@@ -53,11 +54,33 @@ class AuditLogListView(generics.ListAPIView):
     match against the free-text action string), `target_type` (exact
     match), `date_from`/`date_to` (ISO 8601 or `yyyy-mm-dd`, inclusive of
     the named day), `page`, `page_size` (default 25, max 100).
+
+    Every successful read of this endpoint writes its own
+    `read:audit_log` entry (security-audit pass: reads of the audit trail
+    itself must leave a trace) -- see `list` below for the ordering.
     """
 
     serializer_class = AuditLogSerializer
     permission_classes = [IsAdminRole]
     pagination_class = AuditLogPagination
+
+    def list(self, request, *args, **kwargs):
+        # `super().list()` first: the page is queried and serialized
+        # before this read's own entry is inserted, so a response never
+        # contains the row recording itself (and a rejected request --
+        # bad filter param, non-admin -- raises before reaching this line
+        # and logs nothing, since no data was returned). Metadata stays
+        # IDs only per `record_audit_event`'s convention -- the filter
+        # params aren't recorded because `action` is free text.
+        response = super().list(request, *args, **kwargs)
+        record_audit_event(
+            actor=request.user,
+            action="read:audit_log",
+            target_type="audit_log",
+            target_id="*",
+            metadata=None,
+        )
+        return response
 
     def get_queryset(self):
         queryset = AuditLog.objects.all()

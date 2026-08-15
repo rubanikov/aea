@@ -39,17 +39,27 @@ class AppointmentTypeSerializer(serializers.ModelSerializer):
     validator needs both fields present on the serializer, and `provider`
     isn't.
 
-    `duration_minutes` is read-only: every appointment is a fixed
-    60-minute slot (see the model's `CheckConstraint`), so a client only
-    ever sends `name` -- the server always produces 60. It stays in the
-    output for display ("60 minutes"); a client-supplied value on input is
-    silently ignored by DRF's read-only handling.
+    `duration_minutes` is a provider choice of exactly 30 or 60 (the
+    model's `CheckConstraint` mirrors this at the DB layer). Declared
+    explicitly rather than letting `ModelSerializer` infer a bare
+    `IntegerField` so an out-of-range value gets this API's own message,
+    not a raw DB error. Optional on input: a body without it keeps the
+    model default (60) on create and the current value on update.
     """
+
+    duration_minutes = serializers.IntegerField(required=False)
 
     class Meta:
         model = AppointmentType
         fields = ["id", "name", "duration_minutes"]
-        read_only_fields = ["id", "duration_minutes"]
+        read_only_fields = ["id"]
+
+    def validate_duration_minutes(self, value):
+        if value not in AppointmentType.DURATION_CHOICES_MINUTES:
+            raise serializers.ValidationError(
+                "Slot length must be 30 or 60 minutes."
+            )
+        return value
 
 
 class BlockedTimeSerializer(serializers.ModelSerializer):

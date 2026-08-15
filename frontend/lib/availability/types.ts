@@ -12,15 +12,22 @@ import type {
 export interface AppointmentType {
   id: number;
   name: string;
-  /** Read-only: the server always returns 60 (every appointment is a fixed
-   * one-hour slot) and ignores any value a client sends. */
+  /** The provider's chosen slot length for this type: 30 or 60 (the only
+   * two values the server accepts or stores). Typed `number` rather than
+   * the `SlotDuration` union because it's server data crossing the wire —
+   * display code renders whatever arrives. */
   duration_minutes: number;
 }
 
 /** Body shape for `POST`/`PATCH /scheduling/appointment-types(/:id)`.
- * Name-only: `duration_minutes` is server-fixed at 60 and not accepted. */
+ * `duration_minutes` must be 30 or 60 when present; omitting it keeps the
+ * server default (60) on create and the current value on update. A PATCH
+ * that changes it while the type has upcoming booked appointments is
+ * refused with a `409 {detail, collisions}` (see `AppointmentTypeRow`'s
+ * handling). */
 export interface AppointmentTypeInput {
   name: string;
+  duration_minutes?: number;
 }
 
 /**

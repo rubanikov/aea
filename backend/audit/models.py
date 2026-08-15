@@ -2,6 +2,38 @@ from django.conf import settings
 from django.db import models
 
 
+class AuditLogIsAppendOnly(Exception):
+    """Raised by any code path that tries to mutate or delete an existing
+    `AuditLog` row -- instance `save()` on a fetched row, instance
+    `delete()`, or queryset `update()`/`delete()`. Append-only was
+    previously a convention only (no admin action, no API route); this
+    exception makes it a model-level guarantee, so a future bulk cleanup
+    script or a careless `.update()` in a fixture fails loudly instead of
+    silently rewriting history. Deliberately *not* raised for the paths
+    that don't rewrite history: the initial insert, and the `SET_NULL`
+    `actor` clearing Django's deletion collector performs when a user
+    account is deleted (that runs as a low-level `UpdateQuery`, not through
+    this queryset -- see `AuditLogQuerySet`).
+    """
+
+
+class AuditLogQuerySet(models.QuerySet):
+    """Blocks the bulk mutation paths `models.QuerySet` would otherwise
+    hand out for free. Note this does *not* intercept Django's deletion
+    collector nulling `actor` on user deletion -- that goes through
+    `sql.UpdateQuery` directly, below the queryset layer -- which is
+    exactly right: clearing a dangling actor reference isn't rewriting
+    what happened, and `test_deleting_the_actor_nulls_the_reference...`
+    in `audit/tests/test_models.py` pins that behavior.
+    """
+
+    def update(self, **kwargs):
+        raise AuditLogIsAppendOnly("AuditLog rows cannot be updated; the log is append-only.")
+
+    def delete(self):
+        raise AuditLogIsAppendOnly("AuditLog rows cannot be deleted; the log is append-only.")
+
+
 class AuditLog(models.Model):
     """Append-only record of "who did what to which resource, when" —
     TICKET-03's audit trail, and the destination every later PHI-touching
@@ -24,7 +56,11 @@ class AuditLog(models.Model):
     (see `audit/admin.py`), no update/delete API route (see
     `audit/views.py` — a plain `ListAPIView`, which has no such route to
     begin with). The only intended write path is
-    `audit.services.record_audit_event`.
+    `audit.services.record_audit_event`. As of the security-audit
+    hardening pass this is also *enforced* here, not just conventional:
+    `save()` rejects anything but the initial insert, `delete()` always
+    raises, and `AuditLogQuerySet` above blocks bulk `update()`/`delete()`
+    — all with `AuditLogIsAppendOnly`.
     """
 
     actor = models.ForeignKey(
@@ -40,8 +76,25 @@ class AuditLog(models.Model):
     timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
     metadata = models.JSONField(null=True, blank=True)
 
+    objects = AuditLogQuerySet.as_manager()
+
     class Meta:
         ordering = ["-timestamp"]
+
+    def save(self, *args, **kwargs):
+        # `_state.adding` is True only for a row that hasn't been loaded
+        # from (or previously saved to) the database -- i.e. the one write
+        # this model permits, the initial insert.
+        if not self._state.adding:
+            raise AuditLogIsAppendOnly(
+                "AuditLog rows cannot be modified after creation; the log is append-only."
+            )
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise AuditLogIsAppendOnly(
+            "AuditLog rows cannot be deleted; the log is append-only."
+        )
 
     def __str__(self):
         return f"{self.action} on {self.target_type}:{self.target_id} @ {self.timestamp}"

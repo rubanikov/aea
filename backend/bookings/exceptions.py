@@ -25,14 +25,30 @@ class SlotNoLongerAvailable(BookingConflict):
 
 
 class PatientAlreadyBooked(SlotNoLongerAvailable):
-    """The requesting patient already has an active booking in this hour
-    block (possibly with a different provider). Same 409 as a lost race
-    for the provider's chair -- the slot isn't takeable -- but a distinct
-    message so the UI can say "you already have an appointment" rather
-    than "someone else just booked it."
+    """The requesting patient already has an active booking overlapping
+    this window (possibly with a different provider). Same 409 as a lost
+    race for the provider's chair -- the slot isn't takeable -- but a
+    distinct message so the UI can say "you already have an appointment"
+    rather than "someone else just booked it."
     """
 
-    def __init__(self, message="You already have an appointment during this hour."):
+    def __init__(self, message="You already have an appointment that overlaps this time."):
+        super().__init__(message)
+
+
+class IdempotencyKeyConflict(BookingConflict):
+    """The submitted `Idempotency-Key` already belongs to a *different*
+    patient's booking (the column is globally unique -- see
+    `Booking.idempotency_key`). Distinct from the same-patient case, which
+    is the intended retry and returns the existing booking: replaying
+    someone else's key must never serialize their booking back (a PHI
+    leak -- the security-audit finding this exists for), and must map to a
+    clean `409 Conflict`, never a 500. The generic message deliberately
+    confirms nothing about the other booking's existence beyond the key
+    collision itself.
+    """
+
+    def __init__(self, message="This idempotency key is already in use."):
         super().__init__(message)
 
 

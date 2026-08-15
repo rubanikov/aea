@@ -33,6 +33,7 @@ function mockAuthMe(
 describe("proxy (route guard backed by GET /auth/me)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 
   it("lets an unauthenticated request through to a public route", async () => {
@@ -70,6 +71,15 @@ describe("proxy (route guard backed by GET /auth/me)", () => {
       requestFor("/provider", "session=abc123")
     );
     expect(response.headers.get("location")).toBeNull();
+  });
+
+  it("calls Django's origin for /auth/me, not the browser-facing API URL", async () => {
+    vi.stubEnv("BACKEND_URL", "https://backend.example.test");
+    const fetchMock = mockAuthMe({ status: 200, role: "provider" });
+    await proxy(requestFor("/provider", "access_token=abc123"));
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://backend.example.test/auth/me"
+    );
   });
 
   it("redirects an unauthenticated request away from a nested admin route", async () => {

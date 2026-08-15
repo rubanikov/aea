@@ -110,6 +110,24 @@ describe("LoginForm", () => {
     expect(pushMock).not.toHaveBeenCalled();
   });
 
+  it("shows an error instead of staying silently on /login when login succeeds but no session cookie is visible", async () => {
+    mockFetchSequence([
+      new Response("{}", { status: 200 }),
+      new Response("", { status: 401 }),
+    ]);
+    const user = userEvent.setup();
+    render(<LoginForm />);
+
+    await user.type(screen.getByLabelText("Email"), "pat@example.com");
+    await user.type(screen.getByLabelText("Password"), "secret123");
+    await user.click(screen.getByRole("button", { name: /log in/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /couldn't start a session/i
+    );
+    expect(pushMock).not.toHaveBeenCalled();
+  });
+
   it("shows a rate-limit message on 429", async () => {
     mockFetchSequence([new Response("", { status: 429 })]);
     const user = userEvent.setup();

@@ -5,19 +5,19 @@ import Link from "next/link";
 import { useAuthenticatedRequest } from "@/hooks/use-authenticated-request";
 import { ApiError } from "@/lib/api/client";
 import { isFieldErrorBody, splitFieldErrors } from "@/lib/api/field-errors";
+import { DEFAULT_SLOT_DURATION, type SlotDuration } from "@/lib/availability/durations";
 import { validateAppointmentType } from "@/lib/availability/validation";
 import { formatTimezone } from "@/lib/timezones";
 import type { AppointmentType, AppointmentTypeInput } from "@/lib/availability/types";
 import { AppointmentTypeForm } from "./AppointmentTypeForm";
 import { AppointmentTypeRow } from "./AppointmentTypeRow";
 
-const KNOWN_SERVER_FIELDS = new Set(["name"]);
+const KNOWN_SERVER_FIELDS = new Set(["name", "duration_minutes"]);
 
 /**
- * Appointment types (name-only categories — every appointment is a fixed
- * 60-minute slot, set server-side): list with inline edit,
- * confirm-before-delete, and an add-new form, plus a read-only timezone
- * line. Uses
+ * Appointment types (a name plus a provider-chosen 30- or 60-minute slot
+ * length): list with inline edit, confirm-before-delete, and an add-new
+ * form, plus a read-only timezone line. Uses
  * `GET`/`POST`/`PATCH`/`DELETE /scheduling/appointment-types`. The
  * timezone display reuses the existing `GET /profile` rather than a new
  * scheduling-specific field; it's read-only here (edit it from Account
@@ -32,6 +32,7 @@ export function AppointmentTypesSection() {
 
   const [adding, setAdding] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newDuration, setNewDuration] = useState<SlotDuration>(DEFAULT_SLOT_DURATION);
   const [newNameError, setNewNameError] = useState<string | undefined>();
   const [addFormError, setAddFormError] = useState<string | null>(null);
   const [addSaving, setAddSaving] = useState(false);
@@ -93,6 +94,7 @@ export function AppointmentTypesSection() {
 
   function startAdding() {
     setNewName("");
+    setNewDuration(DEFAULT_SLOT_DURATION);
     setNewNameError(undefined);
     setAddFormError(null);
     setAdding(true);
@@ -112,7 +114,10 @@ export function AppointmentTypesSection() {
     try {
       const created = await authFetch<AppointmentType>(
         "/scheduling/appointment-types",
-        { method: "POST", body: { name: newName.trim() } }
+        {
+          method: "POST",
+          body: { name: newName.trim(), duration_minutes: newDuration },
+        }
       );
       setTypes((current) => [...(current ?? []), created]);
       setAdding(false);
@@ -127,7 +132,10 @@ export function AppointmentTypesSection() {
           KNOWN_SERVER_FIELDS
         );
         setNewNameError(fieldErrors.name);
-        setAddFormError(formError);
+        // The slot-length radios can't render an inline error the way the
+        // name field does, so a server-side duration message (only ever
+        // possible if the request bypassed the radios) shows form-level.
+        setAddFormError(fieldErrors.duration_minutes ?? formError);
       } else if (!(error instanceof ApiError && error.status === 401)) {
         setAddFormError("Couldn't add this appointment type — please try again.");
       }
@@ -224,6 +232,8 @@ export function AppointmentTypesSection() {
           idPrefix="new-appointment-type"
           name={newName}
           onNameChange={setNewName}
+          duration={newDuration}
+          onDurationChange={setNewDuration}
           nameError={newNameError}
           formError={addFormError}
           saving={addSaving}

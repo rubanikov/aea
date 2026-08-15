@@ -18,24 +18,57 @@ from datetime import datetime, time, timedelta
 from datetime import timezone as dt_timezone
 from zoneinfo import ZoneInfo
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, transaction
 from django.db.models import Q
 
 from audit.services import record_audit_event
 from scheduling.models import BlockedTime
 from scheduling.slots import get_open_slots
 
-from .exceptions import PatientAlreadyBooked, SlotNoLongerAvailable, SlotNotOpen
+from .exceptions import (
+    IdempotencyKeyConflict,
+    PatientAlreadyBooked,
+    SlotNoLongerAvailable,
+    SlotNotOpen,
+)
 from .models import Booking
 from .transitions import check_cancellation_notice, transition
 
-_PATIENT_SLOT_CONSTRAINT = "unique_active_booking_per_patient_slot"
+# The two patient-axis constraint names (exact-start unique index and the
+# general overlap exclusion constraint -- see `Booking.Meta.constraints`):
+# a rejection naming either means the *patient's own* schedule conflicted,
+# not a lost race for the provider's chair.
+_PATIENT_CONSTRAINTS = (
+    "unique_active_booking_per_patient_slot",
+    "no_overlapping_active_booking_per_patient",
+)
+
+_DEADLOCK_SQLSTATE = "40P01"
 
 
-def _raise_if_hour_taken(conflicting, *, patient):
+def _is_deadlock(exc):
+    """Whether a `django.db.OperationalError` wraps Postgres's deadlock
+    abort (SQLSTATE 40P01). Deadlocks are a *designed-in* outcome of the
+    exclusion constraints, not an outage: a GiST exclusion check runs
+    *after* the index tuple is physically inserted, so two overlapping
+    inserts racing (the mixed-duration shape -- a 60-minute 09:00 against
+    a 30-minute 09:30, where no btree unique index conflicts first) can
+    each insert, then each wait on the other's transaction; Postgres
+    resolves the cycle by aborting one. The aborted request is, by
+    construction, a booking attempt that overlapped a concurrent competing
+    write -- a lost race, answered with the same 409 as an exclusion
+    violation, never the exception handler's database-outage 503. Any
+    other `OperationalError` (a real outage) is re-raised untouched.
+    Django chains the driver's error as `__cause__`; psycopg 3 exposes
+    the SQLSTATE as `.sqlstate`.
+    """
+    return getattr(exc.__cause__, "sqlstate", None) == _DEADLOCK_SQLSTATE
+
+
+def _raise_if_slot_taken(conflicting, *, patient):
     """Raise the matching 409 if `conflicting` (a locked Booking queryset)
-    already occupies this hour for the provider or the patient. No-op when
-    the queryset is empty -- the caller proceeds to insert.
+    already overlaps this window for the provider or the patient. No-op
+    when the queryset is empty -- the caller proceeds to insert.
     """
     if not conflicting.exists():
         return
@@ -45,11 +78,13 @@ def _raise_if_hour_taken(conflicting, *, patient):
 
 
 def _conflict_from_integrity_error(exc):
-    """Layer 2: map a unique-index rejection onto the matching 409.
-    Postgres includes the constraint name in the error; a patient-slot
-    collision is the patient's own hour, not a lost race for the chair.
+    """Layer 2: map a constraint rejection (partial unique index for an
+    identical start, exclusion constraint for the general mixed-duration
+    overlap) onto the matching 409. Postgres includes the constraint name
+    in the error; a patient-axis collision is the patient's own conflicting
+    appointment, not a lost race for the chair.
     """
-    if _PATIENT_SLOT_CONSTRAINT in str(exc):
+    if any(name in str(exc) for name in _PATIENT_CONSTRAINTS):
         return PatientAlreadyBooked()
     return SlotNoLongerAvailable()
 
@@ -119,8 +154,9 @@ def _book_open_slot(
 
     1. Layer 1 -- `select_for_update()` locks any existing active `Booking`
        for `provider` *or* `patient` overlapping `[start_time, end_time)`;
-       `PatientAlreadyBooked` if the patient already occupies this hour,
-       `SlotNoLongerAvailable` if the provider's chair is taken.
+       `PatientAlreadyBooked` if the patient already occupies an
+       overlapping window, `SlotNoLongerAvailable` if the provider's chair
+       is taken.
     2. Point 6 -- re-validates the slot is genuinely open right now (hours,
        blocked time, not in the past) via `get_open_slots`; `SlotNotOpen`
        if not. Deliberately runs *after* step 1: by this point there is no
@@ -138,7 +174,7 @@ def _book_open_slot(
         start_time__lt=end_time,
         end_time__gt=start_time,
     )
-    _raise_if_hour_taken(conflicting, patient=patient)
+    _raise_if_slot_taken(conflicting, patient=patient)
 
     if not _slot_is_currently_open(provider, appointment_type, start_time, end_time):
         # Under Postgres's default READ COMMITTED isolation, the locked
@@ -156,7 +192,7 @@ def _book_open_slot(
         # slipped in since the first check) disambiguates them correctly.
         # A `SlotNotOpen` after this point is genuinely about hours/blocked
         # time/the past, not a lost race.
-        _raise_if_hour_taken(conflicting, patient=patient)
+        _raise_if_slot_taken(conflicting, patient=patient)
         raise SlotNotOpen()
 
     booking = Booking.objects.create(
@@ -182,7 +218,13 @@ def create_booking(*, patient, provider, appointment_type, start_time, idempoten
 
     1. Idempotency short-circuit -- an existing row for `idempotency_key`
        (if given) is returned as-is, before any conflict check runs. A
-       retried/double-submitted request is not an error.
+       retried/double-submitted request is not an error. Scoped to
+       `patient` (security-audit finding): the column is globally unique,
+       so an unscoped lookup would hand any authenticated patient who
+       replays *another* patient's key that other patient's booking,
+       fully serialized. A cross-patient key collision instead falls
+       through to the insert, hits the unique index, and surfaces as
+       `IdempotencyKeyConflict` (409) via the recovery branch below.
     2. `_book_open_slot` -- Layer 1's `select_for_update()` conflict check,
        point 6's open-slot re-validation, then insert + auto-confirm (see
        that function's docstring for the exact ordering).
@@ -191,21 +233,33 @@ def create_booking(*, patient, provider, appointment_type, start_time, idempoten
        `_book_open_slot`'s `transition()` call already wrote, not a
        duplicate of it.
 
-    Layer 2 backstop: `Booking.Meta`'s partial `UniqueConstraint` is
-    unconditional -- it also catches the case Layer 1 *can't*: two brand
-    -new bookings racing for a slot with no existing row yet to lock (an
-    empty `select_for_update()` result takes no lock and blocks nothing).
-    The resulting `IntegrityError` is caught here and re-raised as
+    Layer 2 backstop: `Booking.Meta`'s DB constraints are unconditional --
+    they also catch the case Layer 1 *can't*: two brand-new bookings
+    racing with no existing row yet to lock (an empty
+    `select_for_update()` result takes no lock and blocks nothing). The
+    partial `UniqueConstraint`s refuse an identical-start duplicate; the
+    exclusion constraints refuse the mixed-duration shape the unique
+    indexes can't see (a 60-minute 09:00 racing a 30-minute 09:30 --
+    overlapping spans, different start times). The GiST version of that
+    refusal can surface as a Postgres deadlock abort instead of a clean
+    violation (see `_is_deadlock`) -- mapped to the same 409. The
+    `IntegrityError` case is caught here and re-raised as
     `SlotNoLongerAvailable`, except when it turns out to be a genuinely
     simultaneous double-submit of the *same* `idempotency_key` -- then the
     winner's row is returned instead, same as the short-circuit in step 1.
+    That recovery re-query is `patient`-scoped too: if it finds nothing but
+    the key nonetheless exists, the key belongs to a different patient --
+    a cross-patient collision, answered with `IdempotencyKeyConflict`
+    rather than the other patient's booking.
     """
     end_time = start_time + timedelta(minutes=appointment_type.duration_minutes)
 
     try:
         with transaction.atomic():
             if idempotency_key:
-                existing = Booking.objects.filter(idempotency_key=idempotency_key).first()
+                existing = Booking.objects.filter(
+                    idempotency_key=idempotency_key, patient=patient
+                ).first()
                 if existing is not None:
                     return existing
 
@@ -225,11 +279,37 @@ def create_booking(*, patient, provider, appointment_type, start_time, idempoten
                 metadata={"provider_id": provider.id, "status": booking.status},
             )
             return booking
-    except IntegrityError as exc:
+    except OperationalError as exc:
+        if not _is_deadlock(exc):
+            raise
+        # A deadlock abort is the exclusion constraints' version of losing
+        # the two-brand-new-rows race (see `_is_deadlock`). The idempotency
+        # re-check mirrors the `IntegrityError` branch below, belt and
+        # braces -- though a same-key double submit serializes at the
+        # `idempotency_key` btree unique index before ever reaching the
+        # GiST indexes, so a deadlocked retry is not an expected path.
         if idempotency_key:
-            existing = Booking.objects.filter(idempotency_key=idempotency_key).first()
+            existing = Booking.objects.filter(
+                idempotency_key=idempotency_key, patient=patient
+            ).first()
             if existing is not None:
                 return existing
+        # Deliberately not `_conflict_from_integrity_error`: a deadlock
+        # message carries lock/process context rather than one culpable
+        # constraint name, so no axis attribution is reliable here.
+        raise SlotNoLongerAvailable() from exc
+    except IntegrityError as exc:
+        if idempotency_key:
+            existing = Booking.objects.filter(
+                idempotency_key=idempotency_key, patient=patient
+            ).first()
+            if existing is not None:
+                return existing
+            if Booking.objects.filter(idempotency_key=idempotency_key).exists():
+                # The key exists but not for *this* patient: a cross-patient
+                # key collision (see the docstring above). Never return --
+                # or even further inspect -- the other patient's row.
+                raise IdempotencyKeyConflict() from exc
         raise _conflict_from_integrity_error(exc) from exc
 
 
@@ -294,9 +374,10 @@ def reschedule_booking(*, booking, actor, start_time):
     leave `booking` (and everything else) exactly as they were.
 
     Layer 2 backstop: same as `create_booking` -- an `IntegrityError` from
-    the partial `UniqueConstraint` (the case Layer 1 can't catch: two
-    brand-new bookings racing for a slot with no existing row yet to lock)
-    is caught and re-raised as `SlotNoLongerAvailable`.
+    the DB constraints (partial unique index or exclusion constraint; the
+    case Layer 1 can't catch: two brand-new bookings racing with no
+    existing row yet to lock) is caught and re-raised as
+    `SlotNoLongerAvailable`.
 
     Returns the new, already-confirmed `Booking`.
     """
@@ -329,5 +410,12 @@ def reschedule_booking(*, booking, actor, start_time):
                 metadata={"old_booking_id": booking.id, "new_booking_id": new_booking.id},
             )
             return new_booking
+    except OperationalError as exc:
+        if not _is_deadlock(exc):
+            raise
+        # Same lost-race mapping as `create_booking` (see `_is_deadlock`);
+        # the whole transaction -- including the already-run cancel of the
+        # original booking -- rolled back with the abort.
+        raise SlotNoLongerAvailable() from exc
     except IntegrityError as exc:
         raise _conflict_from_integrity_error(exc) from exc

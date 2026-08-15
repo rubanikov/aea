@@ -445,6 +445,59 @@ class BookingIdempotencyTests(BookingsAPITestCase):
         self.assertNotEqual(first.json()["id"], second.json()["id"])
         self.assertEqual(Booking.objects.count(), 2)
 
+    def test_another_patients_idempotency_key_is_a_409_not_their_booking(self):
+        # Security-audit finding: `idempotency_key` is globally unique, so
+        # an unscoped lookup let any authenticated patient who replayed
+        # another patient's key receive that patient's booking, fully
+        # serialized. The lookup is now patient-scoped and the cross-
+        # patient collision is a clean 409 -- never the other booking,
+        # never a 500.
+        other_patient = self.create_patient(email="other-patient@example.com")
+        self.login_as(self.patient)
+        first = self.post_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=f"{MONDAY}T09:00:00Z",
+            idempotency_key="stolen-key",
+        )
+        self.assertEqual(first.status_code, 201)
+
+        self.login_as(other_patient)
+        replay = self.post_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=f"{MONDAY}T10:00:00Z",
+            idempotency_key="stolen-key",
+        )
+
+        self.assertEqual(replay.status_code, 409)
+        self.assertNotIn(str(first.json()["id"]), str(replay.json()))
+        self.assertFalse(Booking.objects.filter(patient=other_patient).exists())
+
+    def test_same_patient_retry_is_unaffected_by_the_patient_scoped_lookup(self):
+        # The intended retry semantics (same patient, same key -> same
+        # booking) must survive the cross-patient fix above; the genuinely
+        # concurrent version of this lives in
+        # `test_concurrency.ConcurrentIdempotentRetryTests`.
+        self.login_as(self.patient)
+
+        first = self.post_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=f"{MONDAY}T09:00:00Z",
+            idempotency_key="own-key",
+        )
+        retry = self.post_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=f"{MONDAY}T09:00:00Z",
+            idempotency_key="own-key",
+        )
+
+        self.assertEqual(retry.status_code, 201)
+        self.assertEqual(retry.json()["id"], first.json()["id"])
+        self.assertEqual(Booking.objects.count(), 1)
+
     def test_oversized_idempotency_key_returns_400(self):
         self.login_as(self.patient)
 

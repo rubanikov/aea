@@ -1,5 +1,6 @@
 from datetime import datetime
 from datetime import timezone as dt_timezone
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -123,17 +124,19 @@ class AuditLogListViewFilteringTests(TestCase):
             target_type="booking",
             target_id="1",
         )
-        self.availability_entry = AuditLog.objects.create(
-            actor=self.other_actor,
-            action="availability:updated",
-            target_type="availability",
-            target_id="2",
-        )
         # Backdate one entry so date-range filters have something to
-        # separate from "today".
-        AuditLog.objects.filter(pk=self.availability_entry.pk).update(
-            timestamp=_at("2020-01-01T00:00:00")
-        )
+        # separate from "today". `timestamp` is `auto_now_add` (it reads
+        # `timezone.now()` at insert) and `AuditLog` is enforced
+        # append-only (`AuditLogIsAppendOnly` -- no post-hoc
+        # `.update()`), so the row has to be *born* in the past rather
+        # than rewritten into it.
+        with mock.patch("django.utils.timezone.now", return_value=_at("2020-01-01T00:00:00")):
+            self.availability_entry = AuditLog.objects.create(
+                actor=self.other_actor,
+                action="availability:updated",
+                target_type="availability",
+                target_id="2",
+            )
 
     def _ids(self, response):
         return {row["id"] for row in response.json()["results"]}
@@ -185,3 +188,57 @@ class AuditLogListViewFilteringTests(TestCase):
         )
 
         self.assertEqual(self._ids(response), set())
+
+
+class AuditLogReadIsItselfAuditedTests(TestCase):
+    """Security-audit finding: reads of the audit trail itself must leave
+    a trace -- every successful `GET /audit-log` writes one
+    `read:audit_log` entry (see `AuditLogListView.list`), and a rejected
+    request writes nothing."""
+
+    def setUp(self):
+        self.admin = User.objects.create_user(
+            email="admin4@example.com", password="x", role=User.Role.ADMIN
+        )
+        self.patient = User.objects.create_user(
+            email="patient4@example.com", password="x", role=User.Role.PATIENT
+        )
+
+    def test_an_admin_read_writes_a_read_audit_log_entry(self):
+        login_as(self.client, self.admin)
+
+        response = self.client.get("/audit-log")
+
+        self.assertEqual(response.status_code, 200)
+        entry = AuditLog.objects.get(action="read:audit_log")
+        self.assertEqual(entry.actor_id, self.admin.pk)
+        self.assertEqual(entry.target_type, "audit_log")
+        self.assertEqual(entry.target_id, "*")
+        self.assertIsNone(entry.metadata)
+
+    def test_the_read_entry_is_not_included_in_its_own_response(self):
+        login_as(self.client, self.admin)
+
+        response = self.client.get("/audit-log")
+
+        self.assertEqual(response.json()["count"], 0)
+        # ... but a *subsequent* read sees the previous one's entry.
+        second = self.client.get("/audit-log")
+        self.assertEqual(second.json()["count"], 1)
+        self.assertEqual(second.json()["results"][0]["action"], "read:audit_log")
+
+    def test_a_rejected_read_writes_no_entry(self):
+        login_as(self.client, self.patient)
+
+        response = self.client.get("/audit-log")
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(AuditLog.objects.filter(action="read:audit_log").exists())
+
+    def test_a_read_with_an_invalid_filter_writes_no_entry(self):
+        login_as(self.client, self.admin)
+
+        response = self.client.get("/audit-log", {"actor": "not-an-id"})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(AuditLog.objects.filter(action="read:audit_log").exists())

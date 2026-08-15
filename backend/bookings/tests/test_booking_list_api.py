@@ -178,6 +178,45 @@ class BookingListTests(BookingsAPITestCase):
 
         self.assertFalse(AuditLog.objects.filter(action="admin_bypass:list_all:booking").exists())
 
+    def test_admin_read_scoped_to_one_provider_is_audited_against_that_provider(self):
+        # Security-audit finding: an admin's `?provider_id=N` read hands
+        # over that provider's full patient roster and previously left no
+        # `AuditLog` row at all -- only the unfiltered list was logged.
+        admin = self.create_provider(email="admin@example.com")
+        admin.role = admin.Role.ADMIN
+        admin.save(update_fields=["role"])
+        self.login_as(admin)
+
+        response = self.client.get(f"/bookings?provider_id={self.other_provider.id}")
+
+        self.assertEqual(response.status_code, 200)
+        entry = AuditLog.objects.get(action="admin_bypass:list_provider:booking")
+        self.assertEqual(entry.actor_id, admin.id)
+        self.assertEqual(entry.target_type, "booking")
+        self.assertEqual(entry.target_id, str(self.other_provider.id))
+
+    def test_provider_read_of_their_own_calendar_is_audited(self):
+        # Security-audit finding: a provider's roster read is a PHI read
+        # (their patients' names) and must be recorded, not just admin
+        # bypasses.
+        self.login_as(self.provider)
+
+        response = self.client.get("/bookings")
+
+        self.assertEqual(response.status_code, 200)
+        entry = AuditLog.objects.get(action="read:booking_list")
+        self.assertEqual(entry.actor_id, self.provider.id)
+        self.assertEqual(entry.target_type, "booking")
+        self.assertEqual(entry.target_id, str(self.provider.id))
+        self.assertEqual(entry.metadata, {"initiated_by_role": "provider"})
+
+    def test_rejected_patient_read_writes_no_audit_entry(self):
+        self.login_as(self.patient)
+
+        self.client.get("/bookings")
+
+        self.assertEqual(AuditLog.objects.count(), 0)
+
     def test_patient_cannot_list_bookings_from_this_endpoint(self):
         self.login_as(self.patient)
 

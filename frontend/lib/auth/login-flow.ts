@@ -23,11 +23,14 @@ export async function loginWithCredentials(
 
 /**
  * Reads the just-established session via `GET /auth/me` and sends the
- * visitor to their role's landing route. Falls back to `/login` if, for any
- * reason, no session is found (the caller's login/register request should
- * already have set one).
+ * visitor to their role's landing route. Throws if login/register reported
+ * success but no session cookie is visible — bouncing back to `/login`
+ * with no message is how a cross-site cookie failure used to look.
  */
 export async function redirectToRoleHome(router: RedirectRouter): Promise<void> {
   const user = await fetchCurrentUser();
-  router.push(user ? ROLE_HOME[user.role] : "/login");
+  if (!user) {
+    throw new Error("Signed in, but no session was established.");
+  }
+  router.push(ROLE_HOME[user.role]);
 }

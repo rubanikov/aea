@@ -54,9 +54,16 @@ Open `http://localhost:3000`.
 | Provider | `provider1@demo.aea.test`–`provider15@demo.aea.test` |
 | Admin | `admin@demo.aea.test` |
 
+> **Deployed exception:** on the Railway deployment the admin account's
+> password has been rotated and is not published in this repo — admin can
+> read every booking and the full audit log, so publishing its password
+> alongside the live URL would defeat the RBAC design. The seed password
+> above works for admin on a local checkout only. Patient and provider
+> demo logins work everywhere.
+
 `patient6`–`patient25` and `provider11`–`provider15` are a second, more regular cohort layered on top of the first: each of those 20 patients has a standing weekly appointment with each of those 5 doctors (100 recurring weekly bookings total, so any of those 5 doctors' calendars shows all 20 of those patients every single week) — useful if you want a clean, predictable pattern to look at rather than the original 10 providers' randomly-sampled bookings.
 
-Each provider already has working hours, a few appointment types (10–60 min, per real scheduling norms — see `tech-stack-research.md`), and a handful of pre-existing bookings, so there's real data to click through immediately rather than an empty first-run state.
+Each provider already has working hours, a few appointment types (30 or 60 min, chosen per appointment type by the provider — the seed uses 60 throughout so the k6 benchmark's slot counts stay reproducible), and a handful of pre-existing bookings, so there's real data to click through immediately rather than an empty first-run state.
 
 ### 6. Run the test suite
 
@@ -94,7 +101,7 @@ Requires `seed_demo` to have run first (for realistic data volume) and the backe
 Three roles, enforced server-side on every request (never trusted from the client):
 
 - **Patient** — browses provider availability, books/reschedules/cancels their own appointments, manages their own profile, can request account deletion.
-- **Provider** — sets their own working hours and appointment types, blocks time off, views/manages their own calendar (mark completed/no-show/cancel), never sees another provider's data.
+- **Provider** — sets their own working hours and appointment types (each with a chosen 30- or 60-minute slot length), blocks time off, views/manages their own calendar (mark completed/no-show/cancel), never sees another provider's data.
 - **Admin** — read access across the system (audit log viewer, can act on any booking), every admin action is itself written to the audit log.
 
 ## Environment variables
@@ -109,7 +116,7 @@ All documented with placeholders/comments in [`.env.example`](.env.example). The
 | `CORS_ALLOWED_ORIGINS` | Must match the frontend's real origin. |
 | `RESEND_API_KEY` | Optional. Unset by design for local/grading use — the reminder dispatcher logs and skips sending rather than erroring (see [`backend/reminders/README.md`](backend/reminders/README.md)). |
 | `FRONTEND_BASE_URL` | Used only inside the reminder email's "view details" link. |
-| `NEXT_PUBLIC_API_URL` | Frontend → backend base URL. |
+| `NEXT_PUBLIC_API_URL` | Browser-facing API origin. Locally Django on `:8000`. On Railway, the *frontend* origin — Next rewrites API paths to Django so auth cookies stay first-party. |
 
 ## Documentation map
 

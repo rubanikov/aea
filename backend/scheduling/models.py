@@ -91,17 +91,19 @@ class Availability(models.Model):
 
 
 class AppointmentType(models.Model):
-    """A provider-defined visit type — a name-only category that drives
+    """A provider-defined visit type — a named category that drives
     tag-coloring on the calendar (e.g. "Consultation" vs "Follow-up").
-    Every appointment is a fixed 60-minute slot: `duration_minutes` defaults
-    to 60 and a `CheckConstraint` guarantees it can never be anything else.
-    The field stays on the model rather than hardcoding 60 in
+    Every appointment is either a 30- or a 60-minute slot (exactly those
+    two choices — a product decision): `duration_minutes` defaults to 60
+    and a `CheckConstraint` guarantees no other value can ever be stored.
+    The field stays on the model rather than hardcoding the choices in
     `scheduling/slots.py` so the model is the single source of truth the
-    slot-generation loop reads. A fixed single-column constant is exactly
-    what a DB `CheckConstraint` is for.
+    slot-generation loop reads. A small closed value set is exactly what a
+    DB `CheckConstraint` is for.
     """
 
-    FIXED_DURATION_MINUTES = 60
+    DURATION_CHOICES_MINUTES = (30, 60)
+    DEFAULT_DURATION_MINUTES = 60
 
     provider = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -109,7 +111,7 @@ class AppointmentType(models.Model):
         related_name="appointment_types",
     )
     name = models.CharField(max_length=100)
-    duration_minutes = models.PositiveIntegerField(default=FIXED_DURATION_MINUTES)
+    duration_minutes = models.PositiveIntegerField(default=DEFAULT_DURATION_MINUTES)
 
     owner_field_name = "provider"
 
@@ -120,8 +122,8 @@ class AppointmentType(models.Model):
                 fields=["provider", "name"], name="unique_appointment_type_name_per_provider"
             ),
             models.CheckConstraint(
-                condition=Q(duration_minutes=60),
-                name="appointment_type_duration_is_60",
+                condition=Q(duration_minutes__in=[30, 60]),
+                name="appointment_type_duration_in_30_60",
             ),
         ]
 

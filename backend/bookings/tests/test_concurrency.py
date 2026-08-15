@@ -45,6 +45,8 @@ from audit.tests.helpers import login_as
 from bookings.models import Booking
 from scheduling.models import AppointmentType, Availability
 
+from .helpers import BookingsAPITestCase
+
 User = get_user_model()
 
 CONCURRENT_REQUESTS = 10
@@ -487,3 +489,189 @@ class ConcurrentRescheduleVersusFreshBookingTests(TransactionTestCase):
             Booking.Status.CANCELLED if reschedule_won else Booking.Status.CONFIRMED
         )
         self.assertEqual(self.original_booking.status, expected_original_status)
+
+
+class MixedDurationConcurrentBookingTests(TransactionTestCase):
+    """The race the exclusion constraints exist for. With a single
+    60-minute duration on an aligned grid, any true overlap implies an
+    identical `start_time`, so the partial unique indexes fully backstop
+    the "two brand-new rows, nothing to lock yet" race the classes above
+    exercise. With mixed 30/60 durations that stops being true: a
+    60-minute booking at 09:00 and a 30-minute booking at 09:30 overlap
+    *without* sharing a start_time -- Layer 1's `select_for_update` finds
+    nothing committed to lock on either side, and neither unique index
+    objects. Only `no_overlapping_active_booking_per_provider` (the
+    btree_gist exclusion constraint over `TSTZRANGE(start_time,
+    end_time)`) refuses the second insert. Dropping that constraint makes
+    this test fail with two committed 201s -- verified once during its
+    development.
+    """
+
+    def setUp(self):
+        self.provider = User.objects.create_user(
+            email="mixed-duration-provider@example.com",
+            password=TEST_PASSWORD,
+            role=User.Role.PROVIDER,
+            timezone="UTC",
+        )
+        # One working hour: exactly enough room for either the single
+        # 60-minute slot or two 30-minute ones -- the two racing requests
+        # below are each individually valid against it.
+        Availability.objects.create(
+            provider=self.provider, day_of_week=0, start_time="09:00", end_time="10:00"
+        )
+        self.hour_type = AppointmentType.objects.create(
+            provider=self.provider, name="Follow-up", duration_minutes=60
+        )
+        self.half_hour_type = AppointmentType.objects.create(
+            provider=self.provider, name="Quick check", duration_minutes=30
+        )
+        # 2026-08-17 is a Monday, matching day_of_week=0 above.
+        self.window_start = datetime(2026, 8, 17, 9, 0, tzinfo=dt_timezone.utc)
+        self.window_end = datetime(2026, 8, 17, 10, 0, tzinfo=dt_timezone.utc)
+
+        self.clients = []
+        for i in range(2):
+            patient = User.objects.create_user(
+                email=f"mixed-duration-patient{i}@example.com",
+                password=TEST_PASSWORD,
+                role=User.Role.PATIENT,
+            )
+            client = Client()
+            login_as(client, patient)
+            self.clients.append(client)
+
+    def _book(self, client, appointment_type, start_time_iso, barrier, results, index):
+        try:
+            barrier.wait(timeout=30)
+            results[index] = client.post(
+                "/bookings",
+                {
+                    "provider_id": self.provider.id,
+                    "appointment_type_id": appointment_type.id,
+                    "start_time": start_time_iso,
+                },
+                content_type="application/json",
+                **AJAX_HEADERS,
+            )
+        except Exception as exc:  # surfaced to the main thread's assertions below, not swallowed
+            results[index] = exc
+        finally:
+            connection.close()
+
+    def test_a_60_minute_and_an_overlapping_30_minute_booking_have_exactly_one_winner(self):
+        barrier = threading.Barrier(2)
+        results = [None, None]
+        threads = [
+            threading.Thread(
+                target=self._book,
+                args=(
+                    self.clients[0],
+                    self.hour_type,
+                    "2026-08-17T09:00:00Z",
+                    barrier,
+                    results,
+                    0,
+                ),
+            ),
+            threading.Thread(
+                target=self._book,
+                args=(
+                    self.clients[1],
+                    self.half_hour_type,
+                    "2026-08-17T09:30:00Z",
+                    barrier,
+                    results,
+                    1,
+                ),
+            ),
+        ]
+
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=30)
+
+        for thread in threads:
+            self.assertFalse(thread.is_alive(), "a concurrent booking request hung")
+        for index, result in enumerate(results):
+            self.assertNotIsInstance(result, Exception, f"thread {index} raised: {result!r}")
+
+        statuses = [result.status_code for result in results]
+        # The critical assertion: never a hang, never a 500, never two
+        # committed overlapping bookings -- exactly one 201, the other a
+        # clean 409, whichever thread happens to win.
+        self.assertEqual(sorted(statuses), [201, 409], statuses)
+
+        overlapping_active = Booking.objects.filter(
+            provider=self.provider,
+            status__in=Booking.ACTIVE_STATUSES,
+            start_time__lt=self.window_end,
+            end_time__gt=self.window_start,
+        )
+        self.assertEqual(overlapping_active.count(), 1)
+        winner = overlapping_active.get()
+        self.assertEqual(winner.status, Booking.Status.CONFIRMED)
+        winning_response = next(r for r in results if r.status_code == 201)
+        self.assertEqual(winning_response.json()["id"], winner.id)
+
+
+class MixedDurationSerialOverlapTests(BookingsAPITestCase):
+    """The serial (non-race) half of the mixed-duration overlap rule: with
+    a 60-minute booking already committed at 09:00, the 30-minute type's
+    09:30 slot is neither offered by `GET /scheduling/slots` nor bookable
+    through `POST /bookings` -- Layer 1 and the slot feed's busy-interval
+    fold are both overlap-based, not start-time-based.
+    """
+
+    def setUp(self):
+        self.provider, self.hour_type = self.setup_bookable_provider(timezone="UTC")
+        self.half_hour_type = AppointmentType.objects.create(
+            provider=self.provider, name="Quick check", duration_minutes=30
+        )
+        self.booked_patient = self.create_patient(email="booked-patient@example.com")
+        self.other_patient = self.create_patient(email="other-patient@example.com")
+        # 2026-08-17 is a Monday, matching setup_bookable_provider's
+        # 09:00-17:00 Monday window.
+        self.make_booking(
+            provider=self.provider,
+            patient=self.booked_patient,
+            appointment_type=self.hour_type,
+            start_time=datetime(2026, 8, 17, 9, 0, tzinfo=dt_timezone.utc),
+        )
+
+    def test_the_slot_feed_never_offers_a_30_minute_slot_inside_a_60_minute_booking(self):
+        self.login_as(self.other_patient)
+
+        response = self.client.get(
+            "/scheduling/slots",
+            {
+                "provider_id": self.provider.id,
+                "appointment_type_id": self.half_hour_type.id,
+                "date_from": "2026-08-17",
+                "date_to": "2026-08-17",
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        starts = [slot["start"] for slot in response.json()["slots"]]
+        self.assertNotIn("2026-08-17T09:00:00Z", starts)
+        self.assertNotIn("2026-08-17T09:30:00Z", starts)
+        # The hour after the 60-minute booking is untouched: both of its
+        # 30-minute slots are still offered.
+        self.assertIn("2026-08-17T10:00:00Z", starts)
+        self.assertIn("2026-08-17T10:30:00Z", starts)
+
+    def test_booking_a_30_minute_slot_inside_a_60_minute_booking_is_rejected(self):
+        self.login_as(self.other_patient)
+
+        response = self.post_booking(
+            provider=self.provider,
+            appointment_type=self.half_hour_type,
+            start_time="2026-08-17T09:30:00Z",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            Booking.objects.filter(patient=self.other_patient).count(), 0
+        )

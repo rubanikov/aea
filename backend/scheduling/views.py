@@ -14,7 +14,11 @@ from audit.permissions import IsOwnerOrAdmin
 from audit.services import record_audit_event
 from bookings.models import Booking
 
-from .collisions import find_blocked_time_collisions, find_schedule_collisions
+from .collisions import (
+    find_blocked_time_collisions,
+    find_duration_change_collisions,
+    find_schedule_collisions,
+)
 from .models import AppointmentType, Availability, BlockedTime
 from .schedule import (
     EFFECTIVE_FROM_ERROR,
@@ -279,7 +283,18 @@ class AppointmentTypeListCreateView(APIView):
 
 
 class AppointmentTypeDetailView(APIView):
-    """`PATCH`/`DELETE /scheduling/appointment-types/<id>`."""
+    """`PATCH`/`DELETE /scheduling/appointment-types/<id>`.
+
+    A `PATCH` that changes `duration_minutes` while the type has future
+    active bookings is refused with `409 {detail, collisions}` -- the same
+    never-silently-strand rule as `ProviderScheduleView`'s hours edit and
+    `BlockedTimeListCreateView`'s create: those bookings were made on the
+    old slot grid, and a changed grid may no longer contain their start
+    times. The provider resolves it themselves (cancel/reschedule the
+    listed bookings, or wait them out) and retries; renames are never
+    blocked. An accepted duration change writes one audit entry recording
+    the old and new lengths.
+    """
 
     permission_classes = [IsOwnerOrAdmin]
 
@@ -289,11 +304,38 @@ class AppointmentTypeDetailView(APIView):
 
         serializer = AppointmentTypeSerializer(appointment_type, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
+
+        old_duration = appointment_type.duration_minutes
+        new_duration = serializer.validated_data.get("duration_minutes")
+        duration_changing = new_duration is not None and new_duration != old_duration
+        if duration_changing:
+            collisions = find_duration_change_collisions(appointment_type)
+            if collisions:
+                return Response(
+                    {
+                        "detail": (
+                            "This appointment type has upcoming booked appointments "
+                            "at its current length. Cancel or reschedule them before "
+                            "changing the slot length."
+                        ),
+                        "collisions": BookingCollisionSerializer(collisions, many=True).data,
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
         try:
             serializer.save()
         except IntegrityError:
             return Response(DUPLICATE_APPOINTMENT_TYPE_RESPONSE, status=status.HTTP_400_BAD_REQUEST)
 
+        if duration_changing:
+            record_audit_event(
+                actor=request.user,
+                action="update:appointment_type_duration",
+                target_type="appointmenttype",
+                target_id=appointment_type.id,
+                metadata={"duration_from": old_duration, "duration_to": new_duration},
+            )
         logger.info("appointment type updated id=%s provider_id=%s", pk, request.user.id)
         return Response(serializer.data)
 
@@ -517,10 +559,13 @@ class SlotsView(APIView):
                 end_time__gt=padded_start,
             )
         ]
-        # A patient already holding an hour (with any provider) cannot be
-        # offered that same hour here -- one appointment per hour block,
-        # both axes. Other roles browsing this feed are not occupying a
-        # patient chair, so they still see the provider's raw open slots.
+        # A patient already holding an overlapping booking (with any
+        # provider) cannot be offered a slot that collides with it -- no
+        # overlapping appointments, both axes. Overlap-based rather than
+        # start-time-based, so a patient with a 60-minute 09:00 booking is
+        # never shown another provider's 09:30 30-minute slot. Other roles
+        # browsing this feed are not occupying a patient chair, so they
+        # still see the provider's raw open slots.
         if request.user.role == User.Role.PATIENT:
             busy_intervals += [
                 (booking.start_time, booking.end_time)

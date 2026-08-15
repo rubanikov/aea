@@ -11,11 +11,11 @@ vi.mock("next/navigation", () => ({
 
 const TYPES_PATH = "/scheduling/appointment-types";
 
-// `duration_minutes` is server-fixed at 60 for every type (appointments
-// are one-hour slots); it's display-only on this screen.
+// `duration_minutes` is a per-type provider choice of 30 or 60; the mixed
+// pair here exercises both display labels.
 const SAMPLE_TYPES = [
   { id: 1, name: "New Patient Visit", duration_minutes: 60 },
-  { id: 2, name: "Follow-up", duration_minutes: 60 },
+  { id: 2, name: "Follow-up", duration_minutes: 30 },
 ];
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -96,12 +96,13 @@ describe("AppointmentTypesSection", () => {
     expect(screen.getByRole("button", { name: "Add type" })).toBeInTheDocument();
   });
 
-  it("renders each appointment type with the fixed 60-minute duration and disambiguating row actions", async () => {
+  it("renders each appointment type with its own chosen slot length and disambiguating row actions", async () => {
     mockFetchRouter({ [TYPES_PATH]: () => jsonResponse(SAMPLE_TYPES) });
     render(<AppointmentTypesSection />);
 
     expect(await screen.findByText("New Patient Visit")).toBeInTheDocument();
-    expect(screen.getAllByText("60 minutes")).toHaveLength(2);
+    expect(screen.getByText("60 minutes")).toBeInTheDocument();
+    expect(screen.getByText("30 minutes")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Remove New Patient Visit appointment type" })
     ).toBeInTheDocument();
@@ -123,7 +124,7 @@ describe("AppointmentTypesSection", () => {
     expect(screen.queryByText(/america\/new_york/i)).not.toBeInTheDocument();
   });
 
-  it("adds a new appointment type: opens the name-only form focused, validates the name inline, then POSTs and shows the new row", async () => {
+  it("adds a new appointment type: opens the form focused with 60 minutes preselected, validates the name inline, then POSTs and shows the new row", async () => {
     const fetchMock = mockFetchRouter({
       [TYPES_PATH]: (init) => {
         if (!init || (init.method ?? "GET") === "GET") {
@@ -131,9 +132,7 @@ describe("AppointmentTypesSection", () => {
         }
         if (init.method === "POST") {
           const body = JSON.parse(init.body as string);
-          // The server sets the fixed duration itself; the client sends
-          // only the name.
-          return jsonResponse({ id: 3, duration_minutes: 60, ...body }, 201);
+          return jsonResponse({ id: 3, ...body }, 201);
         }
         throw new Error("unexpected call");
       },
@@ -143,8 +142,9 @@ describe("AppointmentTypesSection", () => {
 
     await user.click(await screen.findByRole("button", { name: "+ Add type" }));
     expect(screen.getByLabelText("Name")).toHaveFocus();
-    // No duration field anymore: every appointment is a fixed 60-minute slot.
-    expect(screen.queryByLabelText("Duration")).not.toBeInTheDocument();
+    // The slot-length radios: the server default (60) starts selected.
+    expect(screen.getByRole("radio", { name: "60 minutes" })).toBeChecked();
+    expect(screen.getByRole("radio", { name: "30 minutes" })).not.toBeChecked();
 
     await user.click(screen.getByRole("button", { name: "Add type" }));
     expect(screen.getByText("Name is required")).toBeInTheDocument();
@@ -153,17 +153,49 @@ describe("AppointmentTypesSection", () => {
     await user.click(screen.getByRole("button", { name: "Add type" }));
 
     expect(await screen.findByText("Lab Review")).toBeInTheDocument();
-    expect(screen.getAllByText("60 minutes")).toHaveLength(3);
+    expect(screen.getAllByText("60 minutes")).toHaveLength(2);
 
     const postCall = fetchMock.mock.calls.find(
       ([, init]) => (init as RequestInit | undefined)?.method === "POST"
     );
     expect(
       JSON.parse((postCall?.[1] as RequestInit).body as string)
-    ).toEqual({ name: "Lab Review" });
+    ).toEqual({ name: "Lab Review", duration_minutes: 60 });
   });
 
-  it("edits an appointment type inline: prefilled name, PATCHes on save, and updates the row", async () => {
+  it("adds a 30-minute appointment type when the 30-minute slot length is selected", async () => {
+    const fetchMock = mockFetchRouter({
+      [TYPES_PATH]: (init) => {
+        if (!init || (init.method ?? "GET") === "GET") {
+          return jsonResponse([]);
+        }
+        if (init.method === "POST") {
+          const body = JSON.parse(init.body as string);
+          return jsonResponse({ id: 3, ...body }, 201);
+        }
+        throw new Error("unexpected call");
+      },
+    });
+    const user = userEvent.setup();
+    render(<AppointmentTypesSection />);
+
+    await user.click(await screen.findByRole("button", { name: "Add type" }));
+    await user.type(screen.getByLabelText("Name"), "Quick Check");
+    await user.click(screen.getByRole("radio", { name: "30 minutes" }));
+    await user.click(screen.getByRole("button", { name: "Add type" }));
+
+    expect(await screen.findByText("Quick Check")).toBeInTheDocument();
+    expect(screen.getByText("30 minutes")).toBeInTheDocument();
+
+    const postCall = fetchMock.mock.calls.find(
+      ([, init]) => (init as RequestInit | undefined)?.method === "POST"
+    );
+    expect(
+      JSON.parse((postCall?.[1] as RequestInit).body as string)
+    ).toEqual({ name: "Quick Check", duration_minutes: 30 });
+  });
+
+  it("edits an appointment type inline: prefilled name and slot length, PATCHes on save, and updates the row", async () => {
     const fetchMock = mockFetchRouter({
       [TYPES_PATH]: (init) => {
         if (!init || (init.method ?? "GET") === "GET") {
@@ -174,7 +206,7 @@ describe("AppointmentTypesSection", () => {
       [`${TYPES_PATH}/2`]: (init) => {
         if (init?.method === "PATCH") {
           const body = JSON.parse(init.body as string);
-          return jsonResponse({ id: 2, duration_minutes: 60, ...body });
+          return jsonResponse({ id: 2, ...body });
         }
         throw new Error("unexpected call");
       },
@@ -188,10 +220,11 @@ describe("AppointmentTypesSection", () => {
 
     const nameInput = screen.getByLabelText("Name");
     expect(nameInput).toHaveValue("Follow-up");
-    // No duration field anymore: every appointment is a fixed 60-minute slot.
-    expect(screen.queryByLabelText("Duration")).not.toBeInTheDocument();
+    // The row's own slot length (30, per SAMPLE_TYPES) starts selected.
+    expect(screen.getByRole("radio", { name: "30 minutes" })).toBeChecked();
     await user.clear(nameInput);
     await user.type(nameInput, "Quick Follow-up");
+    await user.click(screen.getByRole("radio", { name: "60 minutes" }));
     await user.click(screen.getByRole("button", { name: "Save" }));
 
     expect(await screen.findByText("Quick Follow-up")).toBeInTheDocument();
@@ -201,7 +234,64 @@ describe("AppointmentTypesSection", () => {
     );
     expect(
       JSON.parse((patchCall?.[1] as RequestInit).body as string)
-    ).toEqual({ name: "Quick Follow-up" });
+    ).toEqual({ name: "Quick Follow-up", duration_minutes: 60 });
+  });
+
+  it("shows a specific message with the affected count when a slot-length change is refused (409)", async () => {
+    mockFetchRouter({
+      [TYPES_PATH]: (init) => {
+        if (!init || (init.method ?? "GET") === "GET") {
+          return jsonResponse(SAMPLE_TYPES);
+        }
+        throw new Error("unexpected call to the collection endpoint");
+      },
+      [`${TYPES_PATH}/2`]: (init) => {
+        if (init?.method === "PATCH") {
+          // `AppointmentTypeDetailView.patch`'s duration-collision body.
+          return jsonResponse(
+            {
+              detail:
+                "This appointment type has upcoming booked appointments at its current length.",
+              collisions: [
+                {
+                  id: 7,
+                  start_time: "2026-08-24T13:00:00Z",
+                  end_time: "2026-08-24T13:30:00Z",
+                  patient_name: "Pat Doe",
+                  appointment_type_name: "Follow-up",
+                  status: "confirmed",
+                },
+                {
+                  id: 8,
+                  start_time: "2026-08-25T13:00:00Z",
+                  end_time: "2026-08-25T13:30:00Z",
+                  patient_name: "Sam Roe",
+                  appointment_type_name: "Follow-up",
+                  status: "confirmed",
+                },
+              ],
+            },
+            409
+          );
+        }
+        throw new Error("unexpected call");
+      },
+    });
+    const user = userEvent.setup();
+    render(<AppointmentTypesSection />);
+
+    await user.click(
+      await screen.findByRole("button", { name: "Edit Follow-up appointment type" })
+    );
+    await user.click(screen.getByRole("radio", { name: "60 minutes" }));
+    await user.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /can't change the slot length: 2 upcoming appointments/i
+    );
+    // Still in edit mode -- the provider can switch the radio back or
+    // cancel; nothing was silently saved.
+    expect(screen.getByRole("button", { name: "Save" })).toBeInTheDocument();
   });
 
   it("requires confirmation before removing an appointment type, and only DELETEs after confirming", async () => {

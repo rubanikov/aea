@@ -5,6 +5,12 @@
  * ad hoc at every call site.
  */
 
+/**
+ * Browser-facing API origin. Locally this is Django on :8000 (cookies still
+ * work: `localhost` is one host, port is not part of the cookie key). On
+ * Railway it must be *this* Next.js origin so `SameSite=Strict` cookies are
+ * first-party; `next.config.ts` rewrites API paths through to Django.
+ */
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 

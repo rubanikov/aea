@@ -78,6 +78,11 @@ export function LoginForm({ initialEmail = "" }: LoginFormProps) {
         setFormError(
           "Too many attempts — please wait a moment and try again."
         );
+      } else if (
+        error instanceof Error &&
+        error.message.includes("no session was established")
+      ) {
+        setFormError("Couldn't start a session — please try again.");
       } else {
         setFormError("Something went wrong — please try again.");
       }

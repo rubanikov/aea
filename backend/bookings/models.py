@@ -13,10 +13,25 @@ views-to-models edge, not a models-to-models cycle.
 """
 
 from django.conf import settings
+from django.contrib.postgres.constraints import ExclusionConstraint
+from django.contrib.postgres.fields import DateTimeRangeField, RangeOperators
 from django.db import models
-from django.db.models import F, Q
+from django.db.models import F, Func, Q
 
 from scheduling.models import AppointmentType
+
+
+class TsTzRange(Func):
+    """`TSTZRANGE(start, end)` -- builds a Postgres timestamptz range for
+    the exclusion constraints below. TSTZRANGE's default bounds are `[)`
+    (start-inclusive, end-exclusive), exactly the half-open interval
+    convention every overlap check in this codebase already uses
+    (`start_time__lt` / `end_time__gt`), so back-to-back bookings never
+    read as overlapping.
+    """
+
+    function = "TSTZRANGE"
+    output_field = DateTimeRangeField()
 
 
 class Booking(models.Model):
@@ -36,9 +51,9 @@ class Booking(models.Model):
         NO_SHOW = "no_show", "No-show"
 
     # The statuses that still occupy a slot -- what the concurrency guard
-    # (`bookings.services.create_booking`'s Layer 1 query) and the partial
-    # unique constraints below both treat as "blocking." One active booking
-    # per hour block, for the provider *and* for the patient.
+    # (`bookings.services.create_booking`'s Layer 1 query) and the DB
+    # constraints below both treat as "blocking." No overlapping active
+    # bookings, for the provider *and* for the patient.
     # `CANCELLED`/`COMPLETED`/`NO_SHOW` bookings never block a slot.
     ACTIVE_STATUSES = [Status.REQUESTED, Status.CONFIRMED]
 
@@ -93,11 +108,16 @@ class Booking(models.Model):
         ordering = ["-start_time"]
         constraints = [
             # Layer 2 (architecture.md §3) -- the unconditional DB
-            # backstop. Independent of Layer 1's `select_for_update` query
-            # in `bookings.services.create_booking` being correct: even a
-            # bug there can't commit two active bookings for the same
+            # backstop for the *identical-start* case: even a bug in
+            # Layer 1 can't commit two active bookings for the same
             # provider + exact start time, because Postgres's own partial
-            # unique index physically refuses the second insert.
+            # unique index physically refuses the second insert. With a
+            # single 60-minute duration on an aligned grid this was the
+            # whole story (any true overlap implied an identical
+            # start_time); with mixed 30/60 durations it no longer is --
+            # the exclusion constraints below carry the general overlap
+            # case, and these stay as cheap, self-documenting guards for
+            # the exact-start special case.
             models.UniqueConstraint(
                 fields=["provider", "start_time"],
                 condition=Q(status__in=["requested", "confirmed"]),
@@ -105,14 +125,41 @@ class Booking(models.Model):
             ),
             # Mirror of the provider constraint on the patient axis: a
             # patient cannot sit in two chairs at the same start time,
-            # even across different providers. Appointments are a fixed
-            # 60-minute hour grid, so identical `start_time` *is* the
-            # hour block. Layer 1 still checks general overlap; this is
-            # the race-losing insert backstop.
+            # even across different providers.
             models.UniqueConstraint(
                 fields=["patient", "start_time"],
                 condition=Q(status__in=["requested", "confirmed"]),
                 name="unique_active_booking_per_patient_slot",
+            ),
+            # Layer 2's general form, required once 30- and 60-minute
+            # types coexist: a 60-minute booking at 09:00 and a 30-minute
+            # one at 09:30 overlap *without* sharing a start_time, so two
+            # such inserts racing (nothing committed yet for Layer 1's
+            # `select_for_update` to lock, and no identical start for the
+            # unique indexes to refuse) would both land. A btree_gist
+            # exclusion constraint on (provider, [start, end)) makes
+            # Postgres itself refuse the second overlapping active insert,
+            # whatever the two spans' shapes.
+            ExclusionConstraint(
+                name="no_overlapping_active_booking_per_provider",
+                expressions=[
+                    (TsTzRange("start_time", "end_time"), RangeOperators.OVERLAPS),
+                    ("provider", RangeOperators.EQUAL),
+                ],
+                condition=Q(status__in=["requested", "confirmed"]),
+            ),
+            # Same guard on the patient axis: a patient must never hold
+            # two overlapping active bookings, even with two different
+            # providers -- the generalization of
+            # `unique_active_booking_per_patient_slot`'s one-per-start
+            # rule to mixed durations.
+            ExclusionConstraint(
+                name="no_overlapping_active_booking_per_patient",
+                expressions=[
+                    (TsTzRange("start_time", "end_time"), RangeOperators.OVERLAPS),
+                    ("patient", RangeOperators.EQUAL),
+                ],
+                condition=Q(status__in=["requested", "confirmed"]),
             ),
             models.CheckConstraint(
                 condition=Q(start_time__lt=F("end_time")), name="booking_start_before_end"

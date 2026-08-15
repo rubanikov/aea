@@ -13,8 +13,8 @@ vi.mock("next/navigation", () => ({
 const BOOKINGS_PATH = "/bookings";
 
 const PROVIDER = { id: 1, name: "Dr. Amara Osei", timezone: "America/New_York" };
-// `duration_minutes` is server-fixed at 60: every appointment is a
-// one-hour slot.
+// `duration_minutes` is a per-type provider choice of 30 or 60; these
+// fixtures use 60-minute types.
 const APPOINTMENT_TYPE = { id: 10, name: "Annual Physical", duration_minutes: 60 };
 // 14:00 UTC = 9:00am America/Chicago (CDT) = 10:00am America/New_York (EDT).
 const SLOT = { start: "2026-08-18T14:00:00.000Z", end: "2026-08-18T15:00:00.000Z" };

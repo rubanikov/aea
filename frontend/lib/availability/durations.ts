@@ -1,9 +1,21 @@
 /**
- * Duration display helpers. Every appointment is a fixed 60-minute slot —
- * the server always returns `duration_minutes: 60` and there is no picker
- * anymore — but display still renders whatever the API sends rather than
- * hardcoding "60", so these stay simple value-in, label-out formatters.
+ * Slot-length choices and duration display helpers. Every appointment
+ * type is either a 30- or a 60-minute slot — a provider choice made per
+ * type (`SLOT_DURATION_OPTIONS` mirrors the backend's
+ * `AppointmentType.DURATION_CHOICES_MINUTES` and its DB
+ * `CheckConstraint`). Display still renders whatever the API sends rather
+ * than hardcoding either value, so the formatters stay simple value-in,
+ * label-out functions.
  */
+
+/** The two slot lengths a provider can choose for an appointment type. */
+export const SLOT_DURATION_OPTIONS = [30, 60] as const;
+
+export type SlotDuration = (typeof SLOT_DURATION_OPTIONS)[number];
+
+/** The backend's default when no duration is sent — used to seed the
+ * create form's radio group. */
+export const DEFAULT_SLOT_DURATION: SlotDuration = 60;
 
 /** Renders a duration for display, e.g. `60` -> `"60 minutes"`. */
 export function formatDuration(minutes: number): string {

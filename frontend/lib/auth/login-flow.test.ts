@@ -74,15 +74,16 @@ describe("redirectToRoleHome", () => {
     expect(push).toHaveBeenCalledWith("/provider");
   });
 
-  it("falls back to /login when no session is found", async () => {
+  it("throws rather than silently returning to /login when no session is found", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(new Response("", { status: 401 }))
     );
     const push = vi.fn();
 
-    await redirectToRoleHome({ push });
-
-    expect(push).toHaveBeenCalledWith("/login");
+    await expect(redirectToRoleHome({ push })).rejects.toThrow(
+      /no session was established/
+    );
+    expect(push).not.toHaveBeenCalled();
   });
 });

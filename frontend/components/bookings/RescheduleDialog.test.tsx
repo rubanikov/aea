@@ -44,8 +44,8 @@ const BOOKING: PatientBooking = {
   cancellation_reason: "",
 };
 
-// `duration_minutes` is server-fixed at 60: every appointment is a
-// one-hour slot.
+// `duration_minutes` is a per-type provider choice of 30 or 60; these
+// fixtures use 60-minute types.
 const APPOINTMENT_TYPES = [
   { id: 77, name: "Annual Physical", duration_minutes: 60 },
   { id: 78, name: "Follow-up", duration_minutes: 60 },

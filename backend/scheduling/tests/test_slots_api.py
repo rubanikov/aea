@@ -98,22 +98,39 @@ class SlotsEndpointTests(SchedulingAPITestCase):
 
         self.assertEqual(response.status_code, 400)
 
-    def test_every_type_produces_the_same_fixed_hourly_grid_via_the_api(self):
-        # Every appointment is a fixed 60-minute slot now -- a second type
-        # is just another name over the exact same hourly grid.
+    def test_a_60_minute_type_and_a_30_minute_type_each_produce_their_own_grid(self):
+        # Two saved types on the same provider/day: the 60-minute one
+        # yields the hourly grid, the 30-minute one twice as many slots on
+        # :00/:30 boundaries -- through the real API, against real rows,
+        # now that the DB admits both durations.
         Availability.objects.create(
             provider=self.provider, day_of_week=0, start_time="09:00", end_time="17:00"
         )
-        other_type = AppointmentType.objects.create(
-            provider=self.provider, name="Quick Check"
+        half_hour_type = AppointmentType.objects.create(
+            provider=self.provider, name="Quick Check", duration_minutes=30
         )
         self.login_as(self.patient)
 
-        first_response = self._query(date_to="2026-08-17")
-        second_response = self._query(appointment_type_id=other_type.id, date_to="2026-08-17")
+        hourly_response = self._query(date_to="2026-08-17")
+        half_hour_response = self._query(
+            appointment_type_id=half_hour_type.id, date_to="2026-08-17"
+        )
 
-        self.assertEqual(len(first_response.json()["slots"]), 8)
-        self.assertEqual(first_response.json()["slots"], second_response.json()["slots"])
+        hourly = hourly_response.json()["slots"]
+        self.assertEqual(len(hourly), 8)
+        self.assertEqual(hourly[0]["start"], "2026-08-17T09:00:00Z")
+        self.assertEqual(hourly[0]["end"], "2026-08-17T10:00:00Z")
+
+        half_hour = half_hour_response.json()["slots"]
+        self.assertEqual(len(half_hour), 16)
+        self.assertEqual(half_hour[0]["start"], "2026-08-17T09:00:00Z")
+        self.assertEqual(half_hour[0]["end"], "2026-08-17T09:30:00Z")
+        self.assertEqual(half_hour[1]["start"], "2026-08-17T09:30:00Z")
+        self.assertEqual(half_hour[1]["end"], "2026-08-17T10:00:00Z")
+        # Every start sits on a :00 or :30 boundary.
+        self.assertTrue(
+            all(slot["start"].endswith((":00:00Z", ":30:00Z")) for slot in half_hour)
+        )
 
 
 class BlockedTimeExclusionTests(SchedulingAPITestCase):
@@ -292,6 +309,35 @@ class BookingExclusionTests(SchedulingAPITestCase):
         starts = [slot["start"] for slot in response.json()["slots"]]
         self.assertEqual(len(starts), 7)
         self.assertNotIn("2026-08-17T12:00:00Z", starts)
+
+    def test_a_patients_60_minute_booking_elsewhere_hides_an_overlapping_30_minute_slot(self):
+        # Mixed durations on the patient axis: this patient holds a
+        # 60-minute 12:00-13:00 booking with another provider, so this
+        # provider's 30-minute type must offer neither 12:00 nor 12:30 --
+        # the busy-interval fold is overlap-based, not start-time-based.
+        other_provider = self.create_provider(email="other@example.com", timezone="UTC")
+        Booking.objects.create(
+            provider=other_provider,
+            patient=self.patient,
+            appointment_type=AppointmentType.objects.create(
+                provider=other_provider, name="Follow-up", duration_minutes=60
+            ),
+            start_time="2026-08-17T12:00:00Z",
+            end_time="2026-08-17T13:00:00Z",
+            status=Booking.Status.CONFIRMED,
+        )
+        half_hour_type = AppointmentType.objects.create(
+            provider=self.provider, name="Quick check", duration_minutes=30
+        )
+        self.login_as(self.patient)
+
+        response = self._query(appointment_type_id=half_hour_type.id)
+
+        starts = [slot["start"] for slot in response.json()["slots"]]
+        self.assertNotIn("2026-08-17T12:00:00Z", starts)
+        self.assertNotIn("2026-08-17T12:30:00Z", starts)
+        self.assertIn("2026-08-17T11:30:00Z", starts)
+        self.assertIn("2026-08-17T13:00:00Z", starts)
 
     def test_another_patients_booking_elsewhere_does_not_hide_this_providers_hour(self):
         other_patient = self.create_patient(email="other-patient@example.com")

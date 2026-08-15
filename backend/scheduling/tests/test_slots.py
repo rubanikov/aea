@@ -88,12 +88,14 @@ class AppointmentTypeDurationTests(SchedulingAPITestCase):
     """A 15-minute Follow-up type produces 15-minute slots even though a
     45-minute New Patient Visit type exists on the same provider/day.
 
-    The product only ever creates 60-minute types now (the DB's
-    `appointment_type_duration_is_60` constraint), but `get_open_slots`
+    The product only ever stores 30- or 60-minute types (the DB's
+    `appointment_type_duration_in_30_60` constraint), but `get_open_slots`
     itself stays duration-agnostic -- it reads whatever
     `appointment_type.duration_minutes` says. These internal unit tests
     keep exercising that generality with *unsaved* instances, which the
-    DB constraint (a persistence rule) never sees."""
+    DB constraint (a persistence rule) never sees; the storable 30-minute
+    case is exercised with saved rows in the DST tests below and through
+    the real API in `test_slots_api.py`."""
 
     def setUp(self):
         self.provider = self.create_provider(timezone="UTC")
@@ -171,8 +173,7 @@ class EmptyStateTests(SchedulingAPITestCase):
 
     def test_no_availability_rows_produces_no_slots(self):
         provider = self.create_provider(timezone="UTC")
-        # Unsaved on purpose -- see AppointmentTypeDurationTests' docstring.
-        appointment_type = AppointmentType(
+        appointment_type = AppointmentType.objects.create(
             provider=provider, name="Follow-up", duration_minutes=30
         )
 
@@ -288,8 +289,10 @@ class DstSpringForwardTests(SchedulingAPITestCase):
             start_time="01:00",
             end_time="04:00",
         )
-        # Unsaved on purpose -- see AppointmentTypeDurationTests' docstring.
-        self.appointment_type = AppointmentType(
+        # A saved row: 30 is one of the two storable durations, so no
+        # unsaved-instance workaround is needed here (contrast
+        # AppointmentTypeDurationTests' 15/45-minute generality checks).
+        self.appointment_type = AppointmentType.objects.create(
             provider=self.provider, name="Follow-up", duration_minutes=30
         )
 
@@ -335,8 +338,8 @@ class DstFallBackTests(SchedulingAPITestCase):
             start_time="00:30",
             end_time="02:30",
         )
-        # Unsaved on purpose -- see AppointmentTypeDurationTests' docstring.
-        self.appointment_type = AppointmentType(
+        # A saved row, same reasoning as DstSpringForwardTests' setUp.
+        self.appointment_type = AppointmentType.objects.create(
             provider=self.provider, name="Follow-up", duration_minutes=30
         )
 
