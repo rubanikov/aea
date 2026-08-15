@@ -23,7 +23,7 @@ backend vars, for the backend) if you need to point at a non-default API URL.
 | `npm run dev` | Start the dev server |
 | `npm run build` | Production build |
 | `npm run start` | Serve a production build |
-| `npm run typecheck` | `tsc --noEmit` |
+| `npm run typecheck` | `next typegen && tsc --noEmit` (route types first, so it works on a clean checkout) |
 | `npm run lint` | ESLint (`eslint-config-next`), fails on any warning |
 | `npm test` | Run the Vitest suite once (CI-friendly) |
 | `npm run test:watch` | Vitest in watch mode, for local dev |
