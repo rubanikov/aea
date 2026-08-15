@@ -1,13 +1,8 @@
 "use client";
 
-import {
-  useEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useAuthenticatedRequest } from "@/hooks/use-authenticated-request";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { ApiError } from "@/lib/api/client";
 import { formatDurationShort } from "@/lib/availability/durations";
 import { zonedDateKey } from "@/lib/availability/timezone";
@@ -15,34 +10,18 @@ import type { AppointmentType } from "@/lib/availability/types";
 import { extractBookingErrorDetail } from "@/lib/bookings/errors";
 import { formatAppointmentDateTime } from "@/lib/bookings/format";
 import type { PatientBooking } from "@/lib/bookings/types";
-import {
-  addMonths,
-  dateKey,
-  formatFullDate,
-  monthGrid,
-  parseDateKey,
-  type YearMonth,
-} from "@/lib/scheduling/calendar";
+import { dateKey, monthGrid, parseDateKey, type YearMonth } from "@/lib/scheduling/calendar";
 import type {
   Provider,
   RescheduledBooking,
   Slot,
   SlotsResponse,
 } from "@/lib/scheduling/types";
-import { groupSlotsByLocalDate } from "@/lib/scheduling/slots";
-import { Calendar } from "../booking/Calendar";
-import { TimeSlotGrid } from "../booking/TimeSlotGrid";
+import { RescheduleSlotPicker } from "./RescheduleSlotPicker";
 
 const PROVIDERS_PATH = "/scheduling/providers";
 const SLOTS_PATH = "/scheduling/slots";
 const HEADING_ID = "reschedule-heading";
-
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-function focusableElements(container: HTMLElement): HTMLElement[] {
-  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
-}
 
 type ConfirmStatus = "form" | "submitting" | "success" | "conflict";
 
@@ -108,10 +87,8 @@ interface RescheduleDialogProps {
  * also gets this dialog `BookingConfirmPanel`'s already-established
  * focus-trap pattern (`role="dialog"`, `aria-modal`, Tab-wrap,
  * Esc/return-focus) for free, the same pattern `CollisionWarningModal`
- * already reuses rather than inventing a third one. The trap itself is
- * duplicated here (not extracted into a shared hook), matching both of
- * those components' own precedent of duplicating it rather than factoring
- * out a generic one.
+ * already reuses rather than inventing a third one; the trap itself is
+ * `useFocusTrap`.
  *
  * One dialog, not two: rather than nesting a second modal for the confirm
  * step (the way the fresh-booking flow splits `SlotBrowser`'s picker from
@@ -152,8 +129,10 @@ export function RescheduleDialog({
   onRescheduled,
 }: RescheduleDialogProps) {
   const authFetch = useAuthenticatedRequest();
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const triggerElementRef = useRef(triggerElement);
+  const { ref: dialogRef, onKeyDown: handleKeyDown } = useFocusTrap<HTMLDivElement>({
+    triggerElement,
+    onEscape: closeOrGoBack,
+  });
 
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [resolveError, setResolveError] = useState<string | null>(null);
@@ -186,20 +165,6 @@ export function RescheduleDialog({
   const visibleMonthKey = effectiveNav
     ? `${effectiveNav.visibleMonth.year}-${effectiveNav.visibleMonth.month}`
     : null;
-
-  useEffect(() => {
-    triggerElementRef.current = triggerElement;
-  }, [triggerElement]);
-
-  useEffect(() => {
-    dialogRef.current?.focus();
-    return () => {
-      const trigger = triggerElementRef.current;
-      if (trigger && document.contains(trigger)) {
-        trigger.focus();
-      }
-    };
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -292,18 +257,6 @@ export function RescheduleDialog({
     });
   }
 
-  function handlePrevMonth() {
-    if (effectiveNav) {
-      goToMonth(addMonths(effectiveNav.visibleMonth, -1));
-    }
-  }
-
-  function handleNextMonth() {
-    if (effectiveNav) {
-      goToMonth(addMonths(effectiveNav.visibleMonth, 1));
-    }
-  }
-
   /** Selecting a different day within the already-loaded month: only the
    * filter changes, so this deliberately doesn't clear or refetch slots. */
   function handleSelectDate(nextDateKey: string) {
@@ -388,38 +341,6 @@ export function RescheduleDialog({
       return;
     }
     onClose();
-  }
-
-  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape") {
-      event.stopPropagation();
-      closeOrGoBack();
-      return;
-    }
-    if (event.key !== "Tab") {
-      return;
-    }
-    const dialog = dialogRef.current;
-    if (!dialog) {
-      return;
-    }
-    const focusable = focusableElements(dialog);
-    if (focusable.length === 0) {
-      event.preventDefault();
-      return;
-    }
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    const active = document.activeElement;
-    if (event.shiftKey) {
-      if (active === first || !dialog.contains(active)) {
-        event.preventDefault();
-        last.focus();
-      }
-    } else if (active === last || !dialog.contains(active)) {
-      event.preventDefault();
-      first.focus();
-    }
   }
 
   const currentRange = formatAppointmentDateTime(
@@ -552,71 +473,22 @@ export function RescheduleDialog({
       );
     } else if (!schedule || !effectiveNav) {
       body = <p className="text-sm text-muted-foreground">Loading rescheduling options…</p>;
-    } else if (slotsError) {
-      body = (
-        <div className="flex flex-col items-start gap-2">
-          <p role="alert" className="text-sm text-danger-text">
-            {slotsError}
-          </p>
-          <button
-            type="button"
-            onClick={retrySlots}
-            className="rounded border border-border-strong px-3 py-1.5 text-sm font-medium hover:bg-accent"
-          >
-            Try again
-          </button>
-        </div>
-      );
-    } else if (slotsResponse === null) {
-      body = <p className="text-sm text-muted-foreground">Loading open slots…</p>;
-    } else if (!slotsResponse.bookable) {
-      body = (
-        <p
-          role="status"
-          className="rounded border border-dashed border-border-strong p-4 text-sm text-muted-foreground"
-        >
-          {slotsResponse.reason ?? "This provider doesn't have any open availability right now."}
-        </p>
-      );
     } else {
-      // Same clock as `SlotBrowser` and as the provider's own calendar --
-      // the provider's, never the patient's browser zone (see
-      // `SlotBrowser`'s docstring).
-      const slotsByDate = groupSlotsByLocalDate(slotsResponse.slots, schedule.timeZone);
-      const datesWithSlots = new Set(slotsByDate.keys());
-      const selectedDaySlots = slotsByDate.get(effectiveNav.selectedDateKey) ?? [];
-      const { year, month, day } = parseDateKey(effectiveNav.selectedDateKey);
-      const selectedDateLabel = formatFullDate(year, month, day);
-
       body = (
-        <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
-          <Calendar
-            visibleMonth={effectiveNav.visibleMonth}
-            selectedDateKey={effectiveNav.selectedDateKey}
-            todayKey={todayKey ?? effectiveNav.selectedDateKey}
-            datesWithSlots={datesWithSlots}
-            onSelectDate={handleSelectDate}
-            onPrevMonth={handlePrevMonth}
-            onNextMonth={handleNextMonth}
-          />
-          <div className="flex flex-col gap-3">
-            <p className="text-sm text-muted-foreground">
-              Dates and times shown in {booking.provider_name}&apos;s timezone:{" "}
-              <strong>{schedule.timeZone}</strong>
-              {patientTimeZone === schedule.timeZone
-                ? " (your timezone too)"
-                : ` — yours is ${patientTimeZone}`}
-            </p>
-            <TimeSlotGrid
-              slots={selectedDaySlots}
-              scheduleTimeZone={schedule.timeZone}
-              viewerTimeZone={patientTimeZone}
-              selectedDateLabel={selectedDateLabel}
-              isToday={effectiveNav.selectedDateKey === todayKey}
-              onSelectSlot={handleSelectSlot}
-            />
-          </div>
-        </div>
+        <RescheduleSlotPicker
+          providerName={booking.provider_name}
+          timeZone={schedule.timeZone}
+          patientTimeZone={patientTimeZone}
+          visibleMonth={effectiveNav.visibleMonth}
+          selectedDateKey={effectiveNav.selectedDateKey}
+          todayKey={todayKey}
+          slotsResponse={slotsResponse}
+          slotsError={slotsError}
+          onRetry={retrySlots}
+          onChangeMonth={goToMonth}
+          onSelectDate={handleSelectDate}
+          onSelectSlot={handleSelectSlot}
+        />
       );
     }
 
