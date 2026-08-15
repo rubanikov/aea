@@ -1,6 +1,6 @@
 """Issues, rotates and delivers the JWT pair as httpOnly cookies.
 
-Cookie names (part of the API contract — see this ticket's summary):
+Cookie names (part of the API contract):
   - `access_token`  — short-lived (15 min), sent on every request, path=/
   - `refresh_token` — longer-lived (7 days), only sent to /auth/*, path=/auth
 

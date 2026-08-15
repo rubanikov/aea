@@ -39,35 +39,32 @@ from .transitions import transition
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
-# Transport for this ticket's double-submit dedup key (point 4): a plain
-# request header, not a body field -- a naive retry that resubmits the
-# identical JSON body still carries the same key automatically, with no
-# extra work by the client beyond generating it once. The frontend
+# A header, not a body field, so a naive retry that resubmits the identical
+# JSON body still carries the same key automatically. The frontend
 # generates one key (e.g. `crypto.randomUUID()`) when the booking-confirm
 # panel opens and resends that same value on every retry of that attempt.
 IDEMPOTENCY_KEY_HEADER = "Idempotency-Key"
 
 # Matches `Booking.idempotency_key`'s `max_length` -- rejected up front with
 # a clean 400 rather than surfacing a raw `DataError` out of Postgres's own
-# `varchar(255)` limit (project.md's "oversized requests are rejected with
-# clear errors, never an unhandled 500").
+# `varchar(255)` limit.
 MAX_IDEMPOTENCY_KEY_LENGTH = 255
 
 
 class CancellationRateThrottle(UserRateThrottle):
-    """Per-account limit on *cancellations* through
-    `BookingStatusView` (see `DEFAULT_THROTTLE_RATES["booking_cancel"]`).
+    """Per-account limit on *cancellations* through `BookingStatusView`
+    (see `DEFAULT_THROTTLE_RATES["booking_cancel"]`).
 
-    Every cancel through that endpoint sends the patient provider-written
-    text by email and, when a carrier is on file, by SMS. Without a limit
+    Every cancel through that endpoint emails the patient provider-written
+    text and, when a carrier is on file, texts them too -- without a limit
     of its own that send loop sat behind nothing but the generic 300/min
-    account throttle, which is a lot of attacker-influenced mail to point
-    at one inbox or phone.
+    account throttle, a lot of attacker-influenced mail to point at one
+    inbox or phone.
 
     Narrowed to cancellations rather than the whole PATCH: DRF runs
     throttles in `initial()`, before the handler, but the parsed body is
     already available there, so the requested status is readable without
-    guessing. A `completed`/`no_show` change sends nothing and is left on
+    guessing. A `completed`/`no_show` change sends nothing and stays on
     the generic throttle alone (`throttle_classes` below keeps that one
     too -- a view-level list replaces the defaults entirely).
 
@@ -92,14 +89,12 @@ def _calendar_zone(request, provider_id):
 
     A provider listing their own calendar gets their own zone; an admin
     filtering to one provider gets that provider's; an admin listing every
-    provider at once has no single calendar owner, so their own zone stands
-    in. Never plain UTC: a provider's working day is a range on their wall
-    clock, and for any provider whose day doesn't happen to sit inside a UTC
-    one (an 08:00 start in Asia/Tokyo is 23:00Z the day before; a 18:00
-    appointment in America/Los_Angeles is 01:00Z the day after) UTC bounds
-    silently drop appointments off the ends of the week they're viewing --
-    the same "one set of rows, two clocks" disagreement `SlotBrowser` had on
-    the patient's side.
+    provider at once has no single calendar owner, so their own zone
+    stands in. Never plain UTC: a provider's working day is a range on
+    their wall clock, and for a provider whose day doesn't sit inside a
+    UTC one (an 08:00 start in Asia/Tokyo is 23:00Z the day before) UTC
+    bounds would silently drop appointments off the ends of the week
+    they're viewing.
     """
     if request.user.role == User.Role.PROVIDER:
         return ZoneInfo(request.user.timezone)
@@ -113,10 +108,10 @@ def _calendar_zone(request, provider_id):
 class BookingListCreateView(APIView):
     """`GET`/`POST /bookings`.
 
-    `POST` -- create, and (architecture.md §4) immediately auto-confirm, a
-    booking. Patient-only: `patient` is always `request.user`, never
-    client-supplied -- same pattern as `provider` being forced server-side
-    on `scheduling.views.BlockedTimeListCreateView`.
+    `POST` -- create, and immediately auto-confirm, a booking (see
+    `bookings.services.create_booking`). Patient-only: `patient` is always
+    `request.user`, never client-supplied -- same pattern as `provider`
+    being forced server-side on `scheduling.views.BlockedTimeListCreateView`.
 
     Body: `{provider_id, appointment_type_id, start_time}` -- `start_time`
     exactly as returned by `GET /scheduling/slots`. `end_time` is always
@@ -125,24 +120,20 @@ class BookingListCreateView(APIView):
     Responses: `201` with the created (already-`confirmed`) booking;
     `400` for unknown provider/type, a malformed body, or a `start_time`
     that isn't currently an open slot; `409` if the slot was open but lost
-    a race for it (either guard layer); `401` unauthenticated; `403` for a
-    non-patient role.
+    a race for it; `401` unauthenticated; `403` for a non-patient role.
 
-    `GET /bookings?provider_id=&date_from=&date_to=` (TICKET-08) -- the
-    provider calendar's list/agenda feed. Provider-and-admin only (see
-    `get` below for why a patient's own appointment list is deliberately
-    *not* built here -- `BookingMineListView` below, `GET /bookings/mine`,
-    is that endpoint, with its own display shape). A requesting provider
-    always sees only their own
-    bookings, regardless of any `provider_id` given -- same "ignore it,
-    scope to `request.user`" shape as `scheduling.views
+    `GET /bookings?provider_id=&date_from=&date_to=` -- the provider
+    calendar's list/agenda feed. Provider-and-admin only; a patient's own
+    appointment list is `BookingMineListView` below (`GET /bookings/mine`),
+    with its own display shape. A requesting provider always sees only
+    their own bookings, regardless of any `provider_id` given -- same
+    "ignore it, scope to `request.user`" shape as `scheduling.views
     .AvailabilityListCreateView.get`. An admin sees every booking, or one
     provider's if `provider_id` is given. `date_from`/`date_to` are an
     optional pair of calendar-date bounds on `start_time`, resolved in the
-    timezone of whoever's calendar is being listed (`_calendar_zone` above)
-    -- the same provider-local calendar day `scheduling.slots
-    .get_open_slots` generates against, so a day means the same thing on
-    this endpoint as it does on the patient-facing slot feed.
+    timezone of whoever's calendar is being listed (`_calendar_zone`
+    above), the same provider-local calendar day `scheduling.slots
+    .get_open_slots` generates against.
     """
 
     def get(self, request):
@@ -157,13 +148,9 @@ class BookingListCreateView(APIView):
         params = query.validated_data
 
         # Every read through this endpoint is a PHI read (patient names on
-        # a provider's roster), so every branch below writes an audit entry
-        # (security-audit findings: previously only the unfiltered admin
-        # list was logged, leaving both the provider's own roster read and
-        # an admin's `?provider_id=`-filtered read untraced). Metadata
-        # stays IDs/roles only -- never names or contact details (see
-        # `record_audit_event`'s docstring; `bookings.transitions`'s
-        # metadata convention).
+        # a provider's roster), so every branch below writes an audit
+        # entry. Metadata stays IDs/roles only -- never names or contact
+        # details (see `record_audit_event`'s docstring).
         queryset = Booking.objects.select_related("patient", "appointment_type")
         if request.user.role == User.Role.PROVIDER:
             queryset = queryset.filter(provider=request.user)
@@ -180,10 +167,9 @@ class BookingListCreateView(APIView):
             )
         elif params.get("provider_id"):
             queryset = queryset.filter(provider_id=params["provider_id"])
-            # An admin reading one named provider's full roster -- the
-            # same bypass fact as the unfiltered branch below, narrowed to
-            # one provider, so `<action>` names the narrower scope
-            # ("list_provider") and `target_id` records *which* provider.
+            # An admin reading one named provider's full roster -- same
+            # bypass fact as the unfiltered branch below, narrowed to one
+            # provider, so `target_id` records which one.
             record_audit_event(
                 actor=request.user,
                 action="admin_bypass:list_provider:booking",
@@ -193,14 +179,10 @@ class BookingListCreateView(APIView):
             )
         else:
             # An admin with no `provider_id` filter sees every booking in
-            # the system -- unlike `IsOwnerOrAdmin`/`IsBookingProviderOrAdmin`
-            # above, there's no single object here for an object-level
-            # permission check to log the bypass against (this is a list,
-            # not a `check_object_permissions()` call), so it's logged
-            # explicitly here instead. `target_id="*"` marks "every row,"
-            # matching `admin_bypass:<action>:<target_type>`'s existing
-            # convention with `<action>` set to a plain identifier
-            # ("list_all") rather than a request-method fallback.
+            # the system. There's no single object here for an
+            # object-level permission check to log the bypass against
+            # (this is a list, not `check_object_permissions()`), so it's
+            # logged explicitly instead. `target_id="*"` marks "every row."
             record_audit_event(
                 actor=request.user,
                 action="admin_bypass:list_all:booking",
@@ -279,26 +261,20 @@ class BookingListCreateView(APIView):
 
 
 class BookingMineListView(APIView):
-    """`GET /bookings/mine` (TICKET-09) -- a patient's own appointment
-    list, the endpoint `BookingListCreateView.get`'s docstring
-    forward-references. Deliberately its own view rather than a branch
-    inside that one: `BookingListCreateView.get` is provider/admin-scoped
-    by design (see its docstring), and this list's display shape is
-    different (`provider_name`, not `patient_name` -- see
-    `PatientBookingListSerializer`).
+    """`GET /bookings/mine` -- a patient's own appointment list.
+    Deliberately its own view rather than a branch inside
+    `BookingListCreateView.get`: that view is provider/admin-scoped by
+    design, and this list's display shape is different (`provider_name`,
+    not `patient_name` -- see `PatientBookingListSerializer`).
 
     No `date_from`/`date_to` query params here, unlike `GET /bookings`:
-    the frontend "My Appointments" page (already built against this exact
-    contract -- `frontend/lib/bookings/types.ts`'s `PatientBooking`, per
-    that file's own docstring) derives its Upcoming/Past/Cancelled tabs
-    client-side from one unfiltered list, so this always returns every
-    one of the caller's own bookings.
+    the frontend "My Appointments" page (`frontend/lib/bookings/types.ts`'s
+    `PatientBooking`) derives its Upcoming/Past/Cancelled tabs client-side
+    from one unfiltered list, so this always returns every one of the
+    caller's own bookings.
 
-    Patient-only, strictly: this page is patient-only in the frontend, so
-    a provider/admin caller gets `403` -- the same shape as
-    `BookingListCreateView.get`'s reverse case for a patient caller,
-    rather than inventing a "sensible" provider/admin response nothing
-    actually needs.
+    Patient-only, strictly -- the same reverse-shape `403` as
+    `BookingListCreateView.get` gives a patient caller.
 
     Responses: `200` with the caller's own bookings, ordered by
     `start_time`, in `PatientBookingListSerializer`'s shape (including an
@@ -313,14 +289,12 @@ class BookingMineListView(APIView):
                 status=status.HTTP_403_FORBIDDEN,
             )
 
-        # Deliberately *not* audited (security-audit pass, "every notable
-        # PHI read"): this is strictly a patient reading their own rows --
-        # the role check above admits nobody else, and there is no admin
-        # bypass through this endpoint -- so a row here would record "user
-        # looked at their own data" on every My-Appointments page load,
-        # burying the reads the log exists to catch (provider and admin
-        # reads of *other people's* PHI, all of which are audited in
-        # `BookingListCreateView.get` and `audit.views.AuditLogListView`).
+        # Deliberately not audited: this is strictly a patient reading
+        # their own rows, so a row here would record "user looked at
+        # their own data" on every My-Appointments page load, burying the
+        # reads the log exists to catch (provider and admin reads of
+        # *other people's* PHI, audited in `BookingListCreateView.get`
+        # and `audit.views.AuditLogListView`).
         queryset = (
             Booking.objects.select_related("provider", "appointment_type")
             .filter(patient=request.user)
@@ -330,30 +304,26 @@ class BookingMineListView(APIView):
 
 
 class BookingStatusView(APIView):
-    """`PATCH /bookings/<id>/status` (TICKET-08) -- a provider (or admin)
-    moves a booking to `completed`/`cancelled`/`no_show`. No confirm/
-    decline action here (architecture.md §4's auto-accept rule; this
-    ticket's brief) -- `requested`/`confirmed` are not accepted values
-    (see `BookingStatusUpdateSerializer`), and there is nothing left to
-    confirm since every booking a provider sees already arrived
-    `confirmed`. Patient-initiated cancellation is TICKET-09's
-    `BookingCancelView` below, not this one: `IsBookingProviderOrAdmin`
-    only ever admits the booking's own `provider`, or an admin. A
-    provider cancelling their *own* booking still comes through here,
-    though (`cancelled` remains one of this endpoint's three allowed
-    target values) -- cancel is the one transition reachable from both
-    endpoints, one per ownership axis, rather than this view branching
-    its permission check on the requested target status.
+    """`PATCH /bookings/<id>/status` -- a provider (or admin) moves a
+    booking to `completed`/`cancelled`/`no_show`. No confirm/decline
+    action here (architecture.md §4's auto-accept rule) --
+    `requested`/`confirmed` are not accepted values (see
+    `BookingStatusUpdateSerializer`), and there is nothing left to confirm
+    since every booking a provider sees already arrived `confirmed`.
+    Patient-initiated cancellation is `BookingCancelView` below, not this
+    one -- see that view's docstring for why cancellation is split across
+    two ownership-axis-scoped endpoints. A provider cancelling their
+    *own* booking still comes through here, though: `cancelled` remains
+    one of this endpoint's three allowed target values.
 
     Cancelling through this endpoint requires a written
-    `cancellation_reason` in the body (doctor-cancel-reason-notify ticket
-    01) -- see `BookingStatusUpdateSerializer` for the exact rules
-    (required + non-blank for `cancelled`, rejected for `completed`/
-    `no_show`). The reason is stored on the booking and echoed back in the
-    response; it is deliberately *not* written to the audit log (see
-    `bookings.transitions.transition`). Cancellations are additionally
-    rate-limited per account (`CancellationRateThrottle` above -- `429`
-    past the limit); the other two target statuses are not.
+    `cancellation_reason` in the body -- see `BookingStatusUpdateSerializer`
+    for the exact rules (required + non-blank for `cancelled`, rejected
+    for `completed`/`no_show`). The reason is stored on the booking and
+    echoed back in the response; it is deliberately *not* written to the
+    audit log (see `bookings.transitions.transition`). Cancellations are
+    additionally rate-limited per account (`CancellationRateThrottle`
+    above -- `429` past the limit); the other two target statuses are not.
 
     Responses: `200` with the updated booking (including its
     `cancellation_reason`); on a `cancelled` transition the body also
@@ -361,9 +331,9 @@ class BookingStatusView(APIView):
     .notify_cancellation`'s result dict, sent strictly *after* the
     transition committed (see `patch` below), and never affecting the
     200 itself; `400` for an invalid transition (including
-    the no-show-before-start-time and, for `cancelled`, the TICKET-09
-    minimum-notice case) or a bad body; `403` if the requester isn't the
-    booking's provider/admin; `404` if the booking doesn't exist.
+    the no-show-before-start-time and, for `cancelled`, the minimum-notice
+    case) or a bad body; `403` if the requester isn't the booking's
+    provider/admin; `404` if the booking doesn't exist.
     """
 
     permission_classes = [IsBookingProviderOrAdmin]
@@ -396,21 +366,19 @@ class BookingStatusView(APIView):
 
         body = BookingSerializer(booking).data
         if new_status == Booking.Status.CANCELLED:
-            # Only after `transition()` has returned -- its atomic block has
-            # committed by now, so the email can never describe a
+            # Only after `transition()` has returned -- its atomic block
+            # has committed by now, so the email can never describe a
             # cancellation that later rolls back. `notify_cancellation`
             # never raises, and its outcome never changes this response's
-            # 200: the cancellation itself already succeeded, the
-            # `notification` dict just tells the frontend whether the
-            # patient actually got told (doctor-cancel-reason-notify
-            # ticket 03).
+            # 200: the `notification` dict just tells the frontend
+            # whether the patient actually got told.
             body["notification"] = notifications.notify_cancellation(booking)
         return Response(body)
 
 
 class BookingCancelView(APIView):
-    """`PATCH /bookings/<id>/cancel` (TICKET-09) -- a patient (or admin)
-    cancels their own booking.
+    """`PATCH /bookings/<id>/cancel` -- a patient (or admin) cancels
+    their own booking.
 
     Deliberately a separate endpoint from `PATCH /bookings/<id>/status`
     above rather than that endpoint accepting patient requests too:
@@ -419,23 +387,18 @@ class BookingCancelView(APIView):
     their own appointment needs the *patient*-ownership axis instead
     (`audit.permissions.IsOwnerOrAdmin`, via `Booking.owner_field_name =
     "patient"`). Branching one view's permission check on the request's
-    target status (provider-or-admin for `completed`/`no_show`,
-    patient-or-admin for `cancelled`) would mix two independent
-    authorization axes into a single `has_object_permission` call; two
-    small single-axis views, each reusing an existing permission class
-    as-is, is the same shape this codebase already uses everywhere else
-    (`IsOwnerOrAdmin` on `scheduling`'s `*DetailView`s,
-    `IsBookingProviderOrAdmin` above) rather than a new hybrid one. No
-    request body is required or read -- the only possible target status
-    here is `cancelled`.
+    target status would mix two independent authorization axes into a
+    single `has_object_permission` call; two small single-axis views,
+    each reusing an existing permission class as-is, matches the shape
+    this codebase already uses elsewhere (`IsOwnerOrAdmin` on
+    `scheduling`'s `*DetailView`s, `IsBookingProviderOrAdmin` above)
+    rather than a new hybrid one. No request body is required or read --
+    the only possible target status here is `cancelled`.
 
-    The minimum-notice rule (TICKET-09's brief: no cancellation within
-    24h of `start_time`) lives inside `bookings.transitions.transition`
-    itself, not in this view -- so it is enforced identically no matter
-    which of the two endpoints, or which role, the cancellation comes
-    through, and freeing the slot (this booking dropping out of `GET
-    /scheduling/slots`'s `Booking.ACTIVE_STATUSES` filter) happens
-    atomically with the status write inside that same function.
+    The minimum-notice rule (no cancellation within 24h of `start_time`)
+    lives inside `bookings.transitions.transition` itself, not in this
+    view, so it is enforced identically no matter which of the two
+    endpoints, or which role, the cancellation comes through.
 
     Responses: `200` with the updated (now `cancelled`) booking; `400` if
     the booking isn't in a cancellable status (`InvalidTransition` -- e.g.
@@ -467,54 +430,45 @@ class BookingCancelView(APIView):
 
 
 class BookingRescheduleView(APIView):
-    """`PATCH /bookings/<id>/reschedule` (TICKET-10) -- a patient (or
-    admin) moves their own booking to a different open slot, same
+    """`PATCH /bookings/<id>/reschedule` -- a patient (or admin) moves
+    their own booking to a different open slot, same
     `provider`/`appointment_type`. Same patient-ownership axis as
     `BookingCancelView` above (`IsOwnerOrAdmin`, keyed to
     `Booking.owner_field_name = "patient"`), not the provider axis -- a
     provider does not reschedule a patient's appointment through this
-    endpoint (out of scope; nothing in the brief asks for it, and
-    `BookingStatusView` above remains the provider's own axis for the
-    statuses it *does* manage).
+    endpoint; `BookingStatusView` above remains the provider's own axis
+    for the statuses it manages.
 
     Body: `{start_time}` -- the new slot's start, exactly as returned by
     `GET /scheduling/slots` for this booking's own `provider_id`/
     `appointment_type_id`. There is no way to move provider or appointment
-    type here (see `BookingRescheduleSerializer` -- neither is even a
-    field); that would be a cancel followed by a fresh `POST /bookings`,
-    not a reschedule, per this ticket's own framing ("move this
-    appointment to another open slot").
+    type here (neither is even a field on `BookingRescheduleSerializer`);
+    that would be a cancel followed by a fresh `POST /bookings`, not a
+    reschedule.
 
-    All the actual work -- re-validating the notice rule against the
-    *original* booking, TICKET-07's double-booking guard against the *new*
-    window, cancelling the old booking, and creating the already-confirmed
-    new one, all atomically -- happens in
-    `bookings.services.reschedule_booking`; see that function's docstring
-    for the exact ordering and why. This view is a thin HTTP wrapper around
-    it, the same division of labor `BookingListCreateView.post` has around
-    `create_booking`.
+    This view is a thin HTTP wrapper -- re-validating the notice rule,
+    the double-booking guard, cancelling the old booking, and creating
+    the already-confirmed new one, all atomically, is
+    `bookings.services.reschedule_booking`'s job (see its docstring for
+    the exact ordering and why), the same division of labor
+    `BookingListCreateView.post` has around `create_booking`.
 
-    Response: `200` with the *new* booking, in the same shape
-    `BookingSerializer` already uses everywhere else in this API
-    (`{id, provider_id, patient_id, appointment_type_id, start_time,
-    end_time, status}`), plus one additional field --
-    `previous_booking_id`, the id of the now-`cancelled` booking this
-    replaced -- so a caller can show "moved from X to Y" without a second
-    request. The old booking itself is not otherwise represented in the
-    body; fetch it directly (or via `GET /bookings/mine`) if its full
-    updated state is needed.
+    Response: `200` with the *new* booking, in `BookingSerializer`'s
+    usual shape plus `previous_booking_id` -- the id of the
+    now-`cancelled` booking this replaced, so a caller can show "moved
+    from X to Y" without a second request. Fetch the old booking directly
+    (or via `GET /bookings/mine`) if its full updated state is needed.
 
-    Errors: `400` if the new `start_time` isn't currently an open slot
-    (`SlotNotOpen`), the reschedule falls inside the 24h notice window on
-    the *original* booking (`CancellationNoticeTooShort`), or the booking
-    is no longer in a reschedulable status -- already `cancelled`/
-    `completed`/`no_show` (`InvalidTransition`); `409` if the new slot was
-    open but lost a race for it (`SlotNoLongerAvailable`) -- same 400-vs-409
-    split `POST /bookings` uses, and deliberately the same exception types,
-    so a frontend that already knows how to handle a lost-the-race booking
-    attempt handles a lost-the-race reschedule attempt identically; `403`
-    if the requester is neither the booking's own patient nor an admin;
-    `404` if the booking doesn't exist; `401` unauthenticated.
+    Errors: `400` for `SlotNotOpen` (new `start_time` isn't currently
+    open), `CancellationNoticeTooShort` (inside the 24h notice window on
+    the *original* booking), or `InvalidTransition` (booking no longer
+    reschedulable); `409` for `SlotNoLongerAvailable` (the slot was open
+    but lost a race for it) -- same 400-vs-409 split and exception types
+    as `POST /bookings`, so a frontend that already handles a
+    lost-the-race booking attempt handles a lost-the-race reschedule the
+    same way; `403` if the requester is neither the booking's own patient
+    nor an admin; `404` if the booking doesn't exist; `401`
+    unauthenticated.
     """
 
     permission_classes = [IsOwnerOrAdmin]

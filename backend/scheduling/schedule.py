@@ -209,8 +209,7 @@ def replace_generation(provider, windows, effective_from, *, today):
     """Atomically replace one whole generation with `windows`.
 
     Inside one transaction (whole-schedule replace -- there is no
-    partial-failure state, unlike the retired per-day DELETE-then-POST
-    sequence):
+    partial-failure state, unlike replacing one day at a time would give):
 
     1. Normalize: delete every generation older than the currently
        effective one, then collapse the effective one's `effective_from`

@@ -1,10 +1,7 @@
 """Domain-level failures `bookings.services.create_booking` and
 `bookings.transitions.transition` raise instead of letting a raw DB
 exception (or a silent wrong success) reach the view. `bookings.views`
-catches these and turns each into a specific, clean 4xx -- this ticket's
-point 2 requirement ("a specific exception type, caught by the view and
-turned into a clean 409, not a 500") extended to also cover the distinct
-400 cases from point 6 and TICKET-08's transition guard.
+catches these and turns each into a specific, clean 4xx.
 """
 
 
@@ -42,10 +39,9 @@ class IdempotencyKeyConflict(BookingConflict):
     `Booking.idempotency_key`). Distinct from the same-patient case, which
     is the intended retry and returns the existing booking: replaying
     someone else's key must never serialize their booking back (a PHI
-    leak -- the security-audit finding this exists for), and must map to a
-    clean `409 Conflict`, never a 500. The generic message deliberately
-    confirms nothing about the other booking's existence beyond the key
-    collision itself.
+    leak) and must map to a clean `409 Conflict`, never a 500. The generic
+    message deliberately confirms nothing about the other booking's
+    existence beyond the key collision itself.
     """
 
     def __init__(self, message="This idempotency key is already in use."):
@@ -54,10 +50,9 @@ class IdempotencyKeyConflict(BookingConflict):
 
 class SlotNotOpen(BookingConflict):
     """The requested slot was never bookable to begin with -- outside the
-    provider's working hours, inside a blocked range, or in the past
-    (this ticket's point 6). Maps to `400 Bad Request`, distinct from
-    `SlotNoLongerAvailable`'s `409`: this is invalid input, not a race the
-    request lost.
+    provider's working hours, inside a blocked range, or in the past.
+    Maps to `400 Bad Request`, distinct from `SlotNoLongerAvailable`'s
+    `409`: this is invalid input, not a race the request lost.
     """
 
     def __init__(self, message="This slot is not currently available for booking."):
@@ -66,8 +61,8 @@ class SlotNotOpen(BookingConflict):
 
 class TransitionError(Exception):
     """Base class for a `bookings.transitions.transition()` call that
-    cannot proceed (TICKET-08, architecture.md §4). Maps to `400 Bad
-    Request` at the view layer -- never a 500, and never a silent no-op.
+    cannot proceed (architecture.md §4). Maps to `400 Bad Request` at the
+    view layer -- never a 500, and never a silent no-op.
     """
 
 
@@ -89,9 +84,8 @@ class InvalidTransition(TransitionError):
 class NoShowBeforeStartTime(TransitionError):
     """`confirmed` -> `no_show` *is* in `ALLOWED_TRANSITIONS` -- this is a
     narrower, distinct rejection from `InvalidTransition`: the transition
-    itself is legal, it just isn't legal *yet*, because `booking.start_time`
-    hasn't passed (this ticket's brief: "no_show only settable on a
-    confirmed booking whose start time has passed").
+    itself is legal, it just isn't legal *yet*, because
+    `booking.start_time` hasn't passed.
     """
 
     def __init__(
@@ -102,17 +96,16 @@ class NoShowBeforeStartTime(TransitionError):
 
 class CancellationNoticeTooShort(TransitionError):
     """`requested`/`confirmed` -> `cancelled` *is* in `ALLOWED_TRANSITIONS`
-    -- same narrower-than-`InvalidTransition` shape as `NoShowBeforeStartTime`
-    above, just the mirror-image deadline: the transition itself is legal,
-    it just isn't legal *any more*, because `booking.start_time` is inside
-    `bookings.transitions.CANCELLATION_MIN_NOTICE` of "now" (TICKET-09's
-    brief: "no cancel < 24h before start"). A distinct exception rather
-    than folding this into `InvalidTransition` -- the view needs to tell
-    the frontend "you're too close to your appointment to cancel" apart
-    from "this booking isn't cancellable at all," so it can show that
-    specific reason instead of a generic failure. Applies uniformly
-    regardless of who's cancelling (patient, provider, or an admin bypass)
-    -- architecture.md doesn't carve out an exception for either role.
+    -- same narrower-than-`InvalidTransition` shape as
+    `NoShowBeforeStartTime` above, just the mirror-image deadline: the
+    transition itself is legal, it just isn't legal *any more*, because
+    `booking.start_time` is inside
+    `bookings.transitions.CANCELLATION_MIN_NOTICE` of "now." A distinct
+    exception rather than folding this into `InvalidTransition` -- the
+    view needs to tell the frontend "you're too close to your appointment
+    to cancel" apart from "this booking isn't cancellable at all."
+    Applies uniformly regardless of who's cancelling (patient, provider,
+    or an admin bypass).
     """
 
     def __init__(

@@ -471,9 +471,8 @@ class SlotsView(APIView):
         }
 
         # Empty-state: a provider with no working hours configured at all
-        # (not just none in this date range) is "not yet bookable" -- this
-        # ticket's brief calls this out explicitly rather than letting it
-        # look identical to "bookable, but nothing free this week."
+        # (not just none in this date range) is "not yet bookable," kept
+        # distinct from "bookable, but nothing free this week."
         if not Availability.objects.filter(provider=provider).exists():
             return Response(
                 {

@@ -1,4 +1,4 @@
-"""Seed demo accounts and a multi-provider calendar for k6 (TICKET-13).
+"""Seed demo accounts and a multi-provider calendar for k6 load tests.
 
 Creates ~10 k6 providers (America/Chicago, Mon-Fri availability, 2-4
 name-only 60-minute appointment types), demo patients/admin (`DEMO_PASSWORD`),

@@ -58,7 +58,7 @@ def dispatch_due_reminders(*, now=None) -> DispatchSummary:
     """Send the 24h reminder for every confirmed booking due in the window
     (see `WINDOW_START_OFFSET`/`WINDOW_END_OFFSET`), exactly once per
     booking -- safe to call repeatedly, concurrently, or after a
-    crash/restart mid-run (this ticket's accept criteria).
+    crash/restart mid-run.
 
     `now` defaults to real "now" (`django.utils.timezone.now()`); tests
     pass an explicit value instead of freezing the clock.
@@ -71,8 +71,8 @@ def dispatch_due_reminders(*, now=None) -> DispatchSummary:
 
     For each remaining booking:
 
-    1. Log the attempt (this ticket's brief: every attempt is visible in
-       logs even if it ultimately fails).
+    1. Log the attempt, so it's visible in logs even if it ultimately
+       fails.
     2. Call `send_reminder_email(booking)`. A `SendReminderEmailError`
        (Resend rejected the send, or the HTTP call failed) is caught and
        logged; a `False` return (no `RESEND_API_KEY` configured) is

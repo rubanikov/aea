@@ -114,16 +114,15 @@ class LogoutView(APIView):
 
 
 class RefreshView(APIView):
-    """`POST /auth/refresh` — not in the ticket's literal endpoint list, but
-    a short-lived (15 min) access token with no way to renew it silently
-    forces a re-login every 15 minutes, which is a poor tradeoff for a
-    working session. Bypasses `CookieJWTAuthentication` entirely (the access
-    token cookie may well be expired — that's the point) and reads the
-    refresh cookie directly instead. Always rotates the refresh token
-    (`ROTATE_REFRESH_TOKENS`/`BLACKLIST_AFTER_ROTATION`, see settings.py) —
-    the old refresh token is blacklisted the moment a new pair is issued,
-    with a short grace window for the two-tabs-refreshing-at-once race (see
-    `accounts/tokens.py`).
+    """`POST /auth/refresh` — a short-lived (15 min) access token with no
+    way to renew it silently forces a re-login every 15 minutes, which is
+    a poor tradeoff for a working session. Bypasses `CookieJWTAuthentication`
+    entirely (the access token cookie may well be expired — that's the
+    point) and reads the refresh cookie directly instead. Always rotates
+    the refresh token (`ROTATE_REFRESH_TOKENS`/`BLACKLIST_AFTER_ROTATION`,
+    see settings.py) — the old refresh token is blacklisted the moment a
+    new pair is issued, with a short grace window for the
+    two-tabs-refreshing-at-once race (see `accounts/tokens.py`).
     """
 
     permission_classes = [AllowAny]
@@ -210,8 +209,8 @@ class ChangePasswordView(APIView):
 
 
 class DeleteAccountView(APIView):
-    """`POST /profile/delete-account` — TICKET-14. Requires the current
-    password re-submitted as server-side proof of intent (a client-side
+    """`POST /profile/delete-account`. Requires the current password
+    re-submitted as server-side proof of intent (a client-side
     confirmation modal alone isn't enough for an irreversible action — see
     `DeleteAccountSerializer`). Scrubs the account's PHI fields in place
     (never a hard delete, so `AuditLog.actor` keeps resolving by id — see
