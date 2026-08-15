@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useState } from "react";
 import { BookingStatusBadge } from "@/components/bookings/BookingStatusBadge";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { formatBookingTimeRange } from "@/lib/bookings/format";
 import type {
   AvailabilityCollision,
@@ -9,13 +10,6 @@ import type {
 } from "@/lib/availability/collisions";
 
 const HEADING_ID = "collision-warning-heading";
-
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
-function focusableElements(container: HTMLElement): HTMLElement[] {
-  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
-}
 
 /** e.g. `("2026-08-21T18:00:00.000Z", "2026-08-21T18:30:00.000Z",
  * "America/New_York")` -> `"Fri, Aug 21, 2:00–2:30pm"`. Built on
@@ -126,9 +120,9 @@ interface CollisionWarningModalProps {
  * `description`, the affected-appointments list, and the first
  * resolution radio differ between the two callers.
  *
- * A real focus-trapped dialog, built on the exact pattern
- * `RescheduleDialog` established: focus moves in on open, Tab/Shift+Tab
- * wrap within the dialog's own focusable elements, and focus returns to
+ * A real focus-trapped dialog, sharing `useFocusTrap` with
+ * `RescheduleDialog`: focus moves in on open, Tab/Shift+Tab wrap within
+ * the dialog's own focusable elements, and focus returns to
  * `triggerElement` on unmount. `role="alertdialog"` rather than
  * `RescheduleDialog`'s `role="dialog"`, since this modal always demands
  * an explicit decision before anything can proceed (an alert dialog is
@@ -152,11 +146,14 @@ export function CollisionWarningModal({
   onCancelChange,
   triggerElement,
 }: CollisionWarningModalProps) {
-  const dialogRef = useRef<HTMLDivElement>(null);
-  // Kept in a ref, updated post-render, so the mount/unmount focus-restore
-  // effect below can stay a one-time `[]` effect, matching
-  // `RescheduleDialog`'s own precedent.
-  const triggerElementRef = useRef(triggerElement);
+  const { ref: dialogRef, onKeyDown: handleKeyDown } = useFocusTrap<HTMLDivElement>({
+    triggerElement,
+    onEscape: () => {
+      if (!confirming) {
+        onCancelChange();
+      }
+    },
+  });
   const earliestSafeDate = deferral?.earliestSafeDate ?? null;
   // The deferral radio starts selected (per the wireframe) since it's the
   // resolution the modal exists to offer; the non-deferral caller keeps
@@ -165,54 +162,6 @@ export function CollisionWarningModal({
     earliestSafeDate !== null ? "apply_from" : null
   );
   const [applyFromDate, setApplyFromDate] = useState(earliestSafeDate ?? "");
-
-  useEffect(() => {
-    triggerElementRef.current = triggerElement;
-  }, [triggerElement]);
-
-  useEffect(() => {
-    dialogRef.current?.focus();
-    return () => {
-      const trigger = triggerElementRef.current;
-      if (trigger && document.contains(trigger)) {
-        trigger.focus();
-      }
-    };
-  }, []);
-
-  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === "Escape") {
-      event.stopPropagation();
-      if (!confirming) {
-        onCancelChange();
-      }
-      return;
-    }
-    if (event.key !== "Tab") {
-      return;
-    }
-    const dialog = dialogRef.current;
-    if (!dialog) {
-      return;
-    }
-    const focusable = focusableElements(dialog);
-    if (focusable.length === 0) {
-      event.preventDefault();
-      return;
-    }
-    const first = focusable[0];
-    const last = focusable[focusable.length - 1];
-    const active = document.activeElement;
-    if (event.shiftKey) {
-      if (active === first || !dialog.contains(active)) {
-        event.preventDefault();
-        last.focus();
-      }
-    } else if (active === last || !dialog.contains(active)) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
 
   // "" (cleared input) or a typed-in date earlier than the min: both are
   // dates the server would reject, so the confirm button stays disabled
