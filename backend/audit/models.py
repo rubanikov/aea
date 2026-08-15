@@ -60,7 +60,10 @@ class AuditLog(models.Model):
     hardening pass this is also *enforced* here, not just conventional:
     `save()` rejects anything but the initial insert, `delete()` always
     raises, and `AuditLogQuerySet` above blocks bulk `update()`/`delete()`
-    — all with `AuditLogIsAppendOnly`.
+    — all with `AuditLogIsAppendOnly`. Below the ORM, migration
+    `0002_append_only_trigger` installs a Postgres trigger that rejects
+    any UPDATE/DELETE on the table (raw SQL, `psql`, anything), with the
+    single carve-out of the SET_NULL `actor_id` clearing described above.
     """
 
     actor = models.ForeignKey(

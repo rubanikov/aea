@@ -130,6 +130,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    # First thing after SecurityMiddleware so an oversized body is refused
+    # before anything downstream can read it -- see core/middleware.py.
+    "core.middleware.RequestBodySizeLimitMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -434,23 +437,42 @@ STATIC_ROOT = BASE_DIR / "staticfiles"
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
+# Request body ceiling (project.md edge case 7: "malformed/oversized/
+# out-of-range requests are rejected with clear errors"). Enforced by
+# `core.middleware.RequestBodySizeLimitMiddleware` for the DRF endpoints,
+# which Django's `DATA_UPLOAD_MAX_MEMORY_SIZE` does not cover (DRF parses
+# the raw stream). The same value is applied to Django's setting so form
+# and multipart paths (admin, DEBUG only) share the ceiling.
+MAX_REQUEST_BODY_BYTES = 64 * 1024
+DATA_UPLOAD_MAX_MEMORY_SIZE = MAX_REQUEST_BODY_BYTES
+
+
 # Logging
-# Structured console logging so Railway (which captures stdout) and local dev
-# both see the same output. No PHI in log messages — identifiers/references
-# only, per project.md's cross-cutting logging requirement.
+# Console logging in both environments (Railway captures stdout). Outside
+# DEBUG every record is one JSON object per line (`core.logging.JsonFormatter`)
+# so the deployed logs are machine-filterable by level/logger/status_code;
+# local dev keeps the plain text line because it's what a human reads in a
+# terminal. Override with LOG_FORMAT=json|text if needed. No PHI in log
+# messages — identifiers/references only, per project.md's cross-cutting
+# logging requirement (pinned by `NoPHIInApplicationLogsTests`).
+
+LOG_FORMAT = os.environ.get("LOG_FORMAT", "text" if DEBUG else "json")
 
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "structured": {
+        "text": {
             "format": "%(asctime)s %(levelname)s %(name)s %(message)s",
+        },
+        "json": {
+            "()": "core.logging.JsonFormatter",
         },
     },
     "handlers": {
         "console": {
             "class": "logging.StreamHandler",
-            "formatter": "structured",
+            "formatter": LOG_FORMAT,
         },
     },
     "root": {
@@ -467,7 +489,7 @@ LOGGING = {
 # crash; see that module's docstring. `RESEND_FROM_EMAIL` is a verified
 # Resend sending address in a real deployment; the placeholder below only
 # matters once RESEND_API_KEY is actually set. `FRONTEND_BASE_URL` is the
-# deployed Next.js origin (Vercel) the reminder email's "view details"
+# deployed Next.js origin (Railway) the reminder email's "view details"
 # link points at -- distinct from CORS_ALLOWED_ORIGINS above, which is
 # about what origins may *call this API*, not what link a third-party
 # email should embed.

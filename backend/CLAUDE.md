@@ -1,9 +1,10 @@
 # Backend conventions
 
-## Audit log is append-only — enforced in code
+## Audit log is append-only — enforced in code and in Postgres
 
 `AuditLog` rejects any update or delete (`audit.models.AuditLogIsAppendOnly`),
-including bulk queryset operations and test fixtures. To backdate an entry in
+including bulk queryset operations and test fixtures, and a DB trigger
+(`audit/migrations/0002_append_only_trigger.py`) rejects raw-SQL UPDATE/DELETE too. To backdate an entry in
 tests, mock `django.utils.timezone.now` at creation time — never `.update()`.
 
 ## Import-time settings vs. test-time DEBUG

@@ -81,7 +81,7 @@ def transition(booking, new_status, *, actor, enforce_notice=True, cancellation_
     `enforce_notice` defaults to `True`, so every ordinary caller (a
     patient's own cancel, a provider's status update, a reschedule's
     implicit cancel) keeps the 24h rule exactly as before. The one caller
-    that passes `False` is `accounts.serializers._cancel_upcoming_appointments`
+    that passes `False` is `accounts.services._cancel_upcoming_appointments`
     (TICKET-14's account-deletion flow): the patient has asked to delete
     their whole account, not to cancel this one booking against the
     notice rule -- there is no "too late to cancel" left to protect once

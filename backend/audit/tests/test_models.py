@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase
 
 from audit.models import AuditLog, AuditLogIsAppendOnly
@@ -84,3 +85,58 @@ class AuditLogAppendOnlyEnforcementTests(TestCase):
             AuditLog.objects.all().delete()
 
         self.assertTrue(AuditLog.objects.filter(pk=self.entry.pk).exists())
+
+
+class AuditLogDatabaseTriggerTests(TestCase):
+    """The ORM guards above are bypassed by raw SQL, `psql`, or a
+    low-level `sql.UpdateQuery`. `audit/migrations/0002_append_only_trigger`
+    adds a Postgres trigger so the database itself refuses UPDATE/DELETE on
+    `audit_auditlog` (SQLSTATE 23001 -> `IntegrityError`), with the single
+    carve-out of the deletion collector's `actor_id -> NULL` SET_NULL.
+    """
+
+    def setUp(self):
+        self.actor = User.objects.create_user(email="trigger@example.com", password="x")
+        self.entry = AuditLog.objects.create(
+            actor=self.actor, action="x", target_type="t", target_id="1"
+        )
+
+    def _execute(self, sql, params):
+        with connection.cursor() as cursor:
+            cursor.execute(sql, params)
+
+    def test_raw_sql_update_is_rejected_by_the_database(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self._execute(
+                "UPDATE audit_auditlog SET action = %s WHERE id = %s",
+                ["rewritten", self.entry.pk],
+            )
+
+        self.entry.refresh_from_db()
+        self.assertEqual(self.entry.action, "x")
+
+    def test_raw_sql_delete_is_rejected_by_the_database(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self._execute("DELETE FROM audit_auditlog WHERE id = %s", [self.entry.pk])
+
+        self.assertTrue(AuditLog.objects.filter(pk=self.entry.pk).exists())
+
+    def test_clearing_actor_alone_is_the_one_permitted_update(self):
+        # Exactly what Django's SET_NULL emits when the actor row is deleted.
+        self._execute(
+            "UPDATE audit_auditlog SET actor_id = NULL WHERE id = %s", [self.entry.pk]
+        )
+
+        self.entry.refresh_from_db()
+        self.assertIsNone(self.entry.actor)
+
+    def test_clearing_actor_while_touching_another_column_is_rejected(self):
+        with self.assertRaises(IntegrityError), transaction.atomic():
+            self._execute(
+                "UPDATE audit_auditlog SET actor_id = NULL, action = %s WHERE id = %s",
+                ["rewritten", self.entry.pk],
+            )
+
+        self.entry.refresh_from_db()
+        self.assertEqual(self.entry.action, "x")
+        self.assertEqual(self.entry.actor, self.actor)

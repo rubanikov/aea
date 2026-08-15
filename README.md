@@ -28,7 +28,7 @@ The defaults in `.env.example` work as-is against the Docker Postgres above — 
 ```bash
 cd backend
 python -m venv .venv && source .venv/Scripts/activate   # Windows Git Bash; use .venv/bin/activate on macOS/Linux
-pip install -r requirements-dev.txt
+pip install -r requirements.lock      # exact pinned versions (same file CI installs); requirements-dev.txt is the ranged source
 python manage.py migrate
 python manage.py seed_demo       # 15 providers, 25 patients, an admin, and sample bookings — see below
 python manage.py runserver 0.0.0.0:8000
@@ -135,15 +135,16 @@ This is a healthcare scheduling app handling PHI (patient identity, appointment 
 
 - Passwords hashed with bcrypt (`config/settings.py`'s `PASSWORD_HASHERS`), JWT auth delivered as httpOnly/Secure/SameSite=Strict cookies, never `localStorage`.
 - Every PHI-touching endpoint checks row-level ownership server-side (`patient sees only their own`, `provider sees only their own`) independent of any DB-layer policy — see `architecture.md` §6 for why Supabase RLS specifically wasn't used (a documented decision, not an oversight).
-- Every booking/status change and every admin action is written to an append-only audit log (`actor`, `action`, `target`, `timestamp`) — verified by dedicated tests that no update/delete path exists for it.
-- No PHI (names, emails, phone numbers, appointment content) appears in server logs or the reminder email body — only IDs. The one deliberate exception: a doctor-cancelled appointment's cancellation email/SMS carries the provider's written reason and the appointment time — a scoped, approved tradeoff, not an oversight; see `architecture.md` §7a.
-- Account deletion scrubs PHI fields in place (never hard-deletes, so audit history stays intact) and cancels upcoming appointments as part of the same request.
+- Every booking/status change and every admin action is written to an append-only audit log (`actor`, `action`, `target`, `timestamp`). Append-only is enforced twice: the ORM refuses update/delete (`audit/models.py`), and a Postgres trigger (`audit/migrations/0002_append_only_trigger.py`) rejects raw-SQL `UPDATE`/`DELETE` on the table — both pinned by tests, including one that issues raw SQL.
+- No PHI (names, emails, phone numbers, appointment content) appears in server logs or the reminder email body — only IDs. Deployed logs are one JSON object per line (`core/logging.py`) so they can be filtered by level/logger/status without scraping; local dev keeps plain text. The one deliberate exception: a doctor-cancelled appointment's cancellation email/SMS carries the provider's written reason and the appointment time — a scoped, approved tradeoff, not an oversight; see `architecture.md` §7a.
+- Account deletion scrubs PHI fields in place (never hard-deletes, so audit history stays intact) and cancels upcoming appointments as part of the same request — in one transaction (`accounts/services.py`), so a failure part-way through rolls the whole thing back rather than leaving a half-scrubbed account.
+- Every request body is capped at 64 KB before it is parsed (`core/middleware.py`, `MAX_REQUEST_BODY_BYTES`) — DRF reads the raw stream, so Django's own `DATA_UPLOAD_MAX_MEMORY_SIZE` would not have covered these endpoints. Oversized bodies get a JSON 413.
 - TLS/HTTPS in transit: enforced app-side (`SECURE_SSL_REDIRECT`, `*_COOKIE_SECURE` outside `DEBUG`) and live on the deployed instance — Railway terminates TLS at its edge proxy for both services. Encryption at rest for the database is delegated to the Postgres host (Railway's managed Postgres encrypts at rest by default) — not something the application layer configures itself.
 - No BAA is in place with any third-party vendor (Resend, Railway, etc.) in this deployment — a real production rollout handling real PHI would need one from each vendor that touches it; see `tech-stack-research.md` for which vendors offer one and at what tier.
 
 ## Deployment
 
-The app is deployed on Railway (project `aea-scheduling-portal`), three services in one project: `backend` (Django, Railpack build, migrations run automatically on deploy via `railway.json`'s start command), `frontend` (Next.js, zero-config Railpack detection), and a managed `Postgres` instance wired to the backend via `${{Postgres.DATABASE_URL}}`.
+The app is deployed on Railway (project `aea-scheduling-portal`): `backend` (Django, Railpack build, migrations run automatically on deploy via `railway.json`'s start command), `frontend` (Next.js, zero-config Railpack detection), a managed `Postgres` instance wired to the backend via `${{Postgres.DATABASE_URL}}`, and the reminder cron as a fourth service defined in [`backend/railway.cron.json`](backend/railway.cron.json) (`*/15 * * * *` → `python manage.py dispatch_reminders`; provisioning commands in [`backend/reminders/README.md`](backend/reminders/README.md)).
 
 - **Frontend:** https://frontend-production-9ca8.up.railway.app
 - **Backend API:** https://backend-production-e1121.up.railway.app

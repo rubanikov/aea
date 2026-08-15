@@ -3,26 +3,13 @@ brief). Deliberately thin -- `reminders.services.dispatch_due_reminders`
 holds all the selection/dedup/send/log logic; this command's only job is
 to invoke it and print a one-line summary Railway's log capture will show.
 
-Railway cron configuration (this ticket's point 5 -- documented here since
-this environment has no live Railway account to wire the actual schedule
-against): add a second service in the same Railway project as the
-existing web service (see backend/railway.json), pointed at this same
-repo/build, but with:
-
-    - Deploy > Cron Schedule: `*/15 * * * *` (every 15 minutes -- the
-      lower end of the ticket's 15-30 min range, so the redundancy
-      documented in `reminders.services`'s `WINDOW_START_OFFSET`/
-      `WINDOW_END_OFFSET` comment -- at least 4 chances per due booking --
-      comes from a 2h window over a 30-min *worst case* cadence; running
-      every 15 min doubles that margin for free).
-    - Deploy > Start Command: `python manage.py dispatch_reminders`
-    - Same environment variables as the web service (`DATABASE_URL`,
-      `RESEND_API_KEY`, `RESEND_FROM_EMAIL`, `FRONTEND_BASE_URL`) --
-      Railway lets a cron service share a project's variable set, or they
-      can be duplicated onto the cron service directly.
-    - No public networking/domain needed -- this service never receives
-      inbound HTTP traffic, it only runs on a schedule and talks out to
-      Postgres and Resend.
+Railway wiring is config-as-code in `backend/railway.cron.json` (a second
+service in the same project as the web service, `*/15 * * * *`, start
+command `python manage.py dispatch_reminders`) -- see `reminders/README.md`
+for the provisioning commands and the variable references it needs.
+Every 15 minutes is the lower end of the 15-30 min range the 2h due
+window in `reminders.services` was sized for, so each due booking gets
+at least 4-8 chances before it ages out.
 
 Railway's cron services run to completion each trigger and do not
 overlap a still-running previous invocation by default, but this command

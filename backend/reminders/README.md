@@ -42,19 +42,32 @@ fact, not a per-booking error, and letting it abort the whole dispatch run
 would also block every *other* due reminder in the same run for a reason
 that has nothing to do with them.
 
-## Railway cron configuration (not wired in this environment)
+## Railway cron configuration
 
-This ticket's build has no live Railway account to wire the actual
-schedule against. To deploy for real, add a **second** Railway service in
-the same project as the existing web service (`backend/railway.json`):
+The schedule is config-as-code in [`backend/railway.cron.json`](../railway.cron.json):
+`*/15 * * * *`, start command `python manage.py dispatch_reminders`,
+restart policy `NEVER` (a cron run that fails should surface in the logs,
+not loop). It is a **second** Railway service in the same project as the
+web service (`backend/railway.json`), deployed from the same `backend/`
+directory:
 
-- **Cron Schedule:** `*/15 * * * *` (every 15 minutes)
-- **Start Command:** `python manage.py dispatch_reminders`
-- **Environment variables:** same as the web service:
-  `DATABASE_URL`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`,
-  `FRONTEND_BASE_URL` (see `.env.example` at the repo root)
-- **Networking:** none needed; this service never receives inbound
-  HTTP traffic.
+```bash
+cd backend
+railway add --service reminders-cron
+railway variables --service reminders-cron   --set 'DATABASE_URL=${{Postgres.DATABASE_URL}}'   --set 'DJANGO_SECRET_KEY=${{backend.DJANGO_SECRET_KEY}}'   --set 'DJANGO_ALLOWED_HOSTS=${{backend.DJANGO_ALLOWED_HOSTS}}'   --set 'FRONTEND_BASE_URL=${{backend.FRONTEND_BASE_URL}}'   --set 'RESEND_FROM_EMAIL=${{backend.RESEND_FROM_EMAIL}}'   --set 'DJANGO_DEBUG=False'
+# then in the dashboard: Settings > Config-as-code > Railway Config File = railway.cron.json
+railway up --service reminders-cron --detach
+```
+
+- **Environment variables:** the same as the web service, referenced
+  rather than duplicated (`${{backend.VAR}}`), plus `RESEND_API_KEY` once
+  a real key exists.
+- **Networking:** none; this service never receives inbound HTTP traffic,
+  it only runs on a schedule and talks out to Postgres and Resend.
+- Railway runs a cron service to completion each trigger and does not
+  overlap a still-running invocation, but `dispatch_due_reminders` is
+  safe even if that guarantee is ever violated (see its docstring and
+  `tests/test_concurrency.py`).
 
 ## Tests
 

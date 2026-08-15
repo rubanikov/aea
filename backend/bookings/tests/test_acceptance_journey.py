@@ -55,12 +55,16 @@ ticket's own suite covers (see `bookings/tests/helpers.py`'s
    asserts the boundary flip inside one slot-query response.
 """
 
+import json
 from datetime import timedelta
+from unittest.mock import patch
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import Client
 from django.utils import timezone
 
+from accounts import services as account_services
 from accounts.tests.helpers import AJAX_HEADERS, TEST_PASSWORD
 from audit.models import AuditLog
 from bookings.models import Booking
@@ -299,7 +303,7 @@ class AccountDeletionCancelsUpcomingAppointmentsTests(BookingsAPITestCase):
         # would reject a plain cancel this close to `start_time`
         # (`CancellationNoticeTooShort`) -- account deletion is a
         # deliberate, narrow exception to that rule (see
-        # `accounts.serializers._cancel_upcoming_appointments`'s
+        # `accounts.services._cancel_upcoming_appointments`'s
         # `enforce_notice=False` call), so this must succeed instead of
         # blocking (or silently skipping) the deletion.
         soon_booking = self.make_booking(
@@ -341,6 +345,55 @@ class AccountDeletionCancelsUpcomingAppointmentsTests(BookingsAPITestCase):
         self.assertEqual(past_completed.status, Booking.Status.COMPLETED)
         self.assertEqual(already_cancelled.status, Booking.Status.CANCELLED)
 
+    def test_deletion_is_all_or_nothing_when_a_cancellation_fails_part_way(self):
+        # `accounts.services.delete_account` runs the audit write, the
+        # cancellation loop, and the PHI scrub in one transaction. Fail
+        # the *second* cancellation and assert nothing from the first
+        # half survived: no "deletion_requested" audit row, first booking
+        # still confirmed, account still active with its PHI intact.
+        first = self.make_booking(
+            provider=self.provider,
+            patient=self.patient,
+            appointment_type=self.appointment_type,
+            start_time=timezone.now() + timedelta(days=3),
+        )
+        second = self.make_booking(
+            provider=self.provider,
+            patient=self.patient,
+            appointment_type=self.appointment_type,
+            start_time=timezone.now() + timedelta(days=4),
+        )
+        # The service imports `transition` at call time from
+        # `bookings.transitions`, so patching the module attribute is enough.
+        from bookings import transitions as transitions_module
+
+        real_transition = transitions_module.transition
+        calls = {"n": 0}
+
+        def flaky_transition(booking, *args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("simulated failure on the second cancellation")
+            return real_transition(booking, *args, **kwargs)
+
+        with patch.object(transitions_module, "transition", flaky_transition):
+            with self.assertRaises(RuntimeError):
+                account_services.delete_account(self.patient)
+
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.patient.refresh_from_db()
+        self.assertEqual(first.status, Booking.Status.CONFIRMED)
+        self.assertEqual(second.status, Booking.Status.CONFIRMED)
+        self.assertTrue(self.patient.is_active)
+        self.assertEqual(self.patient.email, "deletion.patient@example.com")
+        self.assertIsNone(self.patient.deleted_at)
+        self.assertFalse(
+            AuditLog.objects.filter(
+                action="account:deletion_requested", target_id=self.patient.id
+            ).exists()
+        )
+
 
 class MalformedRequestBodyTests(BookingsAPITestCase):
     """project.md edge case 7: "All external input ... is validated and
@@ -381,6 +434,43 @@ class MalformedRequestBodyTests(BookingsAPITestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(User.objects.count(), 2)  # setUp's provider + patient only
+
+    def test_oversized_booking_body_is_rejected_with_413_before_parsing(self):
+        # project.md's literal "oversized" case. The body below is valid
+        # JSON, so nothing but the size ceiling
+        # (`core.middleware.RequestBodySizeLimitMiddleware`,
+        # `MAX_REQUEST_BODY_BYTES`) can be what rejects it.
+        self.login_as(self.patient)
+        padding = "x" * (settings.MAX_REQUEST_BODY_BYTES + 1)
+        body = json.dumps(
+            {
+                "provider_id": self.provider.id,
+                "appointment_type_id": self.appointment_type.id,
+                "start_time": f"{FAR_FUTURE_MONDAY}T09:00:00Z",
+                "padding": padding,
+            }
+        )
+
+        response = self.client.post(
+            "/bookings", data=body, content_type="application/json", **AJAX_HEADERS
+        )
+
+        self.assertEqual(response.status_code, 413)
+        self.assertIn("too large", response.json()["detail"])
+        self.assertEqual(Booking.objects.count(), 0)
+
+    def test_a_normal_sized_body_is_untouched_by_the_size_ceiling(self):
+        # Guards against the ceiling being set so low that a real payload
+        # (a booking with a maximum-length 500-char cancellation reason,
+        # say) would trip it.
+        self.login_as(self.patient)
+        response = self.post_booking(
+            provider=self.provider,
+            appointment_type=self.appointment_type,
+            start_time=f"{FAR_FUTURE_MONDAY}T09:00:00Z",
+        )
+
+        self.assertEqual(response.status_code, 201, response.content)
 
 
 class NoPHIInApplicationLogsTests(BookingsAPITestCase):

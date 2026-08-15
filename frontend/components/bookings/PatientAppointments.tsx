@@ -32,7 +32,7 @@ const EMPTY_TAB_MESSAGE: Record<AppointmentTab, string> = {
  * trips.
  *
  * The patient's own timezone comes from `usePatientTimeZone`
- * (browser-detected), the same convention `SlotBrowser`/`BookingFlow`
+ * (browser-detected), the same convention `BookingWizard`/`DateTimeStep`
  * already use, not a second, competing "read the stored profile timezone"
  * convention. Its brief `null` (pre-hydration) window is treated as part
  * of the loading state, same as `BookingFlow` does.

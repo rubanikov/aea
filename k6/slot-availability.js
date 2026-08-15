@@ -23,6 +23,8 @@ import {
   BASE_URL,
 } from './helpers.js';
 
+const THINK_TIME_MEAN = Number(__ENV.THINK_TIME_MEAN || 0.5);
+
 export const options = {
   vus: Number(__ENV.VUS || 30),
   duration: __ENV.DURATION || '60s',
@@ -62,8 +64,11 @@ export default function (data) {
     },
   });
 
-  // Brief think-time -- a patient browsing slots isn't a tight loop; this
-  // keeps the VU count meaningful as "concurrent users," not a raw
-  // request-firing rate.
-  sleep(Math.random());
+  // Think-time -- a patient browsing slots isn't a tight loop; this keeps
+  // the VU count meaningful as "concurrent users," not a raw request-firing
+  // rate. Uniform on [0, 2*THINK_TIME_MEAN], default mean 0.5s. Raise it
+  // (e.g. THINK_TIME_MEAN=7 at VUS=30 ~= 250 req/min) to stay under the
+  // API's per-account 300/min throttle when running against a deployment
+  // where all VUs share one login -- see k6/README.md.
+  sleep(Math.random() * 2 * THINK_TIME_MEAN);
 }

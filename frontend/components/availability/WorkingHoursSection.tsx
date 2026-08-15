@@ -384,7 +384,7 @@ export function WorkingHoursSection() {
 
     // Captured before any awaits (and before `disabled` on the Save button
     // can take effect on the next render) so it's still the real triggering
-    // element, same technique `BookingConfirmPanel`'s caller uses.
+    // element, same technique `AppointmentCard`'s reschedule button uses.
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const windows = buildProposedWindows(days);
     // Editing the pending generation replaces it (same effective date)

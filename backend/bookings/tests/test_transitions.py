@@ -275,7 +275,7 @@ class CancellationNoticeRuleTests(TransitionTestCase):
 
     def test_enforce_notice_false_bypasses_the_window(self):
         # The one sanctioned caller of `enforce_notice=False` is
-        # `accounts.serializers._cancel_upcoming_appointments` (account
+        # `accounts.services._cancel_upcoming_appointments` (account
         # deletion) -- exercised end-to-end in
         # `bookings.tests.test_acceptance_journey
         # .AccountDeletionCancelsUpcomingAppointmentsTests`. This is the

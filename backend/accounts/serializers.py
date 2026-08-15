@@ -4,13 +4,11 @@ import zoneinfo
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.utils import timezone as django_timezone
 from rest_framework import serializers
 from rest_framework.exceptions import Throttled
 
-from audit.services import record_audit_event
-
 from . import lockout
+from .services import delete_account
 
 User = get_user_model()
 
@@ -153,50 +151,6 @@ class ChangePasswordSerializer(serializers.Serializer):
         return user
 
 
-def _cancel_upcoming_appointments(user):
-    """Cancels every upcoming, still-active `Booking` owned by `user` as
-    part of account deletion, and returns the count cancelled --
-    `DeleteAccountSerializer.save` surfaces that count in the endpoint's
-    response (`cancelled_appointments_count`).
-
-    Imports `bookings` locally rather than at module level: `bookings`
-    already imports from `accounts` at module level (e.g.
-    `bookings.permissions` imports `accounts.models.User`), so a
-    module-level `accounts -> bookings` import here would be circular.
-    Same "views/services import across, models don't" shape
-    `scheduling.views`/`scheduling.collisions` use for their own read-only
-    `from bookings.models import Booking` -- this is a services-layer
-    equivalent of that, deferred to call time instead of module import
-    time because the cycle here runs the other direction (`bookings ->
-    accounts` already exists at the model layer via `AUTH_USER_MODEL`
-    FKs, so `accounts -> bookings` can only ever be a function-local
-    import).
-
-    `enforce_notice=False` on the `transition()` call: the 24h
-    minimum-notice rule exists to stop a *booking* being cancelled out
-    from under someone too close to its start time -- it is not meant to
-    block a patient from deleting their *entire account* just because one
-    of their own upcoming bookings happens to fall inside that window.
-    The patient isn't being denied a late cancellation against their
-    will; they've asked for the whole account, bookings included, to go
-    away. See `bookings.transitions.transition`'s docstring for this
-    being the one sanctioned caller of that bypass.
-    """
-    from bookings.models import Booking
-    from bookings.transitions import transition
-
-    upcoming_bookings = Booking.objects.filter(
-        patient=user,
-        status__in=Booking.ACTIVE_STATUSES,
-        start_time__gte=django_timezone.now(),
-    )
-    cancelled_count = 0
-    for booking in upcoming_bookings:
-        transition(booking, Booking.Status.CANCELLED, actor=user, enforce_notice=False)
-        cancelled_count += 1
-    return cancelled_count
-
-
 class DeleteAccountSerializer(serializers.Serializer):
     """`POST /profile/delete-account`. The current password is required as
     server-side proof of intent -- a typed-confirmation modal is a
@@ -212,26 +166,4 @@ class DeleteAccountSerializer(serializers.Serializer):
         return value
 
     def save(self):
-        user = self.context["request"].user
-
-        # Logged while the actor's own identifying fields are still intact
-        # -- the entry itself only ever references `user.id`, which stays
-        # valid after the scrub below (the row is never hard-deleted).
-        record_audit_event(
-            actor=user,
-            action="account:deletion_requested",
-            target_type="user",
-            target_id=user.id,
-            metadata={"role": user.role},
-        )
-        cancelled_count = _cancel_upcoming_appointments(user)
-
-        user.name = ""
-        user.phone = ""
-        user.email = f"deleted-user-{user.id}@deleted.invalid"
-        user.is_active = False
-        user.deleted_at = django_timezone.now()
-        user.set_unusable_password()
-        user.save()
-
-        return cancelled_count
+        return delete_account(self.context["request"].user)

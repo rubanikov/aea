@@ -206,7 +206,7 @@ export function BlockedTimeSection() {
     // Captured before the request (and before `disabled` on this button can
     // take effect on the next render) so it's still the real triggering
     // element if a collision opens the modal, same technique
-    // `WorkingHoursSection`/`BookingConfirmPanel`'s caller use.
+    // `WorkingHoursSection` and `AppointmentCard` use.
     const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
     try {

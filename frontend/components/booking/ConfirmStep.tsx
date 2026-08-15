@@ -43,7 +43,7 @@ interface ConfirmStepProps {
 
 /**
  * Wizard step 4: the full summary plus the "Confirm booking" action —
- * `POST /bookings`, ported from the retired `BookingConfirmPanel`. An
+ * `POST /bookings`, ported from the retired pre-wizard confirm panel. An
  * inline step rather than a modal dialog now, so the dialog-specific
  * chrome (focus trap, Esc, close/cancel buttons) is gone; navigation away
  * happens through the summary rail instead. Everything about the

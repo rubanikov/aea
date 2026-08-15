@@ -112,7 +112,7 @@ interface CollisionWarningModalProps {
    * every caller treats them identically. */
   onCancelChange: () => void;
   /** The Save/Add-block button that opened this modal; focus returns here
-   * on close, mirroring `BookingConfirmPanel`'s dialog pattern. */
+   * on close, mirroring `RescheduleDialog`'s dialog pattern. */
   triggerElement: HTMLElement | null;
 }
 
@@ -127,12 +127,12 @@ interface CollisionWarningModalProps {
  * resolution radio differ between the two callers.
  *
  * A real focus-trapped dialog, built on the exact pattern
- * `BookingConfirmPanel` established: focus moves in on open, Tab/Shift+Tab
+ * `RescheduleDialog` established: focus moves in on open, Tab/Shift+Tab
  * wrap within the dialog's own focusable elements, and focus returns to
  * `triggerElement` on unmount. `role="alertdialog"` rather than
- * `BookingConfirmPanel`'s `role="dialog"`, since this modal always demands
+ * `RescheduleDialog`'s `role="dialog"`, since this modal always demands
  * an explicit decision before anything can proceed (an alert dialog is
- * exactly that per the WAI-ARIA APG), where `BookingConfirmPanel` is a
+ * exactly that per the WAI-ARIA APG), where `RescheduleDialog` is a
  * plain confirm/cancel form a user can freely dismiss.
  *
  * The two resolution choices are real `<input type="radio">`s inside a
@@ -155,7 +155,7 @@ export function CollisionWarningModal({
   const dialogRef = useRef<HTMLDivElement>(null);
   // Kept in a ref, updated post-render, so the mount/unmount focus-restore
   // effect below can stay a one-time `[]` effect, matching
-  // `BookingConfirmPanel`'s own precedent.
+  // `RescheduleDialog`'s own precedent.
   const triggerElementRef = useRef(triggerElement);
   const earliestSafeDate = deferral?.earliestSafeDate ?? null;
   // The deferral radio starts selected (per the wireframe) since it's the

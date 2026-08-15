@@ -26,3 +26,7 @@ __pycache__/
 # Node (frontend/) — see frontend/.gitignore, if present, for the full set
 node_modules/
 .next/
+
+# Local-only k6 serve script and wireframe base64 dumps
+.scratch/k6_waitress_serve.py
+.scratch/wireframes/*.b64

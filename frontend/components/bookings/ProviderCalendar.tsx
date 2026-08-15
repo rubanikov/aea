@@ -234,9 +234,8 @@ export function ProviderCalendar() {
 
   /** Shared by prev/next/Today/mini-month: clears the currently-loaded
    * week (the fetch effect above re-fires for the new `weekStart`) and
-   * moves the selected day along with it. Mirrors `SlotBrowser`'s
-   * `goToMonth`, which resets its own selected date the same way on month
-   * navigation. Deliberately does NOT touch the schedule fetch: live +
+   * moves the selected day along with it. Mirrors `DateTimeStep`'s
+   * week navigation, which resets its own selected date the same way. Deliberately does NOT touch the schedule fetch: live +
    * pending generations are already in memory, and which one governs a
    * day is a date comparison (see `generationWindowsInRange`). */
   function goToWeek(weekStart: string, selectedDay: string) {

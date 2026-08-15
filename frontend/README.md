@@ -76,6 +76,15 @@ gated route redirects to `/login`.
 
 ## Deployment
 
-This is a stock Next.js App Router project. Vercel's zero-config detection
-picks it up with `frontend/` set as the project root. No `vercel.json` is
-needed yet.
+Deployed on Railway as the `frontend` service of the `aea-scheduling-portal`
+project (zero-config Railpack detection with `frontend/` as the upload
+root), alongside the Django `backend` service and managed Postgres. The
+frontend rewrites `/auth/*`, `/bookings/*` etc. to the backend over
+Railway's private network (`next.config.ts`, `lib/api/proxy-rewrites.ts`)
+so the auth cookies stay first-party -- `up.railway.app` is a public
+suffix, so the two services would otherwise be different sites and
+`SameSite=Strict` cookies would never reach the browser. Set
+`NEXT_PUBLIC_API_URL` to the *frontend's* own origin and
+`RAILWAY_SERVICE_BACKEND_URL`/`BACKEND_URL` to the Django origin. Vercel
+would also work (stock App Router project) but needs the same rewrite
+target configured.

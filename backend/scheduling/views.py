@@ -21,15 +21,10 @@ from .collisions import (
 )
 from .models import AppointmentType, Availability, BlockedTime
 from .schedule import (
-    EFFECTIVE_FROM_ERROR,
     discard_pending_generation,
-    earliest_safe_date,
     effective_generation_key,
     get_provider_schedule,
-    proposed_timeline,
     provider_today,
-    replace_generation,
-    validate_weekly_windows,
 )
 from .serializers import (
     AppointmentTypeSerializer,
@@ -43,6 +38,12 @@ from .serializers import (
     ScheduleWriteSerializer,
     SlotQuerySerializer,
     SlotSerializer,
+)
+from .services import (
+    InvalidEffectiveFrom,
+    InvalidScheduleWindows,
+    ScheduleCollidesWithBookings,
+    apply_schedule_change,
 )
 from .slots import get_open_slots
 
@@ -103,24 +104,13 @@ class ProviderScheduleView(APIView):
 
     `PUT` replaces one whole generation (`effective_from: null` = the live
     one, leaving any pending change intact; a future provider-local date =
-    create/replace the pending one, leaving the live hours untouched):
-
-    1. Validate the weekly windows (overlap / >= 1h gap / end > start) --
-       400 keyed by day index, before anything is read from the DB.
-    2. Validate `effective_from` is null or strictly after the
-       provider-local today -- 400 on `effective_from` otherwise.
-    3. Build the proposed post-write timeline and run
-       `find_schedule_collisions` over the next 133 days
-       (`collisions.DEFAULT_HORIZON_DAYS`).
-    4. Collisions -> 409 with the collision list and `earliest_safe_date`,
-       nothing written. This covers both an immediate apply that would
-       strand a booking and a supplied `effective_from` earlier than the
-       earliest safe date (server-side enforcement of the picker's `min`).
-    5. Otherwise `replace_generation` -- one atomic
-       normalize/delete/bulk_create -- then one audit entry
-       (`update:availability_schedule` for an immediate apply,
-       `schedule:availability_change` with the date for a deferred one)
-       and a 200 with the fresh `GET` shape.
+    create/replace the pending one, leaving the live hours untouched). The
+    rules live in `scheduling.services.apply_schedule_change`; this view
+    only maps its exceptions: `InvalidScheduleWindows` -> 400 keyed by day
+    index, `InvalidEffectiveFrom` -> 400 on `effective_from`,
+    `ScheduleCollidesWithBookings` -> 409 with the collision list and
+    `earliest_safe_date` (nothing written). Success is a 200 with the fresh
+    `GET` shape.
     """
 
     def get(self, request):
@@ -134,57 +124,26 @@ class ProviderScheduleView(APIView):
 
         serializer = ScheduleWriteSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        windows = serializer.validated_data["windows"]
-        effective_from = serializer.validated_data["effective_from"]
 
-        window_errors = validate_weekly_windows(windows)
-        if window_errors:
-            return Response({"windows": window_errors}, status=status.HTTP_400_BAD_REQUEST)
-
-        today = provider_today(request.user)
-        if effective_from is not None and effective_from <= today:
-            return Response(
-                {"effective_from": [EFFECTIVE_FROM_ERROR]}, status=status.HTTP_400_BAD_REQUEST
+        try:
+            apply_schedule_change(
+                request.user,
+                serializer.validated_data["windows"],
+                serializer.validated_data["effective_from"],
             )
-
-        timeline = proposed_timeline(request.user, windows, effective_from, today=today)
-        collisions = find_schedule_collisions(request.user, timeline)
-        if collisions:
+        except InvalidScheduleWindows as exc:
+            return Response({"windows": exc.errors}, status=status.HTTP_400_BAD_REQUEST)
+        except InvalidEffectiveFrom as exc:
+            return Response({"effective_from": [exc.message]}, status=status.HTTP_400_BAD_REQUEST)
+        except ScheduleCollidesWithBookings as exc:
             conflict = {
-                "collisions": collisions,
-                "earliest_safe_date": earliest_safe_date(
-                    collisions,
-                    provider=request.user,
-                    today=today,
-                    generation_keys=[key for key, _ in timeline],
-                    target_key=effective_from,
-                ),
+                "collisions": exc.collisions,
+                "earliest_safe_date": exc.earliest_safe_date,
             }
             return Response(
                 ScheduleConflictSerializer(conflict).data, status=status.HTTP_409_CONFLICT
             )
 
-        replace_generation(request.user, windows, effective_from, today=today)
-        if effective_from is None:
-            record_audit_event(
-                actor=request.user,
-                action="update:availability_schedule",
-                target_type="availability_schedule",
-                target_id=request.user.id,
-            )
-        else:
-            record_audit_event(
-                actor=request.user,
-                action="schedule:availability_change",
-                target_type="availability_schedule",
-                target_id=request.user.id,
-                metadata={"effective_from": effective_from.isoformat()},
-            )
-        logger.info(
-            "schedule replaced provider_id=%s effective_from=%s",
-            request.user.id,
-            effective_from,
-        )
         return Response(ProviderScheduleSerializer(get_provider_schedule(request.user)).data)
 
 

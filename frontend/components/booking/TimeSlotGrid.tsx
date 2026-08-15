@@ -16,9 +16,9 @@ interface TimeSlotGridProps {
   /** e.g. "Tuesday, August 18, 2026", for the heading and empty-state copy. */
   selectedDateLabel: string;
   isToday: boolean;
-  /** Wired to open `SlotBrowser`'s `BookingConfirmPanel` for the clicked
-   * slot; this component itself stays booking-agnostic, just a real,
-   * clickable `<button>` per slot. */
+  /** The caller (`RescheduleDialog`) decides what a click means; this
+   * component itself stays booking-agnostic, just a real, clickable
+   * `<button>` per slot. */
   onSelectSlot: (slot: Slot) => void;
 }
 

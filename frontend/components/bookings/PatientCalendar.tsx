@@ -155,7 +155,7 @@ function PatientAppointmentBlock({ booking, timezone, geometry }: PatientAppoint
  *   Cancel/reschedule stays on `/patient/appointments`; the primary action
  *   here is the toolbar's "+ Book appointment" link into `/patient/book`.
  * - Timezone is `usePatientTimeZone()` (browser-detected, the patient-side
- *   convention `PatientAppointments`/`SlotBrowser` established), not a
+ *   convention `PatientAppointments`/`BookingWizard` established), not a
  *   `GET /profile` fetch, so there's no timezone request to block on.
  *   It's the only coherent clock for the grid's hour axis, since one
  *   patient's week can hold appointments with providers in several zones

@@ -118,6 +118,17 @@ connections under this load on Windows (same class of failure as the
 2026-08-11 note below), so the re-run used Waitress rather than the
 dev server. Thresholds remain `p(95)<1000` and were not weakened.
 
+One deliberate deviation from production settings, stated so the numbers
+can be read correctly: DRF's per-account throttle (`user: 300/min`,
+`backend/config/settings.py`) was lifted for the local server process the
+run targeted. Both scripts share **one** login across all VUs (see "Login:
+once per run" above), so at 30 VUs the ~2,800 requests/min this run
+generated would otherwise have been 429'd after the first 300 -- the
+throttle would have measured itself, not the slot query. Nothing about the
+endpoint, the query, or the data was changed. The throttle is a per-user
+abuse control, not a capacity limit; a real clinic's 30 concurrent
+patients are 30 accounts, each far below 300/min.
+
 | Script | p95 | Threshold | Result |
 |---|---|---|---|
 | `slot-availability.js` | **252ms** | < 1000ms | PASS |

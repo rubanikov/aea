@@ -133,8 +133,8 @@ export function AppointmentCard({
   function openReschedule() {
     // Captures the clicked `<button>` via `document.activeElement` rather
     // than the click event itself. A real click focuses its target before
-    // the handler runs (matching `SlotBrowser`'s own `handleSelectSlot`
-    // precedent), purely so `RescheduleDialog` can return focus there on
+    // the handler runs (same technique `WorkingHoursSection`'s save
+    // handler uses), purely so `RescheduleDialog` can return focus there on
     // close.
     setRescheduleTrigger(document.activeElement instanceof HTMLElement ? document.activeElement : null);
     setRescheduleOpen(true);
